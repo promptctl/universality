@@ -7,8 +7,15 @@ Does Feigenbaum universality apply to LLM feedback loops? The founding document 
 
 Everything runs with [uv](https://docs.astral.sh/uv/).
 
-    uv sync
-    uv run uni host
+    uv run uni gen "hello"
+
+That one command installs everything and generates from the pinned model. The first run
+downloads the checkpoint, about a gigabyte, into the Hugging Face cache. It prints the
+text, its sha256, and each generated token with its log-probability.
+
+The model, its revision, dtype, device, and generation limit are pinned in
+[uni/pinned.toml](uni/pinned.toml), and nothing else in the code names them. Decoding is
+greedy at batch size one; the checkpoint's own sampling settings are ignored.
 
 ## Running on the experiment host
 

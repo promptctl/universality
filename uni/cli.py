@@ -37,6 +37,22 @@ def run_host(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_gen(args: argparse.Namespace) -> int:
+    """Print the generated text, its hash, and each token with its log-probability."""
+    # Imported here so host, --remote, and --help never pay for loading torch.
+    from uni.model import Model
+    from uni.pinned import load_pinned
+
+    generation = Model(load_pinned()).generate(args.prompt)
+    print(generation.text)
+    print()
+    print(f"sha256 {generation.sha256}")
+    print(f"{'step':>4} {'logprob':>12}  token")
+    for step, (token, logprob) in enumerate(zip(generation.tokens, generation.logprobs)):
+        print(f"{step:>4} {logprob:>12.6f}  {token!r}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="uni",
@@ -47,6 +63,9 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     host = commands.add_parser("host", help="print where uni is running")
     host.set_defaults(run=run_host)
+    gen = commands.add_parser("gen", help="generate greedily from the pinned model")
+    gen.add_argument("prompt")
+    gen.set_defaults(run=run_gen)
     return parser
 
 
