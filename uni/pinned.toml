@@ -1,0 +1,11 @@
+# The pinned model and how it generates: the one file that names these facts.
+# Decoding is greedy at batch size one by construction, so neither is a setting here.
+
+[model]
+id = "Qwen/Qwen2.5-0.5B-Instruct"
+revision = "7ae557604adf67be50417f59c2c2f167def9a775"  # a commit, so weights and tokenizer cannot move
+dtype = "float32"
+device = "mps"  # provisional until the determinism gate pins a device
+
+[generation]
+max_new_tokens = 256
