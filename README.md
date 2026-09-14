@@ -25,9 +25,10 @@ repo root. Copy the example and fill it in:
 | ----------------- | ---------------------------------------------------- |
 | `UNI_REMOTE_HOST` | Hostname or ssh config alias of the host             |
 | `UNI_REMOTE_USER` | The user to ssh as                                   |
-| `UNI_REMOTE_DIR`  | Absolute path on the host to mirror the tree into    |
+| `UNI_REMOTE_DIR`  | Absolute path on the host to mirror the tree into, plain characters only |
 
-A real environment variable overrides the file. The host needs key-based ssh access,
+A real environment variable overrides the file. Run `--remote` from inside the checkout;
+the tree that is mirrored is the one git sees from where you stand. The host needs key-based ssh access,
 `rsync`, and `uv` on the PATH that a non-interactive ssh command sees.
 
     uv run uni host --remote

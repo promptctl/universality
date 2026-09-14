@@ -4,19 +4,52 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
 from dotenv import dotenv_values
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# What a host's identity looks like when it leaks into text. An ssh target's user is not
-# preceded by a path separator, which keeps `owner/action@ref` pins out of it.
+# What a host's identity looks like when it leaks into text. Public shapes that share the
+# surface, an action pinned to a tag or sha, a version string, a file suffix, are carved out
+# by what follows rather than by what precedes, so a URL-form ssh target still counts.
 IDENTITY_PATTERNS = {
-    "ssh target": re.compile(r"(?<![\w./-])[\w.-]+@[\w.-]+\b"),
-    ".local hostname": re.compile(r"\b[\w-]+\.local\b"),
-    "private IPv4": re.compile(
-        r"(?<![\w.])(?:10|192\.168|172\.(?:1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}(?:\.\d{1,3})?(?![\w.])"
-    ),
+    "ssh target": re.compile(r"(?<![\w.-])[\w.-]+@(?!v?\d)(?![0-9a-f]{7,40}\b)[\w-]+(?:\.[\w-]+)*"),
+    ".local hostname": re.compile(r"(?<![\w.])[\w-]+\.local(?!\.?\w)"),
+    "private IPv4": re.compile(r"(?<![\w.])(?:10\.\d{1,3}|192\.168|172\.(?:1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}(?!\.?\w)"),
 }
+
+
+def leaks_in(text: str) -> list[tuple[str, str]]:
+    return [(kind, m.group()) for kind, pattern in IDENTITY_PATTERNS.items() for m in pattern.finditer(text)]
+
+
+# Joined at test time: written whole, these lines would be leaks in a tracked file.
+@pytest.mark.parametrize(
+    "parts",
+    [
+        ("ssh me@", "box"),
+        ("git clone ssh://me@", "box/srv/uni"),
+        ("the box is inferno-two", ".local, up"),
+        ("The run host is at 192.168", ".1.20."),
+        ("reach 10.0", ".0.7 or 172.16", ".4.4"),
+    ],
+)
+def test_identity_shapes_are_caught(parts):
+    assert leaks_in("".join(parts))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "uses: actions/checkout@3d3c42e5cd17d92e8be7bc3d47bd2ef2ef0d4d18",
+        "uses: promptctl/copirate-code-review-agent@v1",
+        "uv tool install ruff@0.6.9",
+        "ignore .claude/settings.local.json and .env.local",
+        "macOS 10.15.7 is the oldest; Python 3.10.0.1 too",
+    ],
+)
+def test_public_shapes_are_not_leaks(text):
+    assert leaks_in(text) == []
 
 
 def tracked_files() -> list[str]:
@@ -29,13 +62,7 @@ def tracked_text() -> dict[str, str]:
 
 
 def test_tracked_files_carry_no_host_identity():
-    leaks = [
-        (path, kind, match.group())
-        for path, text in tracked_text().items()
-        for kind, pattern in IDENTITY_PATTERNS.items()
-        for match in pattern.finditer(text)
-    ]
-    assert leaks == []
+    assert [(path, *leak) for path, text in tracked_text().items() for leak in leaks_in(text)] == []
 
 
 def test_tracked_files_carry_no_value_from_the_real_env():

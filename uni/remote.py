@@ -7,6 +7,7 @@ normally a gitignored `.env` (see `.env.example`), and is parsed once here into 
 
 from __future__ import annotations
 
+import re
 import shlex
 import subprocess
 from collections.abc import Mapping, Sequence
@@ -15,9 +16,14 @@ from pathlib import Path
 
 VARIABLES = ("UNI_REMOTE_HOST", "UNI_REMOTE_USER", "UNI_REMOTE_DIR")
 
-# What the sync carries is what git would: .gitignore decides, in one place.
-# .git is not needed to run, and .env is pinned here because it holds the host's identity.
-SYNC_FILTERS = ("--exclude=.git", "--exclude=.env", "--filter=:- .gitignore")
+# Plain characters only, so the path needs no quoting on either side of ssh: rsync
+# versions disagree about whether the remote shell re-splits it.
+REMOTE_DIR = re.compile(r"/[\w./-]+")
+
+# What git ignores stays home (rsync reads .gitignore itself; negated patterns are not
+# understood). .git is not needed to run, .env holds the host's identity, and .venv is
+# the host's own: a plain exclude also shields it from --delete, the filter does not.
+SYNC_FILTERS = ("--exclude=.git", "--exclude=.env", "--exclude=.venv", "--filter=:- .gitignore")
 
 
 class RemoteConfigError(Exception):
@@ -28,7 +34,7 @@ class RemoteConfigError(Exception):
 class RemoteTarget:
     host: str
     user: str
-    dir: str  # absolute path on the host
+    dir: str  # absolute path on the host, matching REMOTE_DIR
 
     @property
     def ssh_target(self) -> str:
@@ -44,8 +50,10 @@ def remote_target_from_env(env: Mapping[str, str]) -> RemoteTarget:
             f"{', '.join(missing)} missing or empty; copy .env.example to .env and fill it in"
         )
     host, user, dir = (env[name] for name in VARIABLES)
-    if not dir.startswith("/"):
-        raise RemoteConfigError(f"UNI_REMOTE_DIR must be an absolute path on the host, got {dir!r}")
+    if not REMOTE_DIR.fullmatch(dir):
+        raise RemoteConfigError(
+            f"UNI_REMOTE_DIR must be an absolute path of letters, digits, '.', '_', '-' and '/', got {dir!r}"
+        )
     return RemoteTarget(host=host, user=user, dir=dir)
 
 
@@ -54,22 +62,20 @@ def remote_target_from_env(env: Mapping[str, str]) -> RemoteTarget:
 
 def sync_command(target: RemoteTarget, tree: Path) -> list[str]:
     # The working tree, uncommitted edits included: the point is running what you are editing.
-    # The remote path is re-split by the host's shell, so it is quoted; the remote dir is
-    # created by the same rsync call rather than a separate ssh round trip.
-    remote_dir = shlex.quote(target.dir)
+    # The remote dir is created by the same rsync call rather than a separate ssh round trip.
     return [
         "rsync",
         "--archive",
         "--delete",
         *SYNC_FILTERS,
-        f"--rsync-path=mkdir -p {remote_dir} && rsync",
+        f"--rsync-path=mkdir -p {target.dir} && rsync",
         f"{tree}/",
-        f"{target.ssh_target}:{remote_dir}/",
+        f"{target.ssh_target}:{target.dir}/",
     ]
 
 
 def run_command(target: RemoteTarget, argv: Sequence[str]) -> list[str]:
-    remote = f"cd {shlex.quote(target.dir)} && exec uv run uni {shlex.join(argv)}"
+    remote = f"cd {target.dir} && exec uv run uni {shlex.join(argv)}"
     return ["ssh", target.ssh_target, remote]
 
 
