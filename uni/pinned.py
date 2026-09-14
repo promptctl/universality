@@ -29,9 +29,10 @@ class Pinned:
 
 def _field(raw: dict[str, Any], path: str, kind: type) -> Any:
     table, key = path.split(".")
-    if key not in raw.get(table, {}):
+    section = raw.get(table)
+    if not (isinstance(section, dict) and key in section):
         raise PinnedConfigError(f"{path} is missing")
-    value = raw[table][key]
+    value = section[key]
     # Exact type, so a TOML boolean is not taken for an integer.
     if type(value) is not kind:
         raise PinnedConfigError(f"{path} must be a {kind.__name__}, got {value!r}")

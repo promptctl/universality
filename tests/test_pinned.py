@@ -34,6 +34,7 @@ def test_valid_config_becomes_a_pinned_value():
         ('revision = "7ae557604adf67be50417f59c2c2f167def9a775"', "revision = 123", "model.revision must be a str"),
         ('id = "org/model"', "", "model.id is missing"),
         ("[generation]\nmax_new_tokens = 8", "", "generation.max_new_tokens is missing"),
+        ("[generation]\nmax_new_tokens = 8", 'generation = "max_new_tokens"', "generation.max_new_tokens is missing"),
     ],
 )
 def test_config_that_does_not_pin_is_refused(old, new, field):
