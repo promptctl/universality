@@ -15,9 +15,9 @@ from pathlib import Path
 
 VARIABLES = ("UNI_REMOTE_HOST", "UNI_REMOTE_USER", "UNI_REMOTE_DIR")
 
-# Never carried to the host: the venv is rebuilt there, .git is not needed to run,
-# and .env holds the host's own identity.
-SYNC_EXCLUDES = (".git", ".venv", ".env", "__pycache__", ".pytest_cache")
+# What the sync carries is what git would: .gitignore decides, in one place.
+# .git is not needed to run, and .env is pinned here because it holds the host's identity.
+SYNC_FILTERS = ("--exclude=.git", "--exclude=.env", "--filter=:- .gitignore")
 
 
 class RemoteConfigError(Exception):
@@ -41,7 +41,7 @@ def remote_target_from_env(env: Mapping[str, str]) -> RemoteTarget:
     missing = [name for name in VARIABLES if not env.get(name)]
     if missing:
         raise RemoteConfigError(
-            f"{', '.join(missing)} not set; copy .env.example to .env and fill it in"
+            f"{', '.join(missing)} missing or empty; copy .env.example to .env and fill it in"
         )
     host, user, dir = (env[name] for name in VARIABLES)
     if not dir.startswith("/"):
@@ -49,22 +49,22 @@ def remote_target_from_env(env: Mapping[str, str]) -> RemoteTarget:
     return RemoteTarget(host=host, user=user, dir=dir)
 
 
-# [LAW:effects-at-boundaries] the three steps are pure descriptions; run_remote performs them.
-
-
-def make_dir_command(target: RemoteTarget) -> list[str]:
-    return ["ssh", target.ssh_target, f"mkdir -p {shlex.quote(target.dir)}"]
+# [LAW:effects-at-boundaries] the two steps are pure descriptions; run_remote performs them.
 
 
 def sync_command(target: RemoteTarget, tree: Path) -> list[str]:
     # The working tree, uncommitted edits included: the point is running what you are editing.
+    # The remote path is re-split by the host's shell, so it is quoted; the remote dir is
+    # created by the same rsync call rather than a separate ssh round trip.
+    remote_dir = shlex.quote(target.dir)
     return [
         "rsync",
         "--archive",
         "--delete",
-        *(f"--exclude={name}" for name in SYNC_EXCLUDES),
+        *SYNC_FILTERS,
+        f"--rsync-path=mkdir -p {remote_dir} && rsync",
         f"{tree}/",
-        f"{target.ssh_target}:{target.dir}/",
+        f"{target.ssh_target}:{remote_dir}/",
     ]
 
 
@@ -78,7 +78,7 @@ def run_remote(target: RemoteTarget, argv: Sequence[str], tree: Path) -> int:
 
     Returns the exit code of the first step that fails, else the remote command's.
     """
-    for command in (make_dir_command(target), sync_command(target, tree), run_command(target, argv)):
+    for command in (sync_command(target, tree), run_command(target, argv)):
         # [LAW:no-silent-failure] ssh and rsync speak for themselves on stderr; stop at the first miss.
         code = subprocess.run(command).returncode
         if code:

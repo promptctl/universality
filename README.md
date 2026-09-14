@@ -32,8 +32,10 @@ A real environment variable overrides the file. The host needs key-based ssh acc
 
     uv run uni host --remote
 
-The repo is public. No hostname, user, or ssh target belongs in the tracked tree, and
-`tests/test_no_identity.py` fails the suite if one lands there.
+The repo is public. No hostname, user, or ssh target belongs in the tracked tree.
+`tests/test_no_identity.py` fails the suite if a tracked file contains an ssh target, a
+`.local` name, a private IPv4 address, or any value from your own `.env`. That last
+check is the one that knows your host; run the suite with your `.env` in place.
 
 ## Tests
 
