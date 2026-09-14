@@ -11,13 +11,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 # What a host's identity looks like when it leaks into text. Public shapes that share the
 # surface, an action pinned to a tag or sha, a version string, a file suffix, are carved out
-# by what follows, so a URL-form ssh target still counts. A four-part version is carved out
-# by what precedes it, the only two places uv.lock writes one: `version = "` and a
-# distribution filename's `name-`.
+# by what follows, so a URL-form ssh target still counts. uv.lock writes four-part versions in
+# two places: after `version = "`, and in a distribution filename, followed by `-py`.
 IDENTITY_PATTERNS = {
     "ssh target": re.compile(r"(?<![\w.-])[\w.-]+@(?!v?\d)(?![0-9a-f]{7,40}\b)[\w-]+(?:\.[\w-]+)*"),
     ".local hostname": re.compile(r"(?<![\w.])[\w-]+\.local(?!\.?\w)"),
-    "private IPv4": re.compile(r"(?<![\w.-])(?<!version = \")(?:10\.\d{1,3}|192\.168|172\.(?:1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}(?!\.?\w)"),
+    "private IPv4": re.compile(r"(?<![\w.])(?<!version = \")(?:10\.\d{1,3}|192\.168|172\.(?:1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}(?!\.?\w|-py)"),
 }
 
 
@@ -35,6 +34,8 @@ def leaks_in(text: str) -> list[tuple[str, str]]:
         ("The run host is at 192.168", ".1.20."),
         ("reach 10.0", ".0.7 or 172.16", ".4.4"),
         ('host = "10.0', '.0.5"'),
+        ("ping host-10.0", ".0.5"),
+        ("scan 10.0", ".0.1-10.0", ".0.9"),
     ],
 )
 def test_identity_shapes_are_caught(parts):

@@ -3,10 +3,26 @@
 import pytest
 import torch
 
-from uni.model import Model, ResidualAdd
+from uni.model import Model, ResidualAdd, require_device, stop_ids
 from uni.pinned import load_pinned
 
 PROMPT = "Reply with one word: hello."
+
+
+@pytest.mark.parametrize("eos, ids", [(7, {7}), ([7, 9], {7, 9})])
+def test_stop_ids_accept_one_id_or_several(eos, ids):
+    assert stop_ids(eos) == ids
+
+
+def test_stop_ids_refuse_a_checkpoint_that_never_stops():
+    with pytest.raises(ValueError, match="could never stop"):
+        stop_ids(None)
+
+
+@pytest.mark.skipif(torch.cuda.is_available(), reason="needs a machine without cuda")
+def test_unavailable_device_is_refused_before_loading():
+    with pytest.raises(RuntimeError, match="'cuda' is not available"):
+        require_device("cuda")
 
 
 @pytest.fixture(scope="module")

@@ -29,6 +29,11 @@ def test_valid_config_becomes_a_pinned_value():
         ('revision = "7ae557604adf67be50417f59c2c2f167def9a775"', 'revision = "main"', "model.revision"),
         ('dtype = "float32"', 'dtype = "float"', "model.dtype"),
         ("max_new_tokens = 8", "max_new_tokens = 0", "generation.max_new_tokens"),
+        ("max_new_tokens = 8", "max_new_tokens = true", "generation.max_new_tokens must be a int"),
+        ('device = "cpu"', 'device = "mpss"', "model.device"),
+        ('revision = "7ae557604adf67be50417f59c2c2f167def9a775"', "revision = 123", "model.revision must be a str"),
+        ('id = "org/model"', "", "model.id is missing"),
+        ("[generation]\nmax_new_tokens = 8", "", "generation.max_new_tokens is missing"),
     ],
 )
 def test_config_that_does_not_pin_is_refused(old, new, field):
