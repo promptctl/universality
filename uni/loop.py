@@ -56,7 +56,10 @@ class Trajectory:
 def write_trajectory(trajectory: Trajectory, dir: Path) -> Path:
     dir.mkdir(parents=True, exist_ok=True)
     path = dir / trajectory.name
-    path.write_bytes(trajectory.encode())
+    # Written beside it and renamed over it, so a rerun killed mid-write leaves the earlier file whole.
+    partial = path.with_suffix(".partial")
+    partial.write_bytes(trajectory.encode())
+    partial.replace(path)
     return path
 
 

@@ -10,7 +10,7 @@ SLOT = "{state}"
 
 
 class TemplateError(Exception):
-    """A template is not text holding the slot exactly once. The message names the template."""
+    """templates.toml does not hold templates. The message names the file or the template."""
 
 
 @dataclass(frozen=True)
@@ -40,5 +40,8 @@ def parse_template(name: str, text: object) -> Template:
 
 
 def load_templates() -> dict[str, Template]:
-    raw = tomllib.loads(files("uni").joinpath("templates.toml").read_text())
+    try:
+        raw = tomllib.loads(files("uni").joinpath("templates.toml").read_text())
+    except tomllib.TOMLDecodeError as error:
+        raise TemplateError(f"uni/templates.toml is not TOML: {error}") from error
     return {name: parse_template(name, text) for name, text in raw.items()}

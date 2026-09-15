@@ -40,6 +40,12 @@ def test_the_same_orbit_writes_the_same_bytes_to_the_same_file(tmp_path):
     assert first.read_bytes() == second.read_bytes()
 
 
+def test_rewriting_a_file_leaves_only_the_file(tmp_path):
+    write_trajectory(trajectory(), tmp_path)
+    path = write_trajectory(trajectory(), tmp_path)
+    assert list(tmp_path.iterdir()) == [path]
+
+
 @pytest.mark.parametrize("change", [{"start": "b"}, {"steps": 4}, {"value": 2.5}])
 def test_different_inputs_name_different_files(change):
     assert trajectory(**change).name != trajectory().name

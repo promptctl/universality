@@ -15,7 +15,7 @@ from dotenv import dotenv_values
 
 from uni.determinism import RUNS
 from uni.remote import RemoteConfigError, remote_target_from_env, run_remote
-from uni.template import Template, load_templates
+from uni.template import Template, TemplateError, load_templates
 
 EXIT_CONFIG = os.EX_CONFIG  # distinct from argparse's 2 and from anything rsync or ssh returns
 EXIT_DIVERGED = 1  # the determinism gate ran and some case produced more than one hash
@@ -91,7 +91,10 @@ VALUE = 0.0  # the knob value every loop runs at until a knob exists to turn
 
 
 def template(name: str) -> Template:
-    templates = load_templates()
+    try:
+        templates = load_templates()
+    except TemplateError as error:  # argparse would print a traceback, or hide the message behind its own
+        raise argparse.ArgumentTypeError(str(error)) from error
     if name not in templates:
         raise argparse.ArgumentTypeError(f"no template {name!r}; the templates are {', '.join(templates)}")
     return templates[name]
@@ -135,7 +138,7 @@ def build_parser() -> argparse.ArgumentParser:
     determinism.set_defaults(run=run_determinism)
     loop = commands.add_parser("loop", help="feed the model its own output under a template and write the trajectory")
     loop.add_argument("--template", type=template, required=True, help="a template named in uni/templates.toml")
-    loop.add_argument("--start", required=True, help="the first state; may be empty")
+    loop.add_argument("--start", required=True, help="the first state; may be empty; write --start=TEXT when it begins with '-'")
     loop.add_argument("--steps", type=positive, required=True, help="how many times to step the map")
     loop.set_defaults(run=run_loop)
     return parser
