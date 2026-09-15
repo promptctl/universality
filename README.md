@@ -29,7 +29,8 @@ verdict per case. It exits 1 if any case produced more than one hash. The cases 
 ordinary prompt, the empty prompt, and a prompt that fills the model's context limit
 with 16 tokens left over. `--device` points it at another device and `--runs` changes
 the count. `uv run pytest` asserts the same thing on the device given by
-`pytest --device`, which defaults to the pinned one.
+`pytest --device`, which defaults to the pinned one, and also checks that a fresh process
+produces the same hash, since the command's runs all share one process.
 
 Hashes are only comparable within one machine. The run host and a dev Mac, both on
 Metal, agree on tokens and hashes but differ in the sixth decimal of the
@@ -40,9 +41,9 @@ only device that can evaluate large models, and it runs the full-context case ab
 four times faster than CPU.
 
 `tests/test_determinism.py` also holds a negative test, which shows the failure the
-gate protects against. The same prompt, batched with a longer request, gives
-log-probabilities that differ from batch size one around the fifth decimal on both
-devices. The greedy text survives that on a short prompt, but in a long feedback loop
+gate protects against. The same prompt, batched with a longer request and left-padded
+with positions counted from the mask, gives log-probabilities that differ from batch
+size one by up to about 1e-4 on both devices. The greedy text survives that on a short prompt, but in a long feedback loop
 a near-tie flips a token, and one flipped token turns an orbit into noise. That is
 why the wrapper generates at batch size one and has no batch setting.
 

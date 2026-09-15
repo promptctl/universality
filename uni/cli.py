@@ -71,10 +71,12 @@ def run_determinism(args: argparse.Namespace) -> int:
     from uni.determinism import cases, hashes
     from uni.model import Model
 
-    model = Model(replace(load_pinned(), device=args.device))
+    pinned = load_pinned()
+    device = args.device or pinned.device
+    model = Model(replace(pinned, device=device))
     distinct = {}
     for case in cases(model):
-        print(f"{case.name}: {args.runs} runs on {args.device}")
+        print(f"{case.name}: {args.runs} runs on {device}")
         print(f"{'run':>4}  sha256")
         seen = set()
         for run, sha in enumerate(hashes(model, case, args.runs), start=1):
@@ -101,7 +103,7 @@ def build_parser() -> argparse.ArgumentParser:
     gen.add_argument("prompt")
     gen.set_defaults(run=run_gen)
     determinism = commands.add_parser("determinism", help="generate each gate case many times and check every hash is equal")
-    determinism.add_argument("--device", choices=get_args(Device), default=load_pinned().device, help="device to run on (default: the pinned device)")
+    determinism.add_argument("--device", choices=get_args(Device), help="device to run on (default: the pinned device)")
     determinism.add_argument("--runs", type=positive, default=RUNS, help=f"runs per case (default: {RUNS})")
     determinism.set_defaults(run=run_determinism)
     return parser
