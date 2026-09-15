@@ -70,7 +70,10 @@ def _field(raw: dict[str, Any], key: str, kind: type) -> Any:
 
 def read_trajectory(path: Path) -> Trajectory:
     # [LAW:parse-dont-validate] a file becomes a Trajectory here or not at all.
-    raw = json.loads(path.read_bytes())
+    try:
+        raw = json.loads(path.read_bytes())
+    except json.JSONDecodeError as error:  # a run killed mid-write leaves exactly this
+        raise TrajectoryError(f"{path} is not JSON: {error}") from error
     if type(raw) is not dict:
         raise TrajectoryError(f"{path} must hold a JSON object")
     states = _field(raw, "states", list)

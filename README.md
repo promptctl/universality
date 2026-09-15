@@ -59,8 +59,8 @@ trajectory to `trajectories/<name>.json` and prints the path. The file holds the
 every state, the knob value, the template's text, and the pinned config, so the run can
 be reproduced from the file alone. The name is a hash of those inputs and the step
 count. Rerunning the same command rewrites the same file with the same bytes. With
-`--remote` the file is written on the run host. The `trajectories/` directory is
-gitignored, so later syncs leave it in place.
+`--remote` the file is written on the run host. The sync neither sends nor deletes
+`trajectories/`, so each machine keeps its own. The directory is also gitignored.
 
 The templates live in [uni/templates.toml](uni/templates.toml), each holding `{state}`
 exactly once. `identity` asks for the state back unchanged, `empty` sends the state as

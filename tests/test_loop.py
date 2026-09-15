@@ -48,6 +48,7 @@ def test_different_inputs_name_different_files(change):
 @pytest.mark.parametrize(
     "text, message",
     [
+        ('{"map": {', "is not JSON"),
         ("[]", "must hold a JSON object"),
         ('{"map": {}, "value": 0.0, "start": ""}', "states is missing"),
         ('{"map": {}, "value": 0, "start": "", "states": []}', "value must be a float"),

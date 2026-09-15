@@ -86,7 +86,7 @@ def run_determinism(args: argparse.Namespace) -> int:
     return EXIT_DIVERGED if any(count != 1 for count in distinct.values()) else 0
 
 
-TRAJECTORIES = Path("trajectories")  # under the directory uni runs in; gitignored, so --remote leaves the host's alone
+TRAJECTORIES = Path("trajectories")  # under the directory uni runs in; the --remote sync excludes it, so the host keeps its own
 VALUE = 0.0  # the knob value every loop runs at until a knob exists to turn
 
 
