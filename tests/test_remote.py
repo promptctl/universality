@@ -43,7 +43,7 @@ def test_sync_mirrors_the_working_tree_as_git_sees_it_and_creates_the_dir():
     assert command[-2:] == ["/work/tree/", f"{SSH_TARGET}:/srv/uni/"]
     assert "--delete" in command
     assert "--rsync-path=mkdir -p /srv/uni && rsync" in command
-    assert {"--exclude=.git", "--exclude=.env", "--exclude=.venv", "--filter=:- .gitignore"} <= set(command)
+    assert {"--exclude=.git", "--exclude=.env", "--exclude=.venv", "--exclude=/trajectories/", "--filter=:- .gitignore"} <= set(command)
 
 
 def test_split_remote_forwards_everything_else_verbatim():

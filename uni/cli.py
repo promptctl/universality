@@ -8,12 +8,14 @@ import platform
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
+from itertools import islice
 from pathlib import Path
 
 from dotenv import dotenv_values
 
 from uni.determinism import RUNS
 from uni.remote import RemoteConfigError, remote_target_from_env, run_remote
+from uni.template import Template, TemplateError, load_templates
 
 EXIT_CONFIG = os.EX_CONFIG  # distinct from argparse's 2 and from anything rsync or ssh returns
 EXIT_DIVERGED = 1  # the determinism gate ran and some case produced more than one hash
@@ -84,6 +86,40 @@ def run_determinism(args: argparse.Namespace) -> int:
     return EXIT_DIVERGED if any(count != 1 for count in distinct.values()) else 0
 
 
+TRAJECTORIES = Path("trajectories")  # under the directory uni runs in; the --remote sync excludes it, so the host keeps its own
+VALUE = 0.0  # the knob value every loop runs at until a knob exists to turn
+
+
+def template(name: str) -> Template:
+    try:
+        templates = load_templates()
+    except TemplateError as error:  # argparse would print a traceback, or hide the message behind its own
+        raise argparse.ArgumentTypeError(str(error)) from error
+    if name not in templates:
+        raise argparse.ArgumentTypeError(f"no template {name!r}; the templates are {', '.join(templates)}")
+    return templates[name]
+
+
+def run_loop(args: argparse.Namespace) -> int:
+    """Print the start and every state as it lands, then write the trajectory file."""
+    from uni.loop import Trajectory, orbit, write_trajectory
+    from uni.maps import ModelMap
+    from uni.model import Model
+    from uni.pinned import load_pinned
+
+    map = ModelMap(Model(load_pinned()), args.template)
+    print(f"{'step':>4}  state")
+    print(f"{0:>4}  {args.start!r}")
+    states = []
+    for step, state in enumerate(islice(orbit(map, VALUE, args.start), args.steps), start=1):
+        print(f"{step:>4}  {state!r}", flush=True)  # repr, so each state is one line and an empty one shows
+        states.append(state)
+    path = write_trajectory(Trajectory(map.spec, VALUE, args.start, tuple(states)), TRAJECTORIES)
+    print()
+    print(f"trajectory {path}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="uni",
@@ -100,6 +136,11 @@ def build_parser() -> argparse.ArgumentParser:
     determinism = commands.add_parser("determinism", help="generate each gate case many times and check every hash is equal")
     determinism.add_argument("--runs", type=positive, default=RUNS, help=f"runs per case (default: {RUNS})")
     determinism.set_defaults(run=run_determinism)
+    loop = commands.add_parser("loop", help="feed the model its own output under a template and write the trajectory")
+    loop.add_argument("--template", type=template, required=True, help="a template named in uni/templates.toml")
+    loop.add_argument("--start", required=True, help="the first state; may be empty; write --start=TEXT when it begins with '-'")
+    loop.add_argument("--steps", type=positive, required=True, help="how many times to step the map")
+    loop.set_defaults(run=run_loop)
     return parser
 
 

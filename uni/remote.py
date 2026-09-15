@@ -21,9 +21,9 @@ VARIABLES = ("UNI_REMOTE_HOST", "UNI_REMOTE_USER", "UNI_REMOTE_DIR")
 REMOTE_DIR = re.compile(r"/[\w./-]+")
 
 # What git ignores stays home (rsync reads .gitignore itself; negated patterns are not
-# understood). .git is not needed to run, .env holds the host's identity, and .venv is
-# the host's own: a plain exclude also shields it from --delete, the filter does not.
-SYNC_FILTERS = ("--exclude=.git", "--exclude=.env", "--exclude=.venv", "--filter=:- .gitignore")
+# understood). .git is not needed to run, .env holds the host's identity, and .venv and
+# trajectories/ are the host's own: a plain exclude also shields them from --delete, the filter does not.
+SYNC_FILTERS = ("--exclude=.git", "--exclude=.env", "--exclude=.venv", "--exclude=/trajectories/", "--filter=:- .gitignore")
 
 
 class RemoteConfigError(Exception):
