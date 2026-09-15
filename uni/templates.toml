@@ -1,0 +1,9 @@
+# The loop templates: each is the prompt sent to the model, with {state} where the state goes, exactly once.
+
+# Asks for the state back unchanged. Without "nothing before or after it" the model greets instead of repeating.
+identity = "Repeat the following text exactly, with nothing before or after it.\n\n{state}"
+
+# The state is the whole prompt: the model fed its own reply with no instruction at all.
+empty = "{state}"
+
+rewrite = "Rewrite the following text.\n\n{state}"

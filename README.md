@@ -47,6 +47,26 @@ a long feedback loop a near-tie flips a token, and one flipped token turns an or
 into noise. That is why the wrapper generates at batch size one and has no batch
 setting.
 
+## The loop
+
+A template turns a state into a prompt, and the model's reply is the next state. Feeding
+the reply back in, step after step, makes the model an iterated map:
+
+    uv run uni loop --template rewrite --steps 20 --start "The lighthouse keeper climbed the stairs."
+
+It prints the start as step 0 and every state after it, one per line, then writes the
+trajectory to `trajectories/<name>.json` and prints the path. The file holds the start,
+every state, the knob value, the template's text, and the pinned config, so the run can
+be reproduced from the file alone. The name is a hash of those inputs and the step
+count. Rerunning the same command rewrites the same file with the same bytes. With
+`--remote` the file is written on the run host. The `trajectories/` directory is
+gitignored, so later syncs leave it in place.
+
+The templates live in [uni/templates.toml](uni/templates.toml), each holding `{state}`
+exactly once. `identity` asks for the state back unchanged, `empty` sends the state as
+the whole prompt, and `rewrite` asks for a rewrite. The start may be empty. No knob is
+applied yet, so every loop runs at value 0.
+
 ## Running on the experiment host
 
 Every `uni` command accepts `--remote`. With it, this working tree, uncommitted edits

@@ -1,0 +1,84 @@
+"""The loop runner: iterate any Map from a start state, and keep the orbit as a file."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from collections.abc import Iterator, Mapping
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Protocol
+
+
+class Map(Protocol):
+    """One step of an iterated map. States are text whatever the map, so every brick reads every orbit."""
+
+    @property
+    def spec(self) -> Mapping[str, Any]:
+        """Everything besides the value and the start that fixes the orbit, as JSON data."""
+        ...
+
+    def step(self, state: str, value: float) -> str: ...
+
+
+def orbit(map: Map, value: float, start: str) -> Iterator[str]:
+    """The states after each step, without end; the caller takes as many as it wants."""
+    # [LAW:composability] the runner knows only the Map protocol, never which map it iterates.
+    state = start
+    while True:
+        state = map.step(state, value)
+        yield state
+
+
+class TrajectoryError(Exception):
+    """A file does not hold a trajectory. The message says which field is wrong."""
+
+
+@dataclass(frozen=True)
+class Trajectory:
+    map: Mapping[str, Any]
+    value: float
+    start: str
+    states: tuple[str, ...]  # the state after each step, so step n is states[n - 1]
+
+    @property
+    def name(self) -> str:
+        """The file name, from what fixes the orbit, so rerunning a command rewrites its own file."""
+        inputs = json.dumps([self.map, self.value, self.start, len(self.states)], sort_keys=True)
+        return hashlib.sha256(inputs.encode()).hexdigest()[:16] + ".json"
+
+    def encode(self) -> bytes:
+        # Sorted keys and no timestamp: the same orbit is the same bytes.
+        fields = {"map": self.map, "value": self.value, "start": self.start, "states": list(self.states)}
+        return (json.dumps(fields, indent=2, sort_keys=True, ensure_ascii=False) + "\n").encode()
+
+
+def write_trajectory(trajectory: Trajectory, dir: Path) -> Path:
+    dir.mkdir(parents=True, exist_ok=True)
+    path = dir / trajectory.name
+    path.write_bytes(trajectory.encode())
+    return path
+
+
+def _field(raw: dict[str, Any], key: str, kind: type) -> Any:
+    if key not in raw:
+        raise TrajectoryError(f"{key} is missing")
+    if type(raw[key]) is not kind:
+        raise TrajectoryError(f"{key} must be a {kind.__name__}, got {raw[key]!r}")
+    return raw[key]
+
+
+def read_trajectory(path: Path) -> Trajectory:
+    # [LAW:parse-dont-validate] a file becomes a Trajectory here or not at all.
+    raw = json.loads(path.read_bytes())
+    if type(raw) is not dict:
+        raise TrajectoryError(f"{path} must hold a JSON object")
+    states = _field(raw, "states", list)
+    if not all(type(state) is str for state in states):
+        raise TrajectoryError("states must all be strings")
+    return Trajectory(
+        map=_field(raw, "map", dict),
+        value=_field(raw, "value", float),
+        start=_field(raw, "start", str),
+        states=tuple(states),
+    )
