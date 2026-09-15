@@ -9,7 +9,6 @@ from importlib.resources import files
 from typing import Any, Literal, get_args
 
 Dtype = Literal["float32", "float16", "bfloat16"]
-Device = Literal["mps", "cpu", "cuda"]
 
 COMMIT = re.compile(r"[0-9a-f]{40}")
 
@@ -23,7 +22,6 @@ class Pinned:
     model_id: str
     revision: str  # a full commit sha on the model's hub repo
     dtype: Dtype
-    device: Device
     max_new_tokens: int
 
 
@@ -47,7 +45,7 @@ def _choice(raw: dict[str, Any], path: str, choices: tuple[str, ...]) -> Any:
 
 
 def parse_pinned(text: str) -> Pinned:
-    # [LAW:parse-dont-validate] a branch-name revision or a typo'd device stops here, not after a download.
+    # [LAW:parse-dont-validate] a branch-name revision or a typo'd dtype stops here, not after a download.
     raw = tomllib.loads(text)
     revision = _field(raw, "model.revision", str)
     if not COMMIT.fullmatch(revision):
@@ -59,7 +57,6 @@ def parse_pinned(text: str) -> Pinned:
         model_id=_field(raw, "model.id", str),
         revision=revision,
         dtype=_choice(raw, "model.dtype", get_args(Dtype)),
-        device=_choice(raw, "model.device", get_args(Device)),
         max_new_tokens=max_new_tokens,
     )
 

@@ -12,9 +12,11 @@ from pathlib import Path
 
 from dotenv import dotenv_values
 
+from uni.determinism import RUNS
 from uni.remote import RemoteConfigError, remote_target_from_env, run_remote
 
 EXIT_CONFIG = os.EX_CONFIG  # distinct from argparse's 2 and from anything rsync or ssh returns
+EXIT_DIVERGED = 1  # the determinism gate ran and some case produced more than one hash
 
 # --remote is parsed here, once, and never reaches a subcommand: what is left over is
 # exactly what the host runs. [LAW:one-source-of-truth]
@@ -53,6 +55,35 @@ def run_gen(args: argparse.Namespace) -> int:
     return 0
 
 
+def positive(text: str) -> int:
+    value = int(text)
+    if value <= 0:
+        raise argparse.ArgumentTypeError(f"must be positive, got {value}")
+    return value
+
+
+def run_determinism(args: argparse.Namespace) -> int:
+    """Generate each gate case `runs` times and print every hash; exit 1 on any mismatch."""
+    from uni.determinism import cases, hashes
+    from uni.model import Model
+    from uni.pinned import load_pinned
+
+    model = Model(load_pinned())
+    distinct = {}
+    for case in cases(model):
+        print(f"{case.name}: {args.runs} runs")
+        print(f"{'run':>4}  sha256")
+        seen = set()
+        for run, sha in enumerate(hashes(model, case, args.runs), start=1):
+            print(f"{run:>4}  {sha}", flush=True)  # a --remote run streams through a pipe
+            seen.add(sha)
+        distinct[case.name] = len(seen)
+        print()
+    for name, count in distinct.items():
+        print(f"{name}: {'deterministic' if count == 1 else f'DIVERGED, {count} distinct hashes'}")
+    return EXIT_DIVERGED if any(count != 1 for count in distinct.values()) else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="uni",
@@ -66,6 +97,9 @@ def build_parser() -> argparse.ArgumentParser:
     gen = commands.add_parser("gen", help="generate greedily from the pinned model")
     gen.add_argument("prompt")
     gen.set_defaults(run=run_gen)
+    determinism = commands.add_parser("determinism", help="generate each gate case many times and check every hash is equal")
+    determinism.add_argument("--runs", type=positive, default=RUNS, help=f"runs per case (default: {RUNS})")
+    determinism.set_defaults(run=run_determinism)
     return parser
 
 

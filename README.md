@@ -13,9 +13,39 @@ That one command installs everything and generates from the pinned model. The fi
 downloads the checkpoint, about a gigabyte, into the Hugging Face cache. It prints the
 text, its sha256, and each generated token with its log-probability.
 
-The model, its revision, dtype, device, and generation limit are pinned in
-[uni/pinned.toml](uni/pinned.toml), and nothing else in the code names them. Decoding is
-greedy at batch size one; the checkpoint's own sampling settings are ignored.
+The model, its revision, dtype, and generation limit are pinned in
+[uni/pinned.toml](uni/pinned.toml), and nothing else in the code names them. Generation
+runs on Metal, greedy at batch size one; the checkpoint's own sampling settings are
+ignored. CPU is too slow for this work, so it is not an option.
+
+## Determinism
+
+Every measurement in this project compares hashes of generated text, so the same input
+must produce the same output every time. The gate checks that:
+
+    uv run uni determinism --remote
+
+It generates each case 100 times and prints every run's sha256, then a verdict per
+case. It exits 1 if any case produced more than one hash. The cases are an ordinary
+prompt, the empty prompt, and a prompt that fills the model's context limit with 16
+tokens left over. `--runs` changes the count. A full run takes about 15 minutes, and
+it has passed on the run host. Run it again when the model, torch, transformers, or
+macOS on the run host changes; nothing else can change the result.
+
+`uv run pytest` checks the same cases with 3 runs each, so the suite stays fast, and
+also checks that a fresh process produces the same hash, since the command's runs all
+share one process.
+
+Hashes are only comparable within one machine. The run host and a dev Mac agree on
+tokens and hashes but differ in the sixth decimal of the log-probabilities.
+
+`tests/test_determinism.py` also holds a negative test, which shows the failure the
+gate protects against. The same prompt, batched with a longer request and left-padded
+with positions counted from the mask, gives log-probabilities that differ from batch
+size one by up to about 1e-4. The greedy text survives that on a short prompt, but in
+a long feedback loop a near-tie flips a token, and one flipped token turns an orbit
+into noise. That is why the wrapper generates at batch size one and has no batch
+setting.
 
 ## Running on the experiment host
 
