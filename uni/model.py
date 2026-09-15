@@ -10,13 +10,7 @@ from dataclasses import dataclass
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from uni.pinned import Device, Pinned
-
-AVAILABLE = {
-    "mps": torch.backends.mps.is_available,
-    "cpu": lambda: True,
-    "cuda": torch.cuda.is_available,
-}
+from uni.pinned import Pinned
 
 
 def stop_ids(eos_token_id: int | list[int] | None) -> frozenset[int]:
@@ -26,10 +20,11 @@ def stop_ids(eos_token_id: int | list[int] | None) -> frozenset[int]:
     return frozenset([eos_token_id] if isinstance(eos_token_id, int) else eos_token_id)
 
 
-def require_device(device: Device) -> torch.device:
-    if not AVAILABLE[device]():
-        raise RuntimeError(f"pinned device {device!r} is not available on this machine")
-    return torch.device(device)
+def require_metal() -> torch.device:
+    # Metal is the only device: CPU is too slow for this work, and the run host has no CUDA.
+    if not torch.backends.mps.is_available():
+        raise RuntimeError("Metal (mps) is not available on this machine")
+    return torch.device("mps")
 
 
 @dataclass(frozen=True)
@@ -55,7 +50,7 @@ class Generation:
 class Model:
     def __init__(self, pinned: Pinned) -> None:
         self.pinned = pinned
-        self.device = require_device(pinned.device)  # before the checkpoint download, not after
+        self.device = require_metal()  # before the checkpoint download, not after
         self.dtype = getattr(torch, pinned.dtype)
         self.tokenizer = AutoTokenizer.from_pretrained(pinned.model_id, revision=pinned.revision)
         self.model = (

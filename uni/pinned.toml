@@ -1,11 +1,10 @@
 # The pinned model and how it generates: the one file that names these facts.
-# Decoding is greedy at batch size one by construction, so neither is a setting here.
+# Decoding is greedy at batch size one on Metal by construction, so none of those is a setting here.
 
 [model]
 id = "Qwen/Qwen2.5-0.5B-Instruct"
 revision = "7ae557604adf67be50417f59c2c2f167def9a775"  # a commit, so weights and tokenizer cannot move
 dtype = "float32"
-device = "mps"  # Metal: passes the determinism gate on the run host, as does cpu, and only Metal fits large models
 
 [generation]
 max_new_tokens = 256

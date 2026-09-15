@@ -1,6 +1,7 @@
-"""The determinism gate on the device named by --device (default: the pinned one).
+"""The determinism gate, a few runs per case so the suite stays fast.
 
-Every run of a case must hash the same. The negative test at the bottom shows the failure the
+Every run of a case must hash the same. The full 100 runs are `uni determinism --remote`, for
+when the model, torch, transformers, or macOS on the run host changes. The negative test at the bottom shows the failure the
 gate exists for: the same prompt at batch size two does not reproduce batch size one.
 """
 
@@ -10,8 +11,9 @@ import sys
 import pytest
 import torch
 
-from uni.determinism import ROOM, RUNS, cases, hashes
+from uni.determinism import ROOM, cases, hashes
 
+RUNS = 3
 PROMPT = "Reply with one word: hello."
 NEIGHBOR = "Write a long story about a lighthouse keeper who finds a message in a bottle on the shore."
 
@@ -28,12 +30,9 @@ def test_every_run_hashes_the_same(model, gate, name):
 
 def test_a_fresh_process_hashes_the_same(model, gate):
     # Runs above share one process; thread counts and kernel choices are fixed per process.
-    code = (
-        "import sys; from dataclasses import replace; from uni.model import Model; from uni.pinned import load_pinned; "
-        "print(Model(replace(load_pinned(), device=sys.argv[1])).generate(sys.argv[2]).sha256)"
-    )
+    code = "import sys; from uni.model import Model; from uni.pinned import load_pinned; print(Model(load_pinned()).generate(sys.argv[1]).sha256)"
     prompt = gate["ordinary"].prompt
-    fresh = subprocess.run([sys.executable, "-c", code, model.pinned.device, prompt], capture_output=True, text=True, check=True)
+    fresh = subprocess.run([sys.executable, "-c", code, prompt], capture_output=True, text=True, check=True)
     assert fresh.stdout.split()[-1] == model.generate(prompt).sha256
 
 
@@ -45,8 +44,8 @@ def test_context_limit_case_generates_up_to_the_limit_and_no_further(model, gate
 def test_batch_size_two_does_not_reproduce_batch_size_one(model):
     """The prompt shares its batch with a longer request, left-padded to match, as a server batches.
 
-    Greedy text happens to survive here, but the log-probabilities move around the fifth decimal
-    (measured on mps and cpu). A near-tie anywhere in a long feedback loop flips a token, and one
+    Greedy text happens to survive here, but the log-probabilities move by up to about 1e-4.
+    A near-tie anywhere in a long feedback loop flips a token, and one
     flipped token turns an orbit into noise. That is why generation is batch size one by construction.
     """
     alone = model.encode(PROMPT)

@@ -9,12 +9,10 @@ import subprocess
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import get_args
 
 from dotenv import dotenv_values
 
 from uni.determinism import RUNS
-from uni.pinned import Device, load_pinned
 from uni.remote import RemoteConfigError, remote_target_from_env, run_remote
 
 EXIT_CONFIG = os.EX_CONFIG  # distinct from argparse's 2 and from anything rsync or ssh returns
@@ -65,18 +63,15 @@ def positive(text: str) -> int:
 
 
 def run_determinism(args: argparse.Namespace) -> int:
-    """Generate each gate case `runs` times on one device and print every hash; exit 1 on any mismatch."""
-    from dataclasses import replace
-
+    """Generate each gate case `runs` times and print every hash; exit 1 on any mismatch."""
     from uni.determinism import cases, hashes
     from uni.model import Model
+    from uni.pinned import load_pinned
 
-    pinned = load_pinned()
-    device = args.device or pinned.device
-    model = Model(replace(pinned, device=device))
+    model = Model(load_pinned())
     distinct = {}
     for case in cases(model):
-        print(f"{case.name}: {args.runs} runs on {device}")
+        print(f"{case.name}: {args.runs} runs")
         print(f"{'run':>4}  sha256")
         seen = set()
         for run, sha in enumerate(hashes(model, case, args.runs), start=1):
@@ -103,7 +98,6 @@ def build_parser() -> argparse.ArgumentParser:
     gen.add_argument("prompt")
     gen.set_defaults(run=run_gen)
     determinism = commands.add_parser("determinism", help="generate each gate case many times and check every hash is equal")
-    determinism.add_argument("--device", choices=get_args(Device), help="device to run on (default: the pinned device)")
     determinism.add_argument("--runs", type=positive, default=RUNS, help=f"runs per case (default: {RUNS})")
     determinism.set_defaults(run=run_determinism)
     return parser
