@@ -68,18 +68,28 @@ class Model:
         self.stop_ids = stop_ids(self.model.generation_config.eos_token_id)
         self.layers = self.model.model.layers
         self.hidden_size = self.model.config.hidden_size
+        self.context_limit = self.model.config.max_position_embeddings  # prompt and generation together
+
+    def encode(self, prompt: str) -> torch.Tensor:
+        """The prompt as one user turn in the chat template, shape (1, length), on the device."""
+        chat = [{"role": "user", "content": prompt}]
+        encoded = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, return_dict=True, return_tensors="pt")
+        return encoded["input_ids"].to(self.device)
 
     @torch.inference_mode()
     def generate(self, prompt: str, additions: Sequence[ResidualAdd] = ()) -> Generation:
-        chat = [{"role": "user", "content": prompt}]
-        encoded = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, return_dict=True, return_tensors="pt")
-        step_ids = encoded["input_ids"].to(self.device)
+        step_ids = self.encode(prompt)
+        room = self.context_limit - step_ids.shape[1]
+        if room <= 0:
+            raise ValueError(f"prompt is {step_ids.shape[1]} tokens; the context limit of {self.context_limit} leaves no room to generate")
         past = None
         token_ids: list[int] = []
         logprobs: list[float] = []
         with self._residual(additions):
-            for _ in range(self.pinned.max_new_tokens):
-                out = self.model(input_ids=step_ids, past_key_values=past, use_cache=True)
+            for _ in range(min(self.pinned.max_new_tokens, room)):
+                # Logits for the last position only: all positions of a full-context prompt is
+                # more than one Metal kernel can encode, and only the last one picks a token.
+                out = self.model(input_ids=step_ids, past_key_values=past, use_cache=True, logits_to_keep=1)
                 past = out.past_key_values
                 logp = torch.log_softmax(out.logits[0, -1].float(), dim=-1)
                 token = int(torch.argmax(logp))  # the first index among ties, so ties cannot flicker

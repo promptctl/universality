@@ -5,7 +5,7 @@
 id = "Qwen/Qwen2.5-0.5B-Instruct"
 revision = "7ae557604adf67be50417f59c2c2f167def9a775"  # a commit, so weights and tokenizer cannot move
 dtype = "float32"
-device = "mps"  # provisional until the determinism gate pins a device
+device = "mps"  # Metal: passes the determinism gate on the run host, as does cpu, and only Metal fits large models
 
 [generation]
 max_new_tokens = 256

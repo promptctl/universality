@@ -3,8 +3,7 @@
 import pytest
 import torch
 
-from uni.model import Model, ResidualAdd, require_device, stop_ids
-from uni.pinned import load_pinned
+from uni.model import ResidualAdd, require_device, stop_ids
 
 PROMPT = "Reply with one word: hello."
 
@@ -26,17 +25,17 @@ def test_unavailable_device_is_refused_before_loading():
 
 
 @pytest.fixture(scope="module")
-def model() -> Model:
-    return Model(load_pinned())
-
-
-@pytest.fixture(scope="module")
 def baseline(model):
     return model.generate(PROMPT)
 
 
-def test_model_runs_on_the_pinned_device(model):
-    assert next(model.model.parameters()).device.type == torch.device(load_pinned().device).type
+def test_model_runs_on_the_requested_device(model):
+    assert next(model.model.parameters()).device.type == torch.device(model.pinned.device).type
+
+
+def test_prompt_that_fills_the_context_is_refused_before_generating(model):
+    with pytest.raises(ValueError, match="leaves no room to generate"):
+        model.generate("hello" + " hello" * model.context_limit)
 
 
 def test_generation_carries_one_logprob_per_token(model, baseline):
