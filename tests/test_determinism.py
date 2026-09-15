@@ -61,4 +61,6 @@ def test_batch_size_two_does_not_reproduce_batch_size_one(model):
     with torch.inference_mode():
         one = model.model(input_ids=alone, logits_to_keep=1).logits[0, -1]
         two = model.model(input_ids=torch.cat([padded, neighbor]), attention_mask=mask, position_ids=positions, logits_to_keep=1).logits[0, -1]
-    assert not torch.equal(torch.log_softmax(one.float(), dim=-1), torch.log_softmax(two.float(), dim=-1))
+    one, two = torch.log_softmax(one.float(), dim=-1), torch.log_softmax(two.float(), dim=-1)
+    assert one.isfinite().all() and two.isfinite().all()  # a NaN would be unequal for the wrong reason
+    assert not torch.equal(one, two)
