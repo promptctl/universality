@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from uni.parse import field
+
 
 class Map(Protocol):
     """One step of an iterated map. States are text whatever the map, so every brick reads every orbit."""
@@ -64,11 +66,7 @@ def write_trajectory(trajectory: Trajectory, dir: Path) -> Path:
 
 
 def _field(raw: dict[str, Any], key: str, kind: type) -> Any:
-    if key not in raw:
-        raise TrajectoryError(f"{key} is missing")
-    if type(raw[key]) is not kind:
-        raise TrajectoryError(f"{key} must be a {kind.__name__}, got {raw[key]!r}")
-    return raw[key]
+    return field(raw, key, kind, TrajectoryError)
 
 
 def read_trajectory(path: Path) -> Trajectory:

@@ -7,7 +7,7 @@ from itertools import islice
 import pytest
 
 from uni.loop import Trajectory, orbit, read_trajectory
-from uni.maps import ModelMap
+from uni.maps import ModelMap, NoKnob
 from uni.template import load_templates
 
 PARAGRAPH = "The lighthouse keeper climbed the stairs each night, counting them aloud so the dark would not feel so large."
@@ -19,7 +19,7 @@ def templates():
 
 
 def trajectory(model, template, start, steps):
-    map = ModelMap(model, template)
+    map = ModelMap(model, template, NoKnob())
     return Trajectory(map.spec, 0.0, start, tuple(islice(orbit(map, 0.0, start), steps)))
 
 

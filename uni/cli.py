@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import platform
 import subprocess
@@ -10,12 +11,17 @@ import sys
 from collections.abc import Mapping, Sequence
 from itertools import islice
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from dotenv import dotenv_values
 
 from uni.determinism import RUNS
 from uni.remote import RemoteConfigError, remote_target_from_env, run_remote
 from uni.template import Template, TemplateError, load_templates
+
+if TYPE_CHECKING:
+    from uni.maps import Knob
+    from uni.steer import Contrast
 
 EXIT_CONFIG = os.EX_CONFIG  # distinct from argparse's 2 and from anything rsync or ssh returns
 EXIT_DIVERGED = 1  # the determinism gate ran and some case produced more than one hash
@@ -87,7 +93,38 @@ def run_determinism(args: argparse.Namespace) -> int:
 
 
 TRAJECTORIES = Path("trajectories")  # under the directory uni runs in; the --remote sync excludes it, so the host keeps its own
-VALUE = 0.0  # the knob value every loop runs at until a knob exists to turn
+def knob(name: str) -> Knob:
+    # Imported here: a steering knob holds torch tensors, and only `uni loop` pays for loading torch.
+    from uni.maps import NoKnob
+    from uni.steer import Steer, SteerError, read_direction
+
+    if name == "none":
+        return NoKnob()
+    try:
+        return Steer(read_direction(name))
+    except SteerError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
+
+
+def contrast(name: str) -> Contrast:
+    from uni.steer import SteerError, load_contrast
+
+    try:
+        return load_contrast(name)
+    except SteerError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
+
+
+def run_direction(args: argparse.Namespace) -> int:
+    """Derive a steering direction from its contrast and write it beside the contrast."""
+    from uni.model import Model
+    from uni.pinned import load_pinned
+    from uni.steer import derive, write_direction
+
+    direction = derive(Model(load_pinned()), args.contrast)
+    path = write_direction(direction)
+    print(f"{path}  layer {args.contrast.layer}  length {math.hypot(*direction.vector):.6f}  sha256 {direction.sha256}")
+    return 0
 
 
 def template(name: str) -> Template:
@@ -107,14 +144,14 @@ def run_loop(args: argparse.Namespace) -> int:
     from uni.model import Model
     from uni.pinned import load_pinned
 
-    map = ModelMap(Model(load_pinned()), args.template)
+    map = ModelMap(Model(load_pinned()), args.template, args.knob)
     print(f"{'step':>4}  state")
     print(f"{0:>4}  {args.start!r}")
     states = []
-    for step, state in enumerate(islice(orbit(map, VALUE, args.start), args.steps), start=1):
+    for step, state in enumerate(islice(orbit(map, args.value, args.start), args.steps), start=1):
         print(f"{step:>4}  {state!r}", flush=True)  # repr, so each state is one line and an empty one shows
         states.append(state)
-    path = write_trajectory(Trajectory(map.spec, VALUE, args.start, tuple(states)), TRAJECTORIES)
+    path = write_trajectory(Trajectory(map.spec, args.value, args.start, tuple(states)), TRAJECTORIES)
     print()
     print(f"trajectory {path}")
     return 0
@@ -140,7 +177,12 @@ def build_parser() -> argparse.ArgumentParser:
     loop.add_argument("--template", type=template, required=True, help="a template named in uni/templates.toml")
     loop.add_argument("--start", required=True, help="the first state; may be empty; write --start=TEXT when it begins with '-'")
     loop.add_argument("--steps", type=positive, required=True, help="how many times to step the map")
+    loop.add_argument("--knob", type=knob, default="none", help="a direction in uni/directions to steer along, or none (default)")
+    loop.add_argument("--value", type=float, default=0.0, help="the knob's value (default: 0)")
     loop.set_defaults(run=run_loop)
+    direction = commands.add_parser("direction", help="derive a steering direction from uni/directions/<name>.toml")
+    direction.add_argument("contrast", type=contrast, help="the contrast's name")
+    direction.set_defaults(run=run_direction)
     return parser
 
 

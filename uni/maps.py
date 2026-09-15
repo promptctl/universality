@@ -1,22 +1,44 @@
-"""The maps the loop runner iterates."""
+"""The maps the loop runner iterates, and the knobs that turn the model's."""
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from uni.template import Template
 
 if TYPE_CHECKING:  # the model is handed in; building one is the caller's cost
-    from uni.model import Model
+    from uni.model import Model, ResidualAdd
+
+
+class Knob(Protocol):
+    """A scalar applied to the model. Stateless in the value, so one knob can be turned to a new value every call."""
+
+    @property
+    def spec(self) -> Mapping[str, Any] | None:
+        """What the knob is, for the trajectory file; None for the knob that does nothing."""
+        ...
+
+    def additions(self, value: float) -> Sequence[ResidualAdd]: ...
+
+
+class NoKnob:
+    """The model unturned: no value reaches it."""
+
+    spec = None
+
+    def additions(self, value: float) -> Sequence[ResidualAdd]:
+        return ()
 
 
 @dataclass(frozen=True)
 class ModelMap:
-    """The pinned model under a template: the next state is the model's reply to the rendered state."""
+    """The pinned model under a template and a knob: the next state is the model's reply to the rendered state."""
 
     model: Model
     template: Template
+    knob: Knob
 
     @property
     def spec(self) -> dict[str, Any]:
@@ -24,8 +46,9 @@ class ModelMap:
             "kind": "model",
             "template": {"name": self.template.name, "text": self.template.text},
             "pinned": asdict(self.model.pinned),
-            "knob": None,  # nothing applies the value to the model yet, so it cannot change the orbit
+            "knob": self.knob.spec,
         }
 
     def step(self, state: str, value: float) -> str:
-        return self.model.generate(self.template.render(state)).text
+        # [LAW:dataflow-not-control-flow] every step goes through the knob; NoKnob's additions are empty.
+        return self.model.generate(self.template.render(state), self.knob.additions(value)).text

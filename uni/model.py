@@ -71,6 +71,30 @@ class Model:
         encoded = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, return_dict=True, return_tensors="pt")
         return encoded["input_ids"].to(self.device)
 
+    def encode_reply(self, prompt: str, reply: str) -> tuple[torch.Tensor, int]:
+        """The prompt as a user turn and `reply` as the assistant's answer, and the index where the reply begins."""
+        chat = [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
+        ids = self.tokenizer.apply_chat_template(chat, return_dict=True, return_tensors="pt")["input_ids"].to(self.device)
+        prefix = self.encode(prompt)
+        if not torch.equal(ids[:, : prefix.shape[1]], prefix):
+            raise RuntimeError("the chat template encodes a prompt differently once a reply follows it")
+        return ids, prefix.shape[1]
+
+    @torch.inference_mode()
+    def reply_residual(self, prompt: str, reply: str, layer: int) -> torch.Tensor:
+        """The residual stream leaving decoder `layer`, averaged over the reply's tokens, shape (hidden_size,).
+
+        It is read where ResidualAdd writes, so a direction built from it steers the same stream.
+        """
+        ids, start = self.encode_reply(prompt, reply)
+        captured = []
+        handle = self.layers[self._layer(layer)].register_forward_hook(lambda _m, _i, hidden: captured.append(hidden))
+        try:
+            self.model(input_ids=ids, logits_to_keep=1)
+        finally:
+            handle.remove()
+        return captured[0][0, start:].mean(dim=0)
+
     @torch.inference_mode()
     def generate(self, prompt: str, additions: Sequence[ResidualAdd] = ()) -> Generation:
         step_ids = self.encode(prompt)
@@ -110,9 +134,13 @@ class Model:
                 hooks.callback(handle.remove)
             yield
 
+    def _layer(self, layer: int) -> int:
+        if layer not in range(len(self.layers)):
+            raise ValueError(f"layer must be in 0..{len(self.layers) - 1}, got {layer}")
+        return layer
+
     def _residual_vector(self, addition: ResidualAdd) -> torch.Tensor:
-        if addition.layer not in range(len(self.layers)):
-            raise ValueError(f"layer must be in 0..{len(self.layers) - 1}, got {addition.layer}")
+        self._layer(addition.layer)
         if addition.vector.shape != (self.hidden_size,):
             raise ValueError(f"vector must have shape ({self.hidden_size},), got {tuple(addition.vector.shape)}")
         return addition.vector.to(self.device, self.dtype)

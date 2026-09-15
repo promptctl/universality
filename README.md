@@ -64,8 +64,34 @@ count. Rerunning the same command rewrites the same file with the same bytes. Wi
 
 The templates live in [uni/templates.toml](uni/templates.toml), each holding `{state}`
 exactly once. `identity` asks for the state back unchanged, `empty` sends the state as
-the whole prompt, and `rewrite` asks for a rewrite. The start may be empty. No knob is
-applied yet, so every loop runs at value 0.
+the whole prompt, and `rewrite` asks for a rewrite. The start may be empty.
+
+## The steering knob
+
+A knob is a number turned on the loop. The first one steers the model: it adds the
+value times a fixed direction to the residual stream leaving one decoder layer, at every
+position of every step.
+
+    uv run uni loop --template rewrite --steps 20 --start "..." --knob formality --value 2
+
+`--knob` names a direction in [uni/directions](uni/directions), or `none`, the default.
+`--value` defaults to 0, and at 0 the orbit is exactly the unsteered one. Positive values
+push the rewrites toward the direction's quality and negative values push away from it.
+At layer 12, `formality` makes the rewrites clearly more formal by 2 and casual by -2. By
+4 the rewrites drift away from the text they started from. Any value runs without error, however large.
+
+A direction comes from a contrast, `uni/directions/<name>.toml`. A contrast is a
+template, a layer, and pairs of replies to the same text, one toward the quality and
+one away from it. Each reply is read as the model's own answer to the template, and the
+direction is the mean over pairs of the difference in the layer's residual stream,
+averaged over the reply's tokens. Derive it once:
+
+    uv run uni direction formality
+
+This writes `uni/directions/formality.json`, which holds the vector and a copy of the
+contrast that produced it, and is committed. Every trajectory steered by it records the
+direction's name, layer, and sha256. Re-derive only when the contrast or the model
+changes.
 
 ## Running on the experiment host
 
