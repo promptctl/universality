@@ -7,14 +7,15 @@ step n; the state's own text is what the period detector compares, and is not a 
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
 from uni.loop import Trajectory
-from uni.model import Model, ModelError, ResidualAdd
+from uni.maps import logistic_state
+from uni.model import Model, ResidualAdd
 from uni.parse import ConfigError, field, nullable
-from uni.pinned import Pinned
+from uni.pinned import Pinned, load_pinned
 from uni.steer import Direction, Steer, read_direction
 from uni.template import Template, TemplateError, parse_template
 
@@ -61,6 +62,23 @@ class Length:
 
 
 @dataclass(frozen=True)
+class Value:
+    """The state read as the number it is.
+
+    For a map whose states are numbers there is nothing to derive: the state is the observable,
+    and the return map PROJECT.md plots is the map itself drawn. That is what makes the logistic
+    orbit the fixture - its plot is a shape that is either the published one or visibly not.
+    """
+
+    @property
+    def name(self) -> str:
+        return "x"
+
+    def read(self, step: Step) -> float:
+        return logistic_state(step.state)
+
+
+@dataclass(frozen=True)
 class Logprob:
     """How likely the model finds the state it wrote, per token of it, at the setting it wrote it at."""
 
@@ -100,9 +118,6 @@ def template_of(trajectory: Trajectory) -> Template:
     """The template the trajectory recorded, so the prompt behind each step can be rendered again."""
     # [LAW:one-source-of-truth] the prompts are derived from the template the file already
     # carries; writing them beside the states would be a second copy free to disagree with it.
-    kind = field(trajectory.map, "kind", str, ObserveError)
-    if kind != "model":
-        raise ObserveError(f"a {kind!r} trajectory has no prompts behind its states, so it has no model observables")
     raw = field(trajectory.map, "template", dict, ObserveError)
     try:
         return parse_template(field(raw, "name", str, ObserveError), field(raw, "text", str, ObserveError))
@@ -150,8 +165,51 @@ def readings(observables: Sequence[Observable], step: Step) -> tuple[float, ...]
     """Every observable's number for one step, or a refusal that says which step has no number."""
     try:
         return tuple(observable.read(step) for observable in observables)
-    except ModelError as error:  # truthful already; what it cannot know is which step it was reading
+    except ConfigError as error:  # truthful already; what it cannot know is which step it was reading
         raise ObserveError(f"step {step.index}: {error}") from error
+
+
+def model_observables(trajectory: Trajectory) -> tuple[Observable, ...]:
+    """What a model's orbit can be read for, past the length any orbit answers.
+
+    Reading any of these costs the checkpoint, so it is loaded here and only here: an orbit of a
+    map that has no prompts behind its states never pays for one.
+    """
+    template = template_of(trajectory)
+    pinned = written_by(trajectory, load_pinned())
+    directions = steering_directions(trajectory, pinned)
+    model = Model(pinned)
+    return (
+        Logprob(model, template, steering_additions(directions, trajectory.value)),
+        *(Projection(model, template, direction) for direction in directions),
+    )
+
+
+def numeric_observables(trajectory: Trajectory) -> tuple[Observable, ...]:
+    """What an orbit of numbers can be read for: the numbers."""
+    return (Value(),)
+
+
+# What each kind of map's states can be read for, past the length every state has. A map that is
+# not in here is one this build cannot read, which is a thing to say rather than to answer around.
+KINDS: Mapping[str, Callable[[Trajectory], tuple[Observable, ...]]] = {
+    "model": model_observables,
+    "logistic": numeric_observables,
+}
+
+
+def observables(trajectory: Trajectory) -> tuple[Observable, ...]:
+    """Every number this orbit can be read for, which is decided by what its states are made of.
+
+    [LAW:dataflow-not-control-flow] the kind is looked up rather than branched on, once, here;
+    what comes back is a collection, and what prints the table never asks whose orbit it is.
+    """
+    kind = field(trajectory.map, "kind", str, ObserveError)
+    if kind not in KINDS:
+        # [LAW:no-silent-failure] answering with the length alone would read as a full reading of
+        # a file this build has no observables for, and the length is never the interesting one.
+        raise ObserveError(f"a {kind!r} orbit is not one this build can read; the kinds are {', '.join(KINDS)}")
+    return (Length(), *KINDS[kind](trajectory))
 
 
 def identities(states: Sequence[str]) -> tuple[int, ...]:
