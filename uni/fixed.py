@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from uni.parse import ConfigError
+from uni.roots import bisect
 
 if TYPE_CHECKING:
     from uni.loop import Map
@@ -46,17 +47,7 @@ def fixed_point(map: Map, numbers: Numbers, low: float, high: float) -> float:
             f"at {map.value:g} the map carries {below:g} by {at_below:+.3g} and {above:g} by {at_above:+.3g}; "
             "a bracket is two states it carries in opposite directions, so no fixed point is bracketed between them"
         )
-    while True:
-        middle = numbers.read(numbers.write((below + above) / 2))
-        if middle in (below, above):
-            return below if abs(at_below) <= abs(at_above) else above
-        at_middle = moved(map, numbers, middle)
-        if at_middle == 0:
-            return middle
-        if (at_middle > 0) == (at_below > 0):
-            below, at_below = middle, at_middle
-        else:
-            above, at_above = middle, at_middle
+    return bisect(lambda x: moved(map, numbers, x), below, at_below, above, at_above, lambda x: numbers.read(numbers.write(x)))
 
 
 def slope(map: Map, numbers: Numbers, x: float, step: float) -> float:

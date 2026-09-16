@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
-from functools import cached_property
+from functools import cached_property, partial
 from typing import TYPE_CHECKING, Any, Protocol
 
 from uni.parse import ConfigError
@@ -281,22 +281,23 @@ class Logistic:
         return repr(self.r * x * (1 - x))
 
 
-# The decimals a response state is written to. The model's answer is float32, and a push rounds to
-# float32 on its way into the stream, so a push held to every bit of a float64 wanders among
-# neighbours a millionth apart that the model cannot tell from one another: measured at gains 1 to
-# 12, a settled orbit's states spread over 2e-7 to 7e-6, which the detector reads as a cycle of
-# three, or six, or as a real period doubled. Four decimals is fourteen times the widest of those,
-# and fine enough for a cascade: the smallest gap between the points of a period-64 orbit, shrunk
-# by Feigenbaum's alpha squared at each doubling from the period-2 orbit's 13, is still 0.001.
+# The decimals a response state is written to unless a run asks for others. The model's answer is
+# float32, and a push rounds to float32 on its way into the stream, so a push held to every bit of a
+# float64 wanders among neighbours a millionth apart that the model cannot tell from one another:
+# measured at gains 1 to 12, a settled orbit's states spread over 2e-7 to 7e-6, which the exact
+# detector reads as a cycle of three, or six, or as a real period doubled. Four decimals is fourteen
+# times the widest of those, and fine enough for an orbit diagram. What detects no period can read
+# more finely: `uni cascade` at six decimals sees its returns scatter three to thirty-five times less,
+# and what scatter is left is the model's own float32 roughness, which more decimals would not remove.
 RESPONSE_DECIMALS = 4
 
 
-def response_text(push: float) -> str:
+def response_text(push: float, decimals: int) -> str:
     """A push as the one text the response map writes for it. Rounded before it is written, so -0.00001 is 0.0000 and not -0.0000."""
-    return f"{round(push, RESPONSE_DECIMALS) + 0.0:.{RESPONSE_DECIMALS}f}"
+    return f"{round(push, decimals) + 0.0:.{decimals}f}"
 
 
-def response_state(state: str) -> float:
+def response_state(state: str, decimals: int) -> float:
     """The push a response state names, refused unless it is written as the map writes one.
 
     One function for the map and the observable, as `logistic_state` is: the detector compares the
@@ -306,14 +307,14 @@ def response_state(state: str) -> float:
     try:
         push = float(state)
     except ValueError as error:
-        raise MapError(f"a response state is a push written to {RESPONSE_DECIMALS} decimals, got {state!r}") from error
-    if not math.isfinite(push) or response_text(push) != state:
-        written = response_text(push) if math.isfinite(push) else f"a number to {RESPONSE_DECIMALS} decimals"
-        raise MapError(f"a response state is a push written to {RESPONSE_DECIMALS} decimals: write {written}, not {state!r}")
+        raise MapError(f"a response state is a push written to {decimals} decimals, got {state!r}") from error
+    if not math.isfinite(push) or response_text(push, decimals) != state:
+        written = response_text(push, decimals) if math.isfinite(push) else f"a number to {decimals} decimals"
+        raise MapError(f"a response state is a push written to {decimals} decimals: write {written}, not {state!r}")
     return push
 
 
-def response_spec(pinned: Pinned, template: Template, text: str, steer: Mapping[str, Any], layer: int) -> dict[str, Any]:
+def response_spec(pinned: Pinned, template: Template, text: str, steer: Mapping[str, Any], layer: int, decimals: int) -> dict[str, Any]:
     """What a response map is, in the one form a trajectory and a sweep manifest both record. The gain is the value, recorded beside it."""
     return {
         "kind": "response",
@@ -322,7 +323,7 @@ def response_spec(pinned: Pinned, template: Template, text: str, steer: Mapping[
         "text": text,
         "knob": steer,
         "layer": layer,
-        "decimals": RESPONSE_DECIMALS,
+        "decimals": decimals,
     }
 
 
@@ -339,10 +340,11 @@ class ResponseFamily:
     text: str
     steer: Steer
     layer: int
+    decimals: int
 
     @property
     def spec(self) -> dict[str, Any]:
-        return response_spec(self.pinned, self.template, self.text, self.steer.spec, self.layer)
+        return response_spec(self.pinned, self.template, self.text, self.steer.spec, self.layer, self.decimals)
 
     @cached_property
     def model(self) -> Model:
@@ -360,7 +362,7 @@ class ResponseFamily:
         from uni.response import admit
 
         for state in states:
-            admit(self.model, self.steer, response_state(state), self.layer)
+            admit(self.model, self.steer, response_state(state, self.decimals), self.layer)
 
     def at(self, value: float) -> Map:
         from uni.response import admit
@@ -397,8 +399,8 @@ class ResponseMap:
         from uni.response import response
 
         family = self.family
-        answer = response(family.model, family.prompt, family.steer, response_state(state), family.layer)
-        return response_text(self.gain * answer / family.steer.direction.squared_length)
+        answer = response(family.model, family.prompt, family.steer, response_state(state, family.decimals), family.layer)
+        return response_text(self.gain * answer / family.steer.direction.squared_length, family.decimals)
 
 
 @dataclass(frozen=True)
@@ -409,10 +411,20 @@ class Numbers:
     write: Callable[[float], str]
 
 
-# The kinds of map whose states are numbers, and each one's own spelling of them. What reads an
-# orbit for its numbers and what asks a map where it holds still both look the kind up here, so a
-# third numeric map is one entry and not a branch in each of them. [LAW:one-source-of-truth]
-NUMBERS: Mapping[str, Numbers] = {
-    "logistic": Numbers(logistic_state, repr),
-    "response": Numbers(response_state, response_text),
+def response_numbers(spec: Mapping[str, Any]) -> Numbers:
+    """A response map's spelling of its pushes, to the decimals its spec records."""
+    decimals = spec["decimals"]
+    # [LAW:parse-dont-validate] read off a file as often as off a family, and a decimals that is
+    # not a positive whole number spells no push at all.
+    if type(decimals) is not int or decimals < 1:
+        raise MapError(f"a response map's decimals are a positive whole number, got {decimals!r}")
+    return Numbers(partial(response_state, decimals=decimals), partial(response_text, decimals=decimals))
+
+
+# The kinds of map whose states are numbers, and how each spells them, from what its spec records.
+# What reads an orbit for its numbers and what asks a map where it holds still both look the kind
+# up here, so a third numeric map is one entry and not a branch in each of them. [LAW:one-source-of-truth]
+NUMBERS: Mapping[str, Callable[[Mapping[str, Any]], Numbers]] = {
+    "logistic": lambda spec: Numbers(logistic_state, repr),
+    "response": response_numbers,
 }

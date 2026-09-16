@@ -16,7 +16,7 @@ def command(argv):
 @pytest.mark.parametrize("r", [1.5, 2.5, 3.2, 3.9])
 def test_the_logistic_fixed_point_and_slope_are_the_textbook_ones(r):
     # x* = 1 - 1/r and F'(x*) = 2 - r, so the fixed point gives way at r = 3 exactly.
-    numbers = NUMBERS["logistic"]
+    numbers = NUMBERS["logistic"]({})
     point = fixed_point(Logistic(r), numbers, 0.1, 0.99)
     assert point == pytest.approx(1 - 1 / r, abs=1e-12)
     assert slope(Logistic(r), numbers, point, 1e-3) == pytest.approx(2 - r, abs=1e-9)
@@ -24,7 +24,7 @@ def test_the_logistic_fixed_point_and_slope_are_the_textbook_ones(r):
 
 def test_a_bracket_the_map_carries_one_way_is_refused_rather_than_answered_with_an_end():
     with pytest.raises(FixedError, match="carries 0.7 by -0.175 and 0.9 by -0.675; a bracket is two states"):
-        fixed_point(Logistic(2.5), NUMBERS["logistic"], 0.7, 0.9)
+        fixed_point(Logistic(2.5), NUMBERS["logistic"]({}), 0.7, 0.9)
 
 
 def test_a_bracket_whose_end_the_map_holds_still_is_refused_rather_than_answered_with_that_end(capsys):

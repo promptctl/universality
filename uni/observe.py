@@ -225,7 +225,7 @@ def model_observables(trajectory: Trajectory, weights: Weights) -> tuple[Observa
 
 def numeric_observables(trajectory: Trajectory, weights: Weights) -> tuple[Observable, ...]:
     """What an orbit of numbers can be read for: the numbers, in the map's own spelling, and no checkpoint to read them."""
-    return (Value(NUMBERS[trajectory.map["kind"]].read),)
+    return (Value(NUMBERS[trajectory.map["kind"]](trajectory.map).read),)
 
 
 # What each kind of map's states can be read for, past the length every state has. A map that is
