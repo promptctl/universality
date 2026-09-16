@@ -7,7 +7,7 @@ import json
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 from uni.atomic import write_whole
 from uni.parse import ConfigError, field
@@ -31,6 +31,18 @@ class Map(Protocol):
         ...
 
     def step(self, state: str) -> str: ...
+
+
+@runtime_checkable
+class Sloped(Map, Protocol):
+    """A map of numbers whose slope at a number is known exactly, as a measured map's is not.
+
+    The logistic map's is its formula's and a smooth map's its series'. The response map has none to
+    give: its answer is float32 and rough at 1e-5, and a difference across that roughness is a slope
+    of the roughness.
+    """
+
+    def slope(self, x: float) -> float: ...
 
 
 def orbit(map: Map, start: str) -> Iterator[str]:

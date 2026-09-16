@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from uni import cascade
-from uni.cascade import nearest, quotients, ratios, returns
+from uni.cascade import amplification, evaluated, growths, nearest, quotients, ratios, returns
 from uni.fit import Estimate, FitError, crossing, fit
 from uni.cli import EXIT_CONFIG, main
 from uni.maps import NUMBERS, Logistic
@@ -17,6 +17,9 @@ SUPERSTABLE = {2: 3.23606797749979, 4: 3.4985616993277, 8: 3.55464086276882, 16:
 # F^(p/2)(0.5) - 0.5 at each of those values, from the same orbits in mpmath: the distance from the
 # top of the cycle's point nearest it. Their ratios are -2.6547448, -2.5318377, -2.5087182, -2.5041128.
 NEAREST = {2: 0.3090169943749474, 4: -0.1164017695468324, 8: 0.04597521058174422, 16: -0.01832617573366167, 32: 0.007318430628499477}
+# sqrt(sum_k prod_(j=k..p-1) F'(x_j)^2) along the same cycles in mpmath: how far unit noise at every
+# step moves where the cycle returns. With NEAREST, the growths 6.8839697, 6.660634, 6.627796, 6.620746.
+NOISE = {2: 2.23606797749979, 4: 5.798306550714591, 8: 15.25389979049446, 16: 40.29935935822024, 32: 106.5494423745227}
 GRIDS = {2: "3.2355:3.2365:11", 4: "3.4981:3.4991:11", 8: "3.5544:3.5549:11", 16: "3.56655:3.56675:11", 32: "3.5692:3.5693:11"}
 
 
@@ -57,6 +60,27 @@ def test_the_nearest_points_ratios_run_to_minus_alpha():
     assert [estimate.value for estimate in found] == pytest.approx([-2.6547448, -2.5318377, -2.5087182, -2.5041128], abs=3e-6)
 
 
+@pytest.mark.parametrize("period", NOISE)
+def test_the_noise_a_cycle_carries_is_the_known_amount_and_its_error_covers_it(period):
+    zero = superstable(period, GRIDS[period])
+    first, last, count = GRIDS[period].split(":")
+    values = [float(first) + (float(last) - float(first)) * index / (int(count) - 1) for index in range(int(count))]
+    noise = evaluated(values, [amplification(Logistic(value), NUMBERS["logistic"]({}), "0.5", period) for value in values], zero)
+    assert noise.value == pytest.approx(NOISE[period], rel=1e-6)
+    assert abs(noise.value - NOISE[period]) < 3 * noise.error
+
+
+def test_unit_noise_after_one_step_is_one_and_after_two_is_carried_by_the_slope_between():
+    # From the top 0.5 at r = 3: x_1 = 0.75, where the slope is 3 (1 - 1.5) = -1.5.
+    assert amplification(Logistic(3.0), NUMBERS["logistic"]({}), "0.5", 1) == 1.0
+    assert amplification(Logistic(3.0), NUMBERS["logistic"]({}), "0.5", 2) == pytest.approx(math.sqrt(1 + 1.5**2))
+
+
+def test_a_growth_is_the_noise_ratio_times_the_distance_ratio_with_four_relative_errors():
+    (found,) = growths((Estimate(2.0, 0.02), Estimate(5.0, 0.1)), (Estimate(0.3, 0.003), Estimate(-0.12, 0.0024)))
+    assert (found.value, found.error) == pytest.approx((6.25, 6.25 * math.sqrt(2 * 0.01**2 + 2 * 0.02**2)))
+
+
 def test_a_quotient_s_error_is_its_two_values_relative_errors_added_in_quadrature():
     (found,) = quotients((Estimate(-3.0, 0.03), Estimate(1.5, 0.02)))
     assert (found.value, found.error) == pytest.approx((-2.0, 2.0 * math.hypot(0.01, 0.02 / 1.5)))
@@ -91,18 +115,23 @@ def test_the_command_reads_the_logistic_cascade_and_its_ratios(capsys):
     printed = capsys.readouterr().out.splitlines()
     assert [float(line.split()[1]) for line in printed[1:6]] == pytest.approx(list(SUPERSTABLE.values()), abs=2e-9)
     assert [float(line.split()[4]) for line in printed[1:6]] == pytest.approx(list(NEAREST.values()), abs=4e-9)
-    spacings, nearests = printed[6:9], printed[9:]
+    spacings = printed[6:9]
     assert [line.split(": ")[0] for line in spacings] == [f"spacing ratio over periods {p}" for p in ("2, 4, 8", "4, 8, 16", "8, 16, 32")]
     assert [float(line.split(": ")[1].split()[0]) for line in spacings] == pytest.approx([4.6808, 4.6630, 4.6684], abs=1e-4)
+    assert [float(line.split()[6]) for line in printed[1:6]] == pytest.approx(list(NOISE.values()), rel=1e-6)
+    nearests, noises = printed[9:13], printed[13:]
     assert [line.split(": ")[0] for line in nearests] == [f"nearest-point ratio over periods {p}" for p in ("2, 4", "4, 8", "8, 16", "16, 32")]
     assert [float(line.split(": ")[1].split()[0]) for line in nearests] == pytest.approx([-2.6547, -2.5318, -2.5087, -2.5041], abs=1e-4)
+    assert [line.split(": ")[0] for line in noises] == [f"noise growth over periods {p}" for p in ("2, 4", "4, 8", "8, 16", "16, 32")]
+    assert [float(line.split(": ")[1].split()[0]) for line in noises] == pytest.approx([6.8839697, 6.660634, 6.627796, 6.620746], abs=1e-5)
 
 
 def test_a_cascade_from_an_odd_period_has_no_nearest_point_on_its_first_row(capsys):
     assert command(["cascade", "--map", "logistic", "--critical", "0.5", "--period", "1", "--grid", "1.9:2.1:11", "--grid", GRIDS[2], "--grid", GRIDS[4]]) == 0
     printed = capsys.readouterr().out.splitlines()
-    assert [len(line.split()) for line in printed[1:4]] == [4, 6, 6]
-    assert printed[-1].startswith("nearest-point ratio over periods 2, 4: -2.654744")
+    assert [len(line.split()) for line in printed[1:4]] == [4, 8, 8]
+    assert printed[-2].startswith("nearest-point ratio over periods 2, 4: -2.654744")
+    assert printed[-1].startswith("noise growth over periods 2, 4: 6.88396")
 
 
 def test_a_line_through_exact_readings_crosses_where_it_should_with_no_error():

@@ -275,6 +275,9 @@ class Logistic:
     def spec(self) -> dict[str, Any]:
         return dict(LOGISTIC)
 
+    def slope(self, x: float) -> float:
+        return self.r * (1 - 2 * x)
+
     def step(self, state: str) -> str:
         x = logistic_state(state)
         # repr, which is the shortest text that reads back as exactly this float. The detector
@@ -470,6 +473,9 @@ class SmoothMap:
     @property
     def spec(self) -> dict[str, Any]:
         return self.family.spec
+
+    def slope(self, x: float) -> float:
+        return self.gain * self.family.series.slope.at(x) / self.family.squared_length
 
     def step(self, state: str) -> str:
         push = smooth_state(state)

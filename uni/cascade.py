@@ -10,6 +10,10 @@ value is found without waiting for an orbit to settle, and near a doubling an or
 And the fourth rung's first number. At each superstable value the cycle's point nearest the top
 is the one half a period round from it, and each doubling brings that point nearer by the same
 factor, -alpha, whatever the map's shape: the cycles shrink in space as the values do along the gain.
+
+And its second. Noise put in at every step of a superstable cycle moves where the cycle returns,
+by an amount that grows at each doubling faster than the cycle shrinks: measured against the cycle's
+own size, by kappa. So each doubling more that noise lets through needs it smaller by kappa.
 """
 
 from __future__ import annotations
@@ -24,7 +28,7 @@ from uni.loop import orbit
 from uni.parse import ConfigError
 
 if TYPE_CHECKING:
-    from uni.loop import Map
+    from uni.loop import Map, Sloped
     from uni.maps import Numbers
 
 
@@ -67,23 +71,59 @@ def superstable(values: Sequence[float], returned: Sequence[Mapping[int, float]]
     return fit(values, [landed[period] for landed in returned], 2)
 
 
+def amplification(map: Sloped, numbers: Numbers, critical: str, period: int) -> float:
+    """How far noise of unit size put in at each of `period` steps from the top moves where the orbit lands, as a standard deviation.
+
+    Noise landing at x_k is carried to the end by the slopes at x_k .. x_(p-1), so the variance
+    after p steps is the sum over k of those products squared: 1 for the noise of the last step, and
+    each earlier one carried by one slope more. The top's own slope, which is zero, carries nothing,
+    since noise put in before the first step is noise in the start.
+    """
+    slopes = [map.slope(numbers.read(state)) for state in islice(orbit(map, critical), period - 1)]
+    variance = carried = 1.0
+    for slope in reversed(slopes):
+        carried *= slope * slope
+        variance += carried
+    return math.sqrt(variance)
+
+
+def evaluated(values: Sequence[float], readings: Sequence[float], zero: Estimate) -> Estimate:
+    """A reading taken across the grid, through a parabola, at the superstable value: its error the parabola's own there and the value's carried along its slope.
+
+    Added as if independent: the readings and the return that placed the value come from the same
+    orbits, but the return crosses zero on the grid and these do not, so each is set by a different
+    part of what the orbits read.
+    """
+    parabola = fit(values, readings, 2)
+    slope = parabola.at(zero.value, 1) / parabola.scale
+    return Estimate(parabola.at(zero.value), math.sqrt(parabola.spread(zero.value) + (slope * zero.error) ** 2))
+
+
 def nearest(values: Sequence[float], returned: Sequence[Mapping[int, float]], period: int, zero: Estimate) -> Estimate:
     """F^(p/2)(x_c) - x_c at the superstable value of an even period p: how far the cycle's point nearest the top lies from it.
 
-    Read from the returns the grid already holds, since half the period divides it, through a
-    parabola evaluated at the value the return after the whole period crosses zero at. Its error is
-    the parabola's own at that value and the value's error carried along the parabola's slope, added
-    as if independent: both fits are through the same orbits, but the half-period's return is far
-    from zero on the grid and the whole period's crosses it, so each is set by a different reading.
+    Read from the returns the grid already holds, since half the period divides it.
     """
-    parabola = fit(values, [landed[period // 2] for landed in returned], 2)
-    slope = parabola.at(zero.value, 1) / parabola.scale
-    return Estimate(parabola.at(zero.value), math.sqrt(parabola.spread(zero.value) + (slope * zero.error) ** 2))
+    return evaluated(values, [landed[period // 2] for landed in returned], zero)
 
 
 def quotients(values: Sequence[Estimate]) -> tuple[Estimate, ...]:
     """Each value divided by the next, with the error the two independent errors give it: the distances' ratios, which run to -alpha."""
     return tuple(Estimate(first.value / after.value, abs(first.value / after.value) * math.hypot(first.error / first.value, after.error / after.value)) for first, after in zip(values, values[1:]))
+
+
+def growths(noises: Sequence[Estimate], distances: Sequence[Estimate]) -> tuple[Estimate, ...]:
+    """How much more the noise moves each cycle than the one before, measured against each cycle's nearest distance: the ratios that run to kappa.
+
+    Each of the four numbers is read on a grid of its own period, two to a grid, and the errors are
+    added as independent, as `evaluated` adds its two.
+    """
+    found = []
+    for (noise, distance), (after, closer) in zip(zip(noises, distances), zip(noises[1:], distances[1:])):
+        growth = abs(after.value / noise.value * distance.value / closer.value)
+        relative = math.hypot(noise.error / noise.value, after.error / after.value, distance.error / distance.value, closer.error / closer.value)
+        found.append(Estimate(growth, growth * relative))
+    return tuple(found)
 
 
 def ratios(values: Sequence[Estimate]) -> tuple[Estimate, ...]:

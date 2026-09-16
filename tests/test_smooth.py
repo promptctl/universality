@@ -42,7 +42,16 @@ def test_the_logistic_map_fitted_as_a_curve_has_the_logistic_cascade(logistic, c
     printed = capsys.readouterr().out.splitlines()
     assert [float(line.split()[1]) for line in printed[1:6]] == pytest.approx([3.23606797749979, 3.4985616993277, 3.55464086276882, 3.56666737985627, 3.56924353163711], abs=2e-9)
     assert [float(line.split(": ")[1].split()[0]) for line in printed[6:9]] == pytest.approx([4.6808, 4.6630, 4.6684], abs=1e-4)
-    assert [float(line.split(": ")[1].split()[0]) for line in printed[9:]] == pytest.approx([-2.6547, -2.5318, -2.5087, -2.5041], abs=1e-4)
+    assert [float(line.split(": ")[1].split()[0]) for line in printed[9:13]] == pytest.approx([-2.6547, -2.5318, -2.5087, -2.5041], abs=1e-4)
+    assert [float(line.split(": ")[1].split()[0]) for line in printed[13:]] == pytest.approx([6.8839697, 6.660634, 6.627796, 6.620746], abs=1e-5)
+
+
+def test_the_slope_is_numpy_s_derivative_of_the_series():
+    coefficients = tuple(random.Random(3).uniform(-1, 1) for _ in range(40))
+    series, reference = Series(-19.0, 10.0, coefficients), Chebyshev(coefficients, domain=[-19.0, 10.0]).deriv()
+    for x in (-19.0, -8.614, 0.0, 3.3, 10.0):
+        assert series.slope.at(x) == pytest.approx(float(reference(x)), rel=1e-12, abs=1e-12)
+    assert Series(0.0, 1.0, (2.0,)).slope.at(0.5) == 0.0
 
 
 def test_its_top_is_where_the_logistic_map_s_is(logistic, capsys):

@@ -959,8 +959,8 @@ top: moving the fit's top by the model top's error, 2e-5, either way moves its d
 gap grows about tenfold a doubling from period 16, through 9e-6, 9.8e-5 and 9.9e-4. It has two
 candidate causes, and these measurements do not tell them apart. One is the model's float32
 roughness, about 7e-6 of push a step, which the direct reading carries and the fits remove. The
-other is shape the fits miss. Noise of the roughness's size on the smooth map would decide between
-them, and that is the next rung's measurement: how noise truncates the cascade.
+other is shape the fits miss. The section after next measures how noise is carried along these cycles, and finds the roughness
+large enough.
 
 <details>
 <summary>The period-64 grids, and the fit from moved tops</summary>
@@ -979,6 +979,95 @@ them, and that is the next rung's measurement: how noise truncates the cascade.
     done
 
 </details>
+
+### Kappa: how much noise each doubling needs removed
+
+Noise truncates a cascade. With noise in every step, the cycles that are smaller than the noise can
+no longer be told apart, and the doublings stop being seen at the period where that happens. The
+theory's third number, kappa = 6.619, says where: each doubling more needs the noise smaller by
+kappa.
+
+It is read off the same superstable cycles. Put noise of unit size into every step of the cycle from
+the top. Noise landing at x_k is carried to the cycle's return by the slopes at x_k to x_(p-1), so
+the return moves by
+
+    G_p = sqrt(sum over k of (F'(x_k) F'(x_(k+1)) ... F'(x_(p-1)))^2)
+
+its noise gain. From one doubling to the next the gain grows and the cycle shrinks. Measured against
+the cycle's own size, the distance d of the last section, the noise's reach grows by (G_2p / G_p)
+|d_p / d_2p|, and that runs to kappa. `uni cascade` prints G_p beside the nearest point, through a
+parabola across the grid as the distances are, and the growth for each pair of periods:
+
+    noise growth over periods 2, 4: 4.4768900 +- 6.3e-06
+
+It does so for the maps whose slope is exact: the logistic map's, from its formula, and a smooth
+map's, from the derivative of its series. The model's own answer has no slope to give. It is float32
+and rough at 1e-5, and a difference across that roughness is the roughness's slope.
+
+On the logistic map, on grids a hundredth of a spacing wide and taken to period 8192,
+
+    uv run uni cascade --map logistic --critical 0.5 --period 2 \
+        --grid 3.2360494775:3.2360994775:21 --grid 3.49759047256:3.50021540978:21 \
+        --grid 3.55443336986:3.5549941615:21 --grid 3.56662288174:3.56674314691:21 \
+        --grid 3.56923399988:3.56925976139:21 --grid 3.56979325223:3.56979876985:21 \
+        --grid 3.56991302819:3.5699142099:21 --grid 3.56993868059:3.56993893368:21 \
+        --grid 3.56994417455:3.56994422876:21 --grid 3.56994535119:3.5699453628:21 \
+        --grid 3.56994560319:3.56994560568:21 --grid 3.56994565716:3.56994565769:21 \
+        --grid 3.56994566872:3.56994566883:21
+
+the growths are 6.8839698, 6.6606340, 6.6277960, 6.6207460 and 6.6194037 over periods 2 to 64. They
+settle at 6.6190372 +- 6.9e-8 over 512, 1024 and 6.6190367 +- 1.5e-6 over 2048, 4096. The same gains
+solved to 40 digits with mpmath, in `tests/test_cascade.py`, give 6.8839697, 6.660634, 6.627796 and
+6.620746. So kappa, read this way, is 6.619037.
+
+On the four fits of the model's answer, from the commands of the section before last:
+
+| periods | logistic | degree 60 | degree 90 | degree 150 | degree 220 |
+| :------ | -------: | --------: | --------: | ---------: | ---------: |
+| 2, 4 | 6.88397 | 4.47906 | 4.47391 | 4.47689 | 4.47687 |
+| 4, 8 | 6.66063 | 10.05310 | 10.07673 | 10.04598 | 10.04550 |
+| 8, 16 | 6.62780 | 5.80916 | 5.79721 | 5.82400 | 5.82383 |
+| 16, 32 | 6.62075 | 6.96005 | 7.03265 | 6.99047 | 6.99144 |
+| 32, 64 | 6.61940 | 6.47864 | 6.45611 | 6.47688 | 6.47401 |
+| 64, 128 | 6.61911 | 6.67539 | 6.68181 | 6.67743 | 6.67717 |
+| 128, 256 | 6.61905 | 6.59621 | 6.59325 | 6.59573 | 6.59557 |
+| 256, 512 | 6.61904 | 6.62810 | 6.62918 | 6.62836 | 6.62832 |
+| 512, 1024 | 6.61904 | 6.61540 | 6.61495 | 6.61531 | 6.61531 |
+| 1024, 2048 | 6.61904 | 6.62049 | 6.62066 | 6.62053 | 6.62052 |
+| 2048, 4096 | 6.61904 | 6.61846 | 6.61839 | 6.61844 | 6.61844 |
+| 4096, 8192 | 6.61904 | 6.61927 | 6.61930 | 6.61927 | 6.61927 |
+
+The fitted growths carry errors of 2.8e-6 to 5.4e-5.
+
+The pattern is alpha's. The early growths belong to the hump: they go 4.48, 10.05, 5.82, 6.99, 6.48
+on degree 150, where the logistic map's fall steadily from 6.88. From period 64 on they alternate
+about 6.619, and each one's distance from 6.619037 is -1/2.43 to -1/2.54 times the one before, for
+all four fits. Over 2048, 4096 and 4096, 8192 they read 6.61839 to 6.61846 and 6.61927 to 6.61930,
+either side of the logistic map's 6.619037. Aitken's extrapolation on the last three growths printed
+gives 6.6190360, 6.6190362, 6.6190367 and 6.6190361 for degrees 60, 90, 150 and 220: the logistic
+map's kappa to within 1.2e-6, from growths printed with errors of about 5e-6.
+
+The noise gain also accounts for what the model's direct readings could not resolve. The curve's
+jitter, 1.35e-5 in the answer, is 6.9e-6 of push a step at a gain of 4.55, and the direct cascade's
+returns scatter about their parabolas by that jitter carried by the gain:
+
+| period | jitter x gain / squared length x G_p | direct scatter |
+| -----: | -----------------------------------: | -------------: |
+| 2 | 8.2e-06 | 1.3e-06 |
+| 4 | 2.3e-05 | 2.9e-05 |
+| 8 | 6.4e-05 | 6.0e-05 |
+| 16 | 1.7e-04 | 1.9e-04 |
+| 32 | 4.6e-04 | 4.2e-04 |
+| 64 | 1.2e-03 | 8.0e-04 |
+
+G_p is the degree-150 fit's, at the model's own superstable gains. From period 4 to 64 the scatter
+is 0.66 to 1.27 times the prediction. At period 2 it is 0.16 of it, but there the grid's 21 orbits
+all start from the one push x_c and take their second step from pushes within 0.014 of each other,
+so most of their roughness is shared and shifts the return instead of scattering it. So the model's
+float32 roughness is noise the cascade carries, and at period 64 it moves the return by 1e-3. That
+is the size of the gap between the model's d_64 and the fits'. Whether that roughness is what makes
+the gap is a question about a bias rather than a scatter, and it is left to the measurement of what
+temperature's noise does to this loop.
 
 ## Running on the experiment host
 

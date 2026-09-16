@@ -637,19 +637,23 @@ def run_fixed(args: argparse.Namespace) -> int:
 
 def run_cascade(args: argparse.Namespace) -> int:
     """Print the superstable value on each grid, one period doubled per grid, and the ratios of their spacings."""
-    from uni.cascade import nearest, quotients, ratios, returns, superstable
+    from uni.cascade import amplification, evaluated, growths, nearest, quotients, ratios, returns, superstable
     from uni.fit import crossing
+    from uni.loop import Sloped
     from uni.sweep import grid
 
     grids = tuple(grid(text) for text in args.grid)
     family = args.map.build(args, tuple(value for values in grids for value in values))
     numbers = numbers_of(family, "cascade")
     family.holds((args.critical,))
-    print(f"{'period':>6}  {'superstable value':>18}  {'error':>8}  {'scatter':>8}  {'nearest point':>15}  {'error':>8}", flush=True)
+    # Noise is carried along a cycle by the map's slopes, which only a map that knows them exactly has.
+    sloped = isinstance(family.at(grids[0][0]), Sloped)
+    print(f"{'period':>6}  {'superstable value':>18}  {'error':>8}  {'scatter':>8}  {'nearest point':>15}  {'error':>8}" + (f"  {'noise gain':>15}  {'error':>8}" if sloped else ""), flush=True)
     periods = tuple(args.period * 2**doubling for doubling in range(len(grids)))
-    found, distances = [], {}
+    found, distances, noises = [], {}, {}
     for period, values in zip(periods, grids):
-        returned = [returns(family.at(value), numbers, args.critical, period) for value in values]
+        maps = [family.at(value) for value in values]
+        returned = [returns(map, numbers, args.critical, period) for map in maps]
         parabola = superstable(values, returned, period)
         found.append(crossing(parabola, 0))
         row = f"{period:>6}  {found[-1].value:>18.10g}  {found[-1].error:>8.1e}  {parabola.scatter:>8.1e}"
@@ -657,6 +661,9 @@ def run_cascade(args: argparse.Namespace) -> int:
         if period % 2 == 0:
             distances[period] = nearest(values, returned, period, found[-1])
             row += f"  {distances[period].value:>15.8e}  {distances[period].error:>8.1e}"
+            if sloped:
+                noises[period] = evaluated(values, [amplification(map, numbers, args.critical, period) for map in maps], found[-1])
+                row += f"  {noises[period].value:>15.8e}  {noises[period].error:>8.1e}"
         print(row, flush=True)
     for index, ratio in enumerate(ratios(found)):
         # Every digit a float gives, and the error beside it, as the values above are printed: which
@@ -664,6 +671,8 @@ def run_cascade(args: argparse.Namespace) -> int:
         print(f"spacing ratio over periods {', '.join(map(str, periods[index : index + 3]))}: {ratio.value:.7f} +- {ratio.error:.1e}")
     for (period, _), quotient in zip(distances.items(), quotients(tuple(distances.values()))):
         print(f"nearest-point ratio over periods {period}, {2 * period}: {quotient.value:.7f} +- {quotient.error:.1e}")
+    for period, growth in zip(noises, growths(tuple(noises.values()), tuple(distances[period] for period in noises))):
+        print(f"noise growth over periods {period}, {2 * period}: {growth.value:.7f} +- {growth.error:.1e}")
     return 0
 
 
