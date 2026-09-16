@@ -324,9 +324,8 @@ def test_a_cell_that_would_write_a_file_this_sweep_cannot_find_stops_it(capsys, 
     ],
 )
 def test_a_manifest_that_does_not_describe_a_sweep_is_refused(tmp_path, raw, message):
-    # The invariant belongs to the sweep and not to the grid: a repeated `--start` and a
-    # hand-edited manifest arrive at it by different doors, and `Infinity` is a value only
-    # Python's own reader would hand back.
+    # The invariant belongs to the sweep and not to the grid: a repeated `--start` reaches it
+    # without passing through one, and `Infinity` is a value only Python's own reader hands back.
     path = tmp_path / MANIFEST
     path.write_text(raw)
     with pytest.raises(SweepError, match=message):

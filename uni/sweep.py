@@ -98,8 +98,8 @@ class Sweep:
         # them is a run that can be written down. A value or a start named twice is one cell named
         # twice: both runs write one file, so the second overwrites the first for no new data, the
         # count `described` prints is one the directory can never reach, and every resume runs the
-        # duplicate again. It is the manifest's invariant and not the grid's, because a repeated
-        # `--start` and a hand-edited manifest arrive here by different doors.
+        # duplicate again. It belongs to the sweep and not to `grid`, because a repeated `--start`
+        # never passes through a grid at all.
         if not all(math.isfinite(value) for value in self.values):
             raise SweepError(f"a sweep's values are finite numbers, and these are not: {self.values}")
         if self.steps < 1:
