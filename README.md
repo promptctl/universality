@@ -451,13 +451,44 @@ repeated in six steps. Its return map stays near the diagonal: no step moves a s
 characters or more by more than 37% (94 to 129, on its way to a fixed point), and the one point
 far from it, 44 to 170, belongs to a 28-character start that has still not settled at step 6.
 
+Turning the knob does not change that. The same 24 starts under the formality direction, at five
+coefficients inside the range where replies end:
+
+    uv run uni sweep --template rewrite --knob formality --grid=-2:2:5 --starts harbor --starts memo --steps 6
+    uv run uni plot sweeps/5417892e26309123 --observable along:formality --burn-in 0
+
+| coefficient | written | refused | fixed points (all distinct) | period 2 | no repeat in 6 steps |
+|---:|---:|---:|---:|---:|---:|
+| -2.0 | 21 | 3 | 21 | 0 | 0 |
+| -1.0 | 22 | 2 | 22 | 0 | 0 |
+| 0.0 | 24 | 0 | 18 | 4 | 2 |
+| 1.0 | 23 | 1 | 15 | 1 | 7 |
+| 2.0 | 10 | 14 | 9 | 0 | 1 |
+
+The sweep exits `79` with 100 of 120 cells written; every refusal is a reply that did not end
+within the budget. The row at 0.0 is the unsteered sweep above over again, all 24 orbits text for
+text, which is what adding zero times a direction should be. At every coefficient each start
+that settles settles on a fixed point of its own - 85 of them, no two alike. Steering toward
+formal makes the orbits restless, seven of 23 still moving at step 6 at 1.0, but restless along
+the diagonal rather than onto a common attractor.
+
+![return map of the steered rewrite loop from 24 starts](figures/5417892e26309123-along-formality-burn0-return.png)
+
+Read along the direction that steers it, the return map is a band on the diagonal from -8 to 7,
+tight where the coefficient is negative and loosening above 2 where the formal coefficients spread
+it. There is no hump in it anywhere.
+
 This is a result about the structure the theory needs, and it is negative. Period doubling is a
 single attracting fixed point losing stability as a knob turns - its slope in the return map
 passing through -1. These loops do not have a single attracting fixed point to lose. Each start
 lands on a fixed point of its own within a step or two, so the set of fixed points is as large as
 the set of starts, the slope along it is +1, and there is no hump for a slope to steepen on. A
 content-preserving instruction under greedy decoding is close to idempotent: the model's first
-answer is already the answer it would give to itself.
+answer is already the answer it would give to itself, steered or not.
+
+What it points to is a loop that forgets where it started, which a loop carrying the whole text
+forward cannot: a state small enough that the map is a smooth function of one number, as
+PROJECT.md's continuous version of the loop has it. That is filed as `universality-rung1-7er`.
 
 ## Running on the experiment host
 
