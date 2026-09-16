@@ -880,6 +880,106 @@ What this rests on is that the series is the model's answer. Degree 150 fits the
 times the curve's own jitter and places the model's six measurable superstable gains within 2.2
 of their errors, and every degree, however loosely fitted, carries the cascade to the same delta.
 
+### Alpha: the cycles shrink by the same factor
+
+Delta is how the superstable gains close in along the knob. Alpha, the second of Feigenbaum's
+constants, is how the cycles themselves close in on the top. At the superstable gain of period p the
+orbit of the top x_c is a cycle, and its point nearest the top is the one half a period round:
+
+    d = F^(p/2)(x_c) - x_c
+
+Each doubling brings that point nearer by a factor of 2.5029 and puts it on the other side,
+so d_n / d_(n+1) runs to -2.5029, whatever the shape of a quadratic hump.
+
+`uni cascade` reads it from the grids it already holds, since half a period divides the period. It
+fits a parabola through the half-period's return on each grid and evaluates it at the superstable
+gain. The error is that parabola's own and the gain's error carried along its slope. Each row gains
+the nearest point and its error, and a line follows the spacing ratios for each pair of periods:
+
+    nearest-point ratio over periods 2, 4: -2.1673930 +- 4.6e-06
+
+On the logistic map,
+
+    uv run uni cascade --map logistic --critical 0.5 --period 2 --grid 3.2355:3.2365:11 \
+        --grid 3.4981:3.4991:11 --grid 3.5544:3.5549:11 --grid 3.56655:3.56675:11 --grid 3.5692:3.5693:11
+
+prints the ratios -2.6547448, -2.5318377, -2.5087183 and -2.5041118. The same distances solved to 40
+digits with mpmath, in `tests/test_cascade.py`, give -2.6547448, -2.5318377, -2.5087182 and
+-2.5041128: they agree to 1e-6. The commands of
+the two sections above print these for the model and its four fits:
+
+| periods | model | degree 60 | degree 90 | degree 150 | degree 220 |
+| :------ | ----: | --------: | --------: | ---------: | ---------: |
+| 2, 4 | -2.16739 +- 4.6e-06 | -2.16809 | -2.16662 | -2.16739 | -2.16737 |
+| 4, 8 | -3.82764 +- 4.2e-05 | -3.82671 | -3.83220 | -3.82763 | -3.82773 |
+| 8, 16 | -2.21061 +- 2.0e-04 | -2.21656 | -2.20362 | -2.21064 | -2.21060 |
+| 16, 32 | -2.64443 +- 1.4e-03 | -2.63794 | -2.66437 | -2.64529 | -2.64605 |
+| 32, 64 | -2.42986 +- 5.8e-03 | -2.45031 | -2.44271 | -2.44933 | -2.44861 |
+| 64, 128 | | -2.52445 | -2.52691 | -2.52511 | -2.52510 |
+| 128, 256 | | -2.49431 | -2.49322 | -2.49411 | -2.49408 |
+| 256, 512 | | -2.50634 | -2.50676 | -2.50644 | -2.50643 |
+| 512, 1024 | | -2.50153 | -2.50136 | -2.50150 | -2.50150 |
+| 1024, 2048 | | -2.50346 | -2.50352 | -2.50347 | -2.50347 |
+| 2048, 4096 | | -2.50269 | -2.50266 | -2.50268 | -2.50268 |
+| 4096, 8192 | | -2.50300 | -2.50301 | -2.50300 | -2.50300 |
+
+The fitted ratios carry errors of 2e-7 to 2.7e-6.
+
+The early ratios belong to the shape, as delta's did. They swing from -2.17 to -3.83 and back, where
+the logistic map's fall steadily from -2.65. The late ratios belong to no fit in particular. From
+period 64 on they alternate about -2.5029, and each one's distance from it is -1/2.47 to -1/2.52
+times the one before, for all four fits. Over 2048, 4096 and 4096, 8192 the fits read -2.50266 to
+-2.50269 and -2.50300 to -2.50301, which bracket alpha = 2.5029079. Aitken's extrapolation of a
+geometric approach, taken on the last three ratios printed (1024, 2048 through 4096, 8192), gives
+-2.5029084, -2.5029076, -2.5029077 and -2.5029082 for degrees 60, 90, 150 and 220. That is alpha to
+within 5e-7, from ratios printed with errors of about 1e-6, and the extrapolation assumes only that
+the approach is geometric, which the steady ratio of the distances shows it is.
+
+The model's own distances and those of the degree-150 fit, from the same commands:
+
+| period | model | error | degree 150 | model - fit |
+| -----: | ----: | ----: | ---------: | ----------: |
+| 2 | 14.1050843 | 1.8e-07 | 14.1050807 | 3.6e-06 |
+| 4 | -6.5078572 | 1.4e-05 | -6.5078541 | -3.1e-06 |
+| 8 | 1.7002267 | 1.8e-05 | 1.7002313 | -4.6e-06 |
+| 16 | -0.7691226 | 7.0e-05 | -0.7691136 | -9.0e-06 |
+| 32 | 0.2908460 | 1.5e-04 | 0.2907482 | 9.8e-05 |
+| 64 | -0.1196967 | 2.8e-04 | -0.1187053 | -9.9e-04 |
+
+From period 4 to 32 they agree within 0.65 of the model's errors, and so do the ratios through 16,
+32. At period 2 the gap is 20 errors, but d there is a single step from the one push x_c, and
+nothing averages the model's roughness at that push. The 3.6e-6 is 1.05e-5 in the model's answer
+once the gain and squared length are divided out, which is the size of its jitter.
+
+At period 64 the model's distance is 3.5 of its errors from the fit's, and its ratio over 32, 64 is
+3.4 errors from the fit's. The gap is not the grid. The model read on the grid above, on grids twice
+and half as wide, and on one twice as dense, gives -0.119697, -0.119346, -0.119618 and -0.119780,
+each with errors of 2.3e-4 to 4.5e-4, while every fit at the jitter reads -0.11871. Nor is it the
+top: moving the fit's top by the model top's error, 2e-5, either way moves its distance by 4e-5. The
+gap grows about tenfold a doubling from period 16, through 9e-6, 9.8e-5 and 9.9e-4. It has two
+candidate causes, and these measurements do not tell them apart. One is the model's float32
+roughness, about 7e-6 of push a step, which the direct reading carries and the fits remove. The
+other is shape the fits miss. Noise of the roughness's size on the smooth map would decide between
+them, and that is the next rung's measurement: how noise truncates the cascade.
+
+<details>
+<summary>The period-64 grids, and the fit from moved tops</summary>
+
+    for grid in 4.5478:4.5491:21 4.54717:4.54977:21 4.54815:4.54880:21 4.5478:4.5491:41; do
+        uv run uni cascade --map response --template rewrite --knob formality \
+            --text "The meeting moved to Thursday because the room was booked." \
+            --layer 23 --decimals 6 --critical=-8.614030 --period 64 --grid $grid
+    done
+
+    for top in -8.61401 -8.61405; do
+        uv run uni cascade --map smooth --curve curves/1bb8e39470dc1a00.json --layer 23 \
+            --degree 150 --critical=$top --period 2 \
+            --grid 3.06727:3.07527:21 --grid 4.1438:4.1876:21 --grid 4.46037:4.47239:21 \
+            --grid 4.53008:4.53268:21 --grid 4.545166:4.545728:21 --grid 4.5484020:4.5485226:21
+    done
+
+</details>
+
 ## Running on the experiment host
 
 Every `uni` command accepts `--remote`. With it, this working tree, uncommitted edits

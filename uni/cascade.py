@@ -6,6 +6,10 @@ the most stable cycle of its period there can be. Each period 2^n of a cascade h
 superstable value, between its birth and its own doubling, and the spacings of those values
 shrink by the same ratio as the doublings do: Feigenbaum's delta. Unlike a doubling, a superstable
 value is found without waiting for an orbit to settle, and near a doubling an orbit settles slowly.
+
+And the fourth rung's first number. At each superstable value the cycle's point nearest the top
+is the one half a period round from it, and each doubling brings that point nearer by the same
+factor, -alpha, whatever the map's shape: the cycles shrink in space as the values do along the gain.
 """
 
 from __future__ import annotations
@@ -61,6 +65,25 @@ def superstable(values: Sequence[float], returned: Sequence[Mapping[int, float]]
                 f"the orbit of the top closes after {steps} steps there, and so after {period} as well; move the grid past it"
             )
     return fit(values, [landed[period] for landed in returned], 2)
+
+
+def nearest(values: Sequence[float], returned: Sequence[Mapping[int, float]], period: int, zero: Estimate) -> Estimate:
+    """F^(p/2)(x_c) - x_c at the superstable value of an even period p: how far the cycle's point nearest the top lies from it.
+
+    Read from the returns the grid already holds, since half the period divides it, through a
+    parabola evaluated at the value the return after the whole period crosses zero at. Its error is
+    the parabola's own at that value and the value's error carried along the parabola's slope, added
+    as if independent: both fits are through the same orbits, but the half-period's return is far
+    from zero on the grid and the whole period's crosses it, so each is set by a different reading.
+    """
+    parabola = fit(values, [landed[period // 2] for landed in returned], 2)
+    slope = parabola.at(zero.value, 1) / parabola.scale
+    return Estimate(parabola.at(zero.value), math.sqrt(parabola.spread(zero.value) + (slope * zero.error) ** 2))
+
+
+def quotients(values: Sequence[Estimate]) -> tuple[Estimate, ...]:
+    """Each value divided by the next, with the error the two independent errors give it: the distances' ratios, which run to -alpha."""
+    return tuple(Estimate(first.value / after.value, abs(first.value / after.value) * math.hypot(first.error / first.value, after.error / after.value)) for first, after in zip(values, values[1:]))
 
 
 def ratios(values: Sequence[Estimate]) -> tuple[Estimate, ...]:

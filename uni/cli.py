@@ -637,7 +637,7 @@ def run_fixed(args: argparse.Namespace) -> int:
 
 def run_cascade(args: argparse.Namespace) -> int:
     """Print the superstable value on each grid, one period doubled per grid, and the ratios of their spacings."""
-    from uni.cascade import ratios, returns, superstable
+    from uni.cascade import nearest, quotients, ratios, returns, superstable
     from uni.fit import crossing
     from uni.sweep import grid
 
@@ -645,18 +645,25 @@ def run_cascade(args: argparse.Namespace) -> int:
     family = args.map.build(args, tuple(value for values in grids for value in values))
     numbers = numbers_of(family, "cascade")
     family.holds((args.critical,))
-    print(f"{'period':>6}  {'superstable value':>18}  {'error':>8}  {'scatter':>8}", flush=True)
-    found = []
-    for doubling, values in enumerate(grids):
-        period = args.period * 2**doubling
-        parabola = superstable(values, [returns(family.at(value), numbers, args.critical, period) for value in values], period)
+    print(f"{'period':>6}  {'superstable value':>18}  {'error':>8}  {'scatter':>8}  {'nearest point':>15}  {'error':>8}", flush=True)
+    periods = tuple(args.period * 2**doubling for doubling in range(len(grids)))
+    found, distances = [], {}
+    for period, values in zip(periods, grids):
+        returned = [returns(family.at(value), numbers, args.critical, period) for value in values]
+        parabola = superstable(values, returned, period)
         found.append(crossing(parabola, 0))
-        print(f"{period:>6}  {found[-1].value:>18.10g}  {found[-1].error:>8.1e}  {parabola.scatter:>8.1e}", flush=True)
+        row = f"{period:>6}  {found[-1].value:>18.10g}  {found[-1].error:>8.1e}  {parabola.scatter:>8.1e}"
+        # An odd period has no point half a period round; the first of a cascade from an odd one is its only such row.
+        if period % 2 == 0:
+            distances[period] = nearest(values, returned, period, found[-1])
+            row += f"  {distances[period].value:>15.8e}  {distances[period].error:>8.1e}"
+        print(row, flush=True)
     for index, ratio in enumerate(ratios(found)):
-        periods = ", ".join(str(args.period * 2**doubling) for doubling in range(index, index + 3))
         # Every digit a float gives, and the error beside it, as the values above are printed: which
         # of those digits mean anything is the error's to say, and a smooth map's say more than four do.
-        print(f"spacing ratio over periods {periods}: {ratio.value:.7f} +- {ratio.error:.1e}")
+        print(f"spacing ratio over periods {', '.join(map(str, periods[index : index + 3]))}: {ratio.value:.7f} +- {ratio.error:.1e}")
+    for (period, _), quotient in zip(distances.items(), quotients(tuple(distances.values()))):
+        print(f"nearest-point ratio over periods {period}, {2 * period}: {quotient.value:.7f} +- {quotient.error:.1e}")
     return 0
 
 
