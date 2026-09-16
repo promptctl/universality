@@ -89,7 +89,8 @@ count. Rerunning the same command rewrites the same file with the same bytes. Wi
 
 The templates live in [uni/templates.toml](uni/templates.toml), each holding `{state}`
 exactly once. `identity` asks for the state back unchanged, `empty` sends the state as
-the whole prompt, and `rewrite` asks for a rewrite. The start may be empty.
+the whole prompt, `rewrite` asks for a rewrite, and `summarize` for a summary. The start may be
+empty.
 
 `--map` chooses which map is iterated, and defaults to the model. Whichever it is, the runner
 only ever calls `step(state)` on it, so nothing below the command line knows there is more than
@@ -180,6 +181,12 @@ One map run at every value on a grid, from every start, kept together:
 asked for rather than what the arithmetic lands near — a sweep to r = 4 is a sweep to the edge of
 the logistic map's range, and one ulp past it is a cell the map refuses. `--start` is repeated
 once per start. Everything else means what it means for `uni loop`.
+
+`--starts NAME` runs a whole set of starts from [uni/starts.toml](uni/starts.toml): a passage cut
+after each of a list of word counts, so the starts spread over how long a state is rather than
+sitting wherever one typed sentence happens to. It can be repeated, and mixed with `--start`; the
+typed starts come first, then each set in the order named. The sweep is named for the starts
+themselves, so a set and the same starts typed out are one sweep, and editing a set is a new one.
 
 A sweep runs each cell exactly once, so a grid or a set of starts that names one twice is refused
 rather than run twice into one file, and so is a grid the map cannot take — every value is offered
@@ -413,6 +420,44 @@ direction, this start, this step count and this resolution, the rewrite loop doe
 double where it is defined, which is between -2.5 and 2.0. It converges or cycles near zero.
 Whether a finer grid inside that range, a longer run, more starts, or another knob would show
 anything else is the next question, and it is the question Rung 1 exists to ask.
+
+### The loops from many starts: is there a hump?
+
+A sweep from one start shows where that start's orbit settles and nothing about the map around
+it. Rung 1 asks for the map's shape, and a map's shape is only drawn where there are states, so
+these sweeps hold the knob still and spread the starts instead: the two start sets, each a passage
+cut at 1, 2, 3, 5, 8, 12, 18, 27, 40, 60, 90 and 130 words, 24 starts from 3 to 830 characters.
+
+    uv run uni sweep --template summarize --knob none --grid 0:0:1 --starts harbor --starts memo --steps 6
+    uv run uni plot sweeps/2ec2ab48ac42aa38 --observable length --burn-in 0
+    uv run uni sweep --template rewrite --knob none --grid 0:0:1 --starts harbor --starts memo --steps 6
+    uv run uni plot sweeps/d118c0eae9b434f2 --observable length --burn-in 0
+
+![return map of the summarize loop from 24 starts](figures/2ec2ab48ac42aa38-length-burn0-return.png)
+
+**Summarize has no hump, and no one fixed point either.** Every one of its 23 orbits is a fixed
+point by step 3, exactly - the same text, byte for byte, from then on - and 20 of them by step 2.
+They are 23 *different* fixed points: no two starts settle on the same text, and their lengths run
+from 114 to 1151 characters. The one cell refused is the memo cut at 12 words, whose summary does
+not end within the 256-token budget. So the return map is the diagonal with a few transient
+points off it, which is what a map looks like when nearly every state it writes is one it will
+write again: a summary of a summary, to this model under greedy decoding, is the same summary.
+
+![return map of the rewrite loop from 24 starts](figures/d118c0eae9b434f2-length-burn0-return.png)
+
+**Rewrite is the same with a little more motion.** Of its 24 orbits, 18 are fixed points within
+four steps - again 18 different ones, none shared - four are period 2 by step 4, and two have not
+repeated in six steps. Its return map stays near the diagonal: no step moves a state of 60
+characters or more by more than 37% (94 to 129, on its way to a fixed point), and the one point
+far from it, 44 to 170, belongs to a 28-character start that has still not settled at step 6.
+
+This is a result about the structure the theory needs, and it is negative. Period doubling is a
+single attracting fixed point losing stability as a knob turns - its slope in the return map
+passing through -1. These loops do not have a single attracting fixed point to lose. Each start
+lands on a fixed point of its own within a step or two, so the set of fixed points is as large as
+the set of starts, the slope along it is +1, and there is no hump for a slope to steepen on. A
+content-preserving instruction under greedy decoding is close to idempotent: the model's first
+answer is already the answer it would give to itself.
 
 ## Running on the experiment host
 
