@@ -34,3 +34,10 @@ def test_a_few_layers_on_the_response_rises_to_one_maximum_and_falls(model, form
 def test_a_layer_before_the_push_is_refused(model, formality):
     with pytest.raises(ModelError, match="at or after the layer the direction pushes, 12"):
         response(model, PROMPT, formality, 1.0, 11)
+
+
+def test_turns_are_where_the_slope_changes_sign_on_the_grid_as_given():
+    from uni.response import turns
+
+    assert turns((0, 1, 2, 3, 4), (0, 2, 3, 1, 5)) == (2, 3)
+    assert turns((0, 1, 2), (0, 1, 2)) == ()

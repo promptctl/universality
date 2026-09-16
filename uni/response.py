@@ -9,6 +9,8 @@ crosses the point where one token overtakes another.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from uni.model import Model, ModelError
 from uni.steer import Steer
 
@@ -27,3 +29,13 @@ def response(model: Model, prompt: str, steer: Steer, value: float, layer: int) 
     # line whatever the model does. What the model wrote is the stream less the push.
     pushed = sum(model.residual_vector(addition) for addition in turned.additions)
     return steer.direction.project(residual - pushed)
+
+
+def turns(values: Sequence[float], readings: Sequence[float]) -> tuple[float, ...]:
+    """The values at which the curve stops rising and falls, or stops falling and rises.
+
+    A hump is one of these with the curve falling on either side. Counted on the grid as given,
+    with nothing smoothed away, so a curve that jitters says so.
+    """
+    slopes = [after - before for before, after in zip(readings, readings[1:])]
+    return tuple(values[i + 1] for i, (left, right) in enumerate(zip(slopes, slopes[1:])) if left * right < 0)

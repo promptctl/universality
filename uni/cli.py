@@ -462,6 +462,42 @@ def run_plot(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_response(args: argparse.Namespace) -> int:
+    """Print the model's own response to each push on the grid at each layer, and draw the curves."""
+    import hashlib
+    import json
+    from dataclasses import asdict
+
+    from uni.draw import scatter
+    from uni.figure import Picture, Point
+    from uni.model import Model
+    from uni.pinned import load_pinned
+    from uni.response import response, turns
+    from uni.steer import Steer, read_direction
+    from uni.sweep import grid
+
+    values = grid(args.grid)
+    prompt = template(args.template)
+    pinned = load_pinned()
+    steer = Steer(read_direction(args.knob, pinned))
+    model = Model(pinned)
+    curves = {layer: tuple(response(model, prompt.render(args.start), steer, value, layer) for value in values) for layer in args.layer}
+    name = steer.direction.contrast.name
+    print(f"{'value':>10}" + "".join(f"{f'layer {layer}':>12}" for layer in curves))
+    for i, value in enumerate(values):
+        print(f"{value:>10.4g}" + "".join(f"{curve[i]:>12.4f}" for curve in curves.values()))
+    for layer, curve in curves.items():
+        top = max(range(len(values)), key=curve.__getitem__)
+        print(f"layer {layer}: maximum {curve[top]:.4f} at {values[top]:.4g}; the slope changes sign at {list(turns(values, curve))}")
+    # Named for everything that fixes the curves, as a sweep's pictures are named for the sweep.
+    fixed = {"pinned": asdict(pinned), "template": prompt.text, "start": args.start, "knob": steer.spec, "values": list(values), "layers": list(curves)}
+    stem = hashlib.sha256(json.dumps(fixed, sort_keys=True).encode()).hexdigest()[:16]
+    points = tuple(Point(value, reading, layer) for layer, curve in curves.items() for value, reading in zip(values, curve))
+    picture = Picture(points, f"response along {name}", f"push along {name}", f"what the layers after the push write along {name}", "layer")
+    print(scatter(picture, args.out / f"response-{stem}.png"))
+    return 0
+
+
 def verdict(period: Period) -> str:
     """What the detector saw, in a sentence. The one branch is the domain's own three answers."""
     match period:
@@ -550,6 +586,14 @@ def build_parser() -> argparse.ArgumentParser:
     plot.add_argument("--out", type=Path, default=FIGURES, help=f"where to write the figures (default: {FIGURES})")
     plot.set_defaults(run=run_plot)
     observe.set_defaults(run=run_observe)
+    answer = commands.add_parser("response", help="read how the layers after a steering push answer it, with no token generated")
+    answer.add_argument("--template", required=True, help="the template the start is rendered into, named in uni/templates.toml")
+    answer.add_argument("--knob", required=True, help="the direction in uni/directions to push along")
+    answer.add_argument("--start", required=True, help="the text the prompt is made from; write --start=TEXT when it begins with '-'")
+    answer.add_argument("--grid", required=True, help="the pushes, as FROM:TO:COUNT with TO included")
+    answer.add_argument("--layer", type=whole, action="append", required=True, help="a layer to read the response at; repeat it for each one")
+    answer.add_argument("--out", type=Path, default=Path("figures"), help="where to write the figure (default: figures)")
+    answer.set_defaults(run=run_response)
     direction = commands.add_parser("direction", help="derive a steering direction from uni/directions/<name>.toml")
     direction.add_argument("contrast", type=contrast, help="the contrast's name")
     direction.set_defaults(run=run_direction)
