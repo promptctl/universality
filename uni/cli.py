@@ -26,7 +26,7 @@ from uni.remote import RemoteConfigError, remote_target_from_env, run_remote
 from uni.template import Template, TemplateError, load_templates
 
 if TYPE_CHECKING:
-    from uni.maps import Family, Knob, Numbers
+    from uni.maps import Family, Knob, Numbers, ResponseFamily
     from uni.steer import Contrast
 
 EXIT_CONFIG = os.EX_CONFIG  # distinct from argparse's 2 and from anything rsync or ssh returns
@@ -196,6 +196,8 @@ MAP_FLAGS.add_argument("--layer", type=whole, help="the layer the response map r
 MAP_FLAGS.add_argument("--decimals", type=positive, help="the decimals the response map writes a push to (default: 4)")
 MAP_FLAGS.add_argument("--curve", type=Path, help="the curve the smooth map is fitted to, a file `uni response` wrote")
 MAP_FLAGS.add_argument("--degree", type=positive, help="the degree of the series the smooth map fits to its curve")
+MAP_FLAGS.add_argument("--temperature", type=above_zero, help="the temperature the sampled map draws the token after the prompt at")
+MAP_FLAGS.add_argument("--seed", type=whole, help="which draws the sampled map makes: the same seed draws the same tokens, another an independent run")
 MAP_OPTIONS = tuple(vars(MAP_FLAGS.parse_args([])))  # the flags above, under the names args carries them by
 
 
@@ -267,15 +269,15 @@ def logistic_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
     return family
 
 
-def response_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
-    """The model's answer to a push, fed back as the next push times the gain, where the value is the gain."""
+def response_family(args: argparse.Namespace, name: str, reads: Sequence[str]) -> ResponseFamily:
+    """The response loop the `name` map is built on, from the flags that describe it and the `reads` the map adds to them."""
     from uni.maps import RESPONSE_DECIMALS, MapError, ResponseFamily
 
-    refuse_unread(args, "response", ("template", "knob", "text", "layer", "decimals"))
+    refuse_unread(args, name, ("template", "knob", "text", "layer", "decimals", *reads))
     # [LAW:types-are-the-program] exception: argparse cannot require a flag for one --map only.
-    missing = [f"--{flag}" for flag in ("template", "knob", "text", "layer") if getattr(args, flag) is None]
+    missing = [f"--{flag}" for flag in ("template", "knob", "text", "layer", *reads) if getattr(args, flag) is None]
     if missing or args.knob == "none":
-        raise MapError(f"the response map pushes along a direction and reads the answer to a text at a layer; pass {', '.join(missing) or '--knob with a direction'}")
+        raise MapError(f"the {name} map pushes along a direction and reads the answer to a text at a layer; pass {', '.join(missing) or '--knob with a direction'}")
     prompt = template(args.template)
     from uni.pinned import load_pinned
     from uni.steer import Steer, read_direction
@@ -285,6 +287,18 @@ def response_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
     # 0. What a gain can carry the orbit into is refused where it happens, by the reading's bound.
     decimals = RESPONSE_DECIMALS if args.decimals is None else args.decimals
     return ResponseFamily(pinned, prompt, args.text, Steer(read_direction(args.knob, pinned)), args.layer, decimals)
+
+
+def response_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
+    """The model's answer to a push, fed back as the next push times the gain, where the value is the gain."""
+    return response_family(args, "response", ())
+
+
+def sampled_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
+    """The response map with the token after the prompt drawn at a temperature and read with the answer, the draws fixed by a seed."""
+    from uni.maps import SampledFamily
+
+    return SampledFamily(response_family(args, "sampled", ("temperature", "seed")), args.temperature, args.seed)
 
 
 def smooth_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
@@ -344,6 +358,7 @@ MAPS = {
     "model": Kind(model_map, model_value),
     "logistic": Kind(logistic_map, required("the logistic map's parameter is r")),
     "response": Kind(response_map, required("the response map's parameter is the gain")),
+    "sampled": Kind(sampled_map, required("the sampled map's parameter is the gain")),
     "smooth": Kind(smooth_map, required("the smooth map's parameter is the gain")),
 }
 

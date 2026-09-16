@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
@@ -410,6 +411,58 @@ class ResponseMap:
         return response_text(self.push(answer), family.decimals)
 
 
+@dataclass(frozen=True)
+class SampledFamily:
+    """The push-response loop with the token after the prompt drawn at a temperature and read with it, with the gain still to come.
+
+    The response map is the same loop drawing nothing. Drawing is what a loop that generates does,
+    and one token is the least it can: its answer is then a sample, and the loop a noisy one.
+    """
+
+    response: ResponseFamily
+    temperature: float
+    seed: int  # which of the draws the map makes; another seed is an independent run
+
+    @property
+    def spec(self) -> dict[str, Any]:
+        return {**self.response.spec, "kind": "sampled", "temperature": self.temperature, "seed": self.seed}
+
+    def holds(self, states: Sequence[str]) -> None:
+        self.response.holds(states)
+
+    def at(self, value: float) -> Map:
+        return SampledMap(self, self.response.at(value))
+
+
+@dataclass(frozen=True)
+class SampledMap:
+    """x -> gain * a(x, t) / |v|^2, a the answer read with a token t drawn after the prompt, as the response map turns its answer."""
+
+    family: SampledFamily
+    response: ResponseMap
+
+    @property
+    def value(self) -> float:
+        return self.response.value
+
+    @property
+    def spec(self) -> dict[str, Any]:
+        return self.family.spec
+
+    def push(self, answer: float) -> float:
+        return self.response.push(answer)
+
+    def step(self, state: str) -> str:
+        from uni.temperature import sampled
+
+        family = self.family.response
+        # The draw is held to the seed, the gain and the state, so the map is a function of its state
+        # and a rerun the same orbit, while no two gains of a grid, and no two states of an orbit, share one.
+        key = json.dumps([self.family.seed, self.value, state]).encode()
+        answer = sampled(family.model, family.prompt, family.steer, response_state(state, family.decimals), family.layer, self.family.temperature, key)
+        return response_text(self.push(answer), family.decimals)
+
+
 def smooth_state(state: str) -> float:
     """The push a smooth map's state names: a float, spelled as its own shortest text, as a logistic state is."""
     try:
@@ -514,5 +567,6 @@ def response_numbers(spec: Mapping[str, Any]) -> Numbers:
 NUMBERS: Mapping[str, Callable[[Mapping[str, Any]], Numbers]] = {
     "logistic": lambda spec: Numbers(logistic_state, repr),
     "response": response_numbers,
+    "sampled": response_numbers,
     "smooth": lambda spec: Numbers(smooth_state, repr),
 }

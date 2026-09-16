@@ -111,3 +111,42 @@ def test_temperature_is_refused_on_the_host_whose_curves_would_not_come_back(cap
     argv = ["--remote", "temperature", "--template", "rewrite", "--knob", "formality", "--start", "a", "--grid", "0:0:1", "--layer", "23", "--temperature", "1"]
     assert main(argv, {}, Path.cwd()) == EXIT_CONFIG
     assert "temperature writes a file into this checkout, so it runs here, not on the host" in capsys.readouterr().err
+
+
+def test_a_drawn_token_s_answer_is_one_the_draw_could_give_and_the_key_fixes_which(model, formality, read):
+    from uni.temperature import sampled
+
+    found, (_, logprobs, _) = read
+    cold = found.draws[1]
+    # At 0.05 the draw is the likeliest token whatever the key, so its answer is the cold mean.
+    assert sampled(model, PROMPT, formality, 0.0, 23, 0.05, b"any") == pytest.approx(cold.mean, abs=1e-4)
+    hot = [sampled(model, PROMPT, formality, 0.0, 23, 5.0, key) for key in (b"a", b"a", b"b", b"c", b"d")]
+    assert hot[0] == hot[1] and len(set(hot[1:])) > 1
+
+
+def test_the_sampled_map_is_the_response_loop_with_a_temperature_and_a_seed_and_needs_both(capsys):
+    from uni.cli import EXIT_CONFIG, main
+
+    base = ["loop", "--map", "sampled", "--template", "rewrite", "--knob", "formality", "--text", TEXT, "--layer", "23", "--start", "0.0000", "--steps", "1", "--value", "3"]
+    assert main([*base, "--temperature", "1"], {}, Path.cwd()) == EXIT_CONFIG
+    assert "the sampled map pushes along a direction and reads the answer to a text at a layer; pass --seed" in capsys.readouterr().err
+    response = ["loop", "--map", "response", "--template", "rewrite", "--knob", "formality", "--text", TEXT, "--layer", "23", "--start", "0.0000", "--steps", "1", "--value", "3", "--seed", "1"]
+    assert main(response, {}, Path.cwd()) == EXIT_CONFIG
+    assert "--seed does not describe the response map" in capsys.readouterr().err
+
+
+def test_a_seed_is_one_orbit_every_time_it_is_run_and_another_seed_another(model, monkeypatch, tmp_path, capsys):
+    from uni.cli import main
+    from uni.loop import read_trajectory
+
+    monkeypatch.setattr("uni.model.Model", lambda pinned: model)
+    monkeypatch.chdir(tmp_path)
+    # From the top, where the next token is spread thin: near a push of 0 one token holds 94% of it,
+    # and two seeds' three draws are likely to be the same three tokens.
+    runs = []
+    for seed in ("0", "0", "1"):
+        argv = ["loop", "--map", "sampled", "--template", "rewrite", "--knob", "formality", "--text", TEXT, "--layer", "23", "--start=-8.6140", "--steps", "3", "--value", "3", "--temperature", "1", "--seed", seed]
+        assert main(argv, {}, Path.cwd()) == 0
+        runs.append(read_trajectory(tmp_path / capsys.readouterr().out.split("trajectory ")[-1].strip()))
+    assert runs[0] == runs[1] and runs[0].states != runs[2].states
+    assert (runs[0].map["kind"], runs[0].map["temperature"], runs[0].map["seed"]) == ("sampled", 1.0, 0)

@@ -164,13 +164,16 @@ class Model:
         return captured[0][0]
 
     @torch.inference_mode()
-    def next_tokens(self, prompt: str, additions: Sequence[ResidualAdd], layer: int, read: Callable[[torch.Tensor], torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """What the model makes of the prompt, and of every token it could write next, with `additions` made.
+    def next_tokens(
+        self, prompt: str, additions: Sequence[ResidualAdd], layer: int, candidates: Callable[[torch.Tensor], torch.Tensor], read: Callable[[torch.Tensor], torch.Tensor]
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """What the model makes of the prompt, and of tokens it could write next, with `additions` made.
 
         Three things: the residual stream leaving decoder `layer` at each of the prompt's tokens,
         shape (tokens, hidden_size), as `prompt_residual` reads it; the log-probability of each token
-        in the vocabulary coming next, in float64 on the CPU, shape (vocabulary,); and `read` of the stream
-        leaving `layer` at that token when it is appended, one number a token, shape (vocabulary,).
+        in the vocabulary coming next, in float64 on the CPU, shape (vocabulary,); and, for each
+        token `candidates` picks from those log-probabilities, `read` of the stream leaving `layer`
+        at that token when it is appended, one number a candidate, in the order picked.
 
         The prompt is run once and its keys and values kept, so each candidate costs one position
         and not the prompt again: no position of the prompt sees what comes after it. `read` is
@@ -190,14 +193,14 @@ class Model:
                 # mean over nan weights is printed as one more number.
                 if not bool(torch.isfinite(logprobs).all()):
                     raise ModelError("the prompt has no finite logits for the token after it; the residual additions overflow this model's arithmetic")
-                size = logprobs.shape[0]
-                for start in range(0, size, CANDIDATES):
-                    candidates = torch.arange(start, min(start + CANDIDATES, size), device=self.device)
+                picked = candidates(logprobs)
+                for start in range(0, len(picked), CANDIDATES):
+                    batch = picked[start : start + CANDIDATES].to(self.device)
                     cache = copy.deepcopy(out.past_key_values)
-                    cache.batch_repeat_interleave(len(candidates))
+                    cache.batch_repeat_interleave(len(batch))
                     # The decoder without its head: the logits after a candidate are not wanted, and
                     # for 8192 candidates they would be 5 GB.
-                    self.model.model(input_ids=candidates.unsqueeze(1), past_key_values=cache, use_cache=True)
+                    self.model.model(input_ids=batch.unsqueeze(1), past_key_values=cache, use_cache=True)
                     readings.append(read(captured.pop()[:, -1]))
             finally:
                 handle.remove()
