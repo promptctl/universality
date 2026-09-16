@@ -26,7 +26,7 @@ from uni.remote import RemoteConfigError, remote_target_from_env, run_remote
 from uni.template import Template, TemplateError, load_templates
 
 if TYPE_CHECKING:
-    from uni.maps import Family, Knob, Numbers, ResponseFamily
+    from uni.maps import Family, Knob, Numbers, ResponseFamily, SmoothFamily
     from uni.steer import Contrast
 
 EXIT_CONFIG = os.EX_CONFIG  # distinct from argparse's 2 and from anything rsync or ssh returns
@@ -111,6 +111,20 @@ def finite(text: str) -> float:
     return value
 
 
+def even(text: str) -> int:
+    value = positive(text)
+    if value % 2:
+        raise argparse.ArgumentTypeError(f"must be even, a period with a point half of it round, got {value}")
+    return value
+
+
+def several(text: str) -> int:
+    value = int(text)
+    if value < 2:
+        raise argparse.ArgumentTypeError(f"must be 2 at least, the fewest draws that spread, got {value}")
+    return value
+
+
 def above_zero(text: str) -> float:
     value = finite(text)
     if value <= 0:
@@ -192,12 +206,13 @@ MAP_FLAGS = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
 MAP_FLAGS.add_argument("--template", help="the model or response map's template, named in uni/templates.toml")
 MAP_FLAGS.add_argument("--knob", help="a direction in uni/directions: what the model map steers along (or none), or what the response map pushes along")
 MAP_FLAGS.add_argument("--text", help="the response map's text, rendered once into its template")
-MAP_FLAGS.add_argument("--layer", type=whole, help="the layer the response map reads its answer at, or the smooth map's curve was read at")
+MAP_FLAGS.add_argument("--layer", type=whole, help="the layer the response map reads its answer at, or the smooth and noisy maps' curves were read at")
 MAP_FLAGS.add_argument("--decimals", type=positive, help="the decimals the response map writes a push to (default: 4)")
-MAP_FLAGS.add_argument("--curve", type=Path, help="the curve the smooth map is fitted to, a file `uni response` wrote")
-MAP_FLAGS.add_argument("--degree", type=positive, help="the degree of the series the smooth map fits to its curve")
+MAP_FLAGS.add_argument("--curve", type=Path, help="the curve the smooth or noisy map is fitted to, a file `uni response` or `uni temperature` wrote")
+MAP_FLAGS.add_argument("--degree", type=positive, help="the degree of the series the smooth or noisy map fits to its curve")
+MAP_FLAGS.add_argument("--spreads", type=Path, help="the curve of spreads `uni temperature` wrote that the noisy map draws the noise in its answer at")
 MAP_FLAGS.add_argument("--temperature", type=above_zero, help="the temperature the sampled map draws the token after the prompt at")
-MAP_FLAGS.add_argument("--seed", type=whole, help="which draws the sampled map makes: the same seed draws the same tokens, another an independent run")
+MAP_FLAGS.add_argument("--seed", type=whole, help="which draws the sampled or noisy map makes: the same seed is the same run, another an independent one")
 MAP_OPTIONS = tuple(vars(MAP_FLAGS.parse_args([])))  # the flags above, under the names args carries them by
 
 
@@ -301,19 +316,33 @@ def sampled_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
     return SampledFamily(response_family(args, "sampled", ("temperature", "seed")), args.temperature, args.seed)
 
 
-def smooth_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
-    """The response map with the model's answer replaced by a series fitted to a curve of it: no checkpoint, no roughness."""
+def smooth_family(args: argparse.Namespace, name: str, reads: Sequence[str]) -> SmoothFamily:
+    """The series the `name` map is built on, from the flags that describe it and the `reads` the map adds to them."""
     from uni.curve import read_curve
     from uni.maps import MapError, SmoothFamily
     from uni.smooth import smooth
 
-    refuse_unread(args, "smooth", ("curve", "layer", "degree"))
+    refuse_unread(args, name, ("curve", "layer", "degree", *reads))
     # [LAW:types-are-the-program] exception: argparse cannot require a flag for one --map only.
-    missing = [f"--{flag}" for flag in ("curve", "layer", "degree") if getattr(args, flag) is None]
+    missing = [f"--{flag}" for flag in ("curve", "layer", "degree", *reads) if getattr(args, flag) is None]
     if missing:
-        raise MapError(f"the smooth map is a series of some degree fitted to a curve's readings at a layer; pass {', '.join(missing)}")
+        raise MapError(f"the {name} map is a series of some degree fitted to a curve's readings at a layer; pass {', '.join(missing)}")
     curve = read_curve(args.curve, args.layer)
     return SmoothFamily(curve.name, curve.layer, args.degree, smooth(curve, args.degree).series, curve.squared_length)
+
+
+def smooth_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
+    """The response map with the model's answer replaced by a series fitted to a curve of it: no checkpoint, no roughness."""
+    return smooth_family(args, "smooth", ())
+
+
+def noisy_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
+    """The smooth map with a normal noise in its answer, of the size a curve of spreads gives at each push, the draws fixed by a seed."""
+    from uni.curve import read_curve
+    from uni.maps import NoisyFamily
+
+    series = smooth_family(args, "noisy", ("spreads", "seed"))
+    return NoisyFamily(series, read_curve(args.spreads, args.layer), args.seed)
 
 
 def model_value(given: float | None) -> float:
@@ -360,6 +389,7 @@ MAPS = {
     "response": Kind(response_map, required("the response map's parameter is the gain")),
     "sampled": Kind(sampled_map, required("the sampled map's parameter is the gain")),
     "smooth": Kind(smooth_map, required("the smooth map's parameter is the gain")),
+    "noisy": Kind(noisy_map, required("the noisy map's parameter is the gain")),
 }
 
 
@@ -752,6 +782,38 @@ def run_cascade(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_spread(args: argparse.Namespace) -> int:
+    """Print where the orbit of the top lands after half a period and a period, over many draws at each value: the mean, and the spread about it."""
+    from uni.cascade import measured, returns, spread
+    from uni.maps import Drawing, MapError
+
+    values = tuple(args.value)
+    family = args.map.build(args, values)
+    numbers = numbers_of(family, "spread")
+    # [LAW:no-silent-failure] a map that draws nothing lands every run in one place, and a spread of
+    # zero read off it would say the noise was measured and found absent.
+    if not isinstance(family, Drawing):
+        raise MapError("this map draws nothing, so every run of its orbit lands in one place and has no spread; draw with the sampled or the noisy map")
+    family.holds((args.critical,))
+    print(f"{'period':>6}  {'value':>14}  {'draws':>5}  {'nearest point':>15}  {'error':>8}  {'return':>15}  {'error':>8}  {'spread':>15}  {'error':>8}", flush=True)
+    periods = tuple(args.period * 2**doubling for doubling in range(len(values)))
+    found = []
+    for period, value in zip(periods, values):
+        # [LAW:dataflow-not-control-flow] each draw is the family at the next seed, from the one given:
+        # independent of the others, and the same draws when the command is run again.
+        landed = [returns(family.reseeded(family.seed + draw).at(value), numbers, args.critical, period) for draw in range(args.draws)]
+        nearest, returned = (spread([one[steps] for one in landed]) for steps in (period // 2, period))
+        found.append((nearest, returned))
+        print(
+            f"{period:>6}  {value:>14.10g}  {args.draws:>5}  {nearest.mean.value:>15.8e}  {nearest.mean.error:>8.1e}  {returned.mean.value:>15.8e}  {returned.mean.error:>8.1e}  {returned.deviation.value:>15.8e}  {returned.deviation.error:>8.1e}",
+            flush=True,
+        )
+    for period, (nearest, returned) in zip(periods, found):
+        reach = measured(returned, nearest)
+        print(f"spread over nearest distance at period {period}: {reach.value:.7e} +- {reach.error:.1e}")
+    return 0
+
+
 def run_critical(args: argparse.Namespace) -> int:
     """Print where the map at one value is highest or lowest on a grid of states: the top a cascade is read from."""
     from uni.fit import crossing, fit
@@ -871,6 +933,13 @@ def build_parser() -> argparse.ArgumentParser:
     cascade.add_argument("--grid", action="append", required=True, help="values around one superstable value, as FROM:TO:COUNT with TO included; repeat it for each period, in order")
     cascade.add_argument("--noise", type=Path, help="a curve of spreads `uni temperature` wrote along the map's own direction: the noise the answer is read with at each push, carried to each return in place of noise of size one")
     cascade.set_defaults(run=run_cascade)
+    spreading = commands.add_parser("spread", parents=[MAP_FLAGS], help="draw the orbit from a map's top many times at each value, and print the mean and spread of where it lands after half a period and a period")
+    spreading.add_argument("--map", type=map_named, required=True, help="the map to draw: sampled or noisy, a map of numbers that draws")
+    spreading.add_argument("--critical", required=True, help="the state at the map's top, spelled as the map writes it; write --critical=STATE when it begins with '-'")
+    spreading.add_argument("--period", type=even, required=True, help="the period the first value is read at; each later value twice the one before")
+    spreading.add_argument("--value", type=finite, action="append", required=True, help="the map's parameter for each period, in order, such as the superstable values `uni cascade` found")
+    spreading.add_argument("--draws", type=several, required=True, help="how many runs to draw at each value, at seeds counted up from --seed")
+    spreading.set_defaults(run=run_spread)
     critical = commands.add_parser("critical", parents=[MAP_FLAGS], help="find where a map of numbers is highest or lowest on a grid of states, at one value")
     critical.add_argument("--map", type=map_named, required=True, help=f"the map to read: {', '.join(MAPS)}; its states must be numbers")
     critical.add_argument("--value", type=finite, help="the map's parameter to read it at, as `uni loop` takes it")

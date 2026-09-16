@@ -154,6 +154,44 @@ def reaches(noises: Sequence[Reading], distances: Sequence[Reading]) -> tuple[Es
     return tuple(found)
 
 
+@dataclass(frozen=True)
+class Spread:
+    """Where independent draws of one reading land: their mean, and their standard deviation about it, each with its error."""
+
+    mean: Estimate
+    deviation: Estimate
+
+
+def spread(readings: Sequence[float]) -> Spread:
+    """The mean and standard deviation of independent draws, with the errors the draws themselves give them.
+
+    The deviation's error comes from the draws' own fourth moment and not from a normal
+    distribution's. A drawn token's answer need not be normal: a token drawn rarely can answer far
+    from the rest, and a tail like that leaves a deviation less certain than a normal one of its size.
+    """
+    count = len(readings)
+    mean = math.fsum(readings) / count
+    variance = math.fsum((reading - mean) ** 2 for reading in readings) / (count - 1)
+    fourth = math.fsum((reading - mean) ** 4 for reading in readings) / count
+    # The sample variance's own standard error, to first order in 1 / count; half of it relative to the
+    # variance is the deviation's. The difference is never below zero but can round there, and draws
+    # that all land in one place have no spread and nothing to be uncertain of in it.
+    uncertainty = math.sqrt(max(fourth - variance**2 * (count - 3) / (count - 1), 0.0) / count)
+    deviation = math.sqrt(variance)
+    return Spread(Estimate(mean, deviation / math.sqrt(count)), Estimate(deviation, uncertainty / (2 * deviation) if deviation else 0.0))
+
+
+def measured(returned: Spread, nearest: Spread) -> Estimate:
+    """How far the draws' spread at the return reaches in the distance their mean puts the point half a period round at: a reach, measured where `reaches` predicts one.
+
+    The two are read off the same draws. A mean and a deviation of draws symmetric about their
+    mean are uncorrelated, and these are counted as independent.
+    """
+    distance = abs(nearest.mean.value)
+    reach = returned.deviation.value / distance
+    return Estimate(reach, math.hypot(returned.deviation.error / distance, reach * nearest.mean.error / distance))
+
+
 def growths(reaches: Sequence[Estimate]) -> tuple[Estimate, ...]:
     """How much further the noise reaches each cycle than the one before: the ratios that run to kappa, each the inverse of a quotient of the reaches."""
     return tuple(Estimate(1 / quotient.value, quotient.error / quotient.value**2) for quotient in quotients(reaches))

@@ -9,9 +9,12 @@ from pathlib import Path
 import pytest
 from numpy.polynomial import Chebyshev
 
+from itertools import islice
+
 from uni.cli import EXIT_CONFIG, main
 from uni.curve import Curve, CurveError, read_curve, write_curves
-from uni.maps import NUMBERS, MapError
+from uni.loop import orbit
+from uni.maps import NUMBERS, Drawing, MapError, NoisyFamily, SampledFamily, SmoothFamily, drawn_key, standard_normal
 from uni.smooth import Series, SmoothError, jitter, smooth
 
 SQUARED_LENGTH = 2.5
@@ -56,6 +59,90 @@ def test_noise_read_in_the_answer_is_carried_to_each_return_at_the_gain_s_share_
     assert header.split()[-2:] == ["noise", "error"]
     gains = [float(row.split()[1]) for row in rows]
     assert [float(row.split()[6]) for row in rows] == pytest.approx([r * 0.25 / SQUARED_LENGTH * gain for r, gain in zip(gains, (2.23606797749979, 5.798306550714591, 15.25389979049446))], rel=1e-6)
+
+
+def spreads(tmp_path, size):
+    return write_curves({"reading": "spread"}, PUSHES, {7: [size] * len(PUSHES)}, SQUARED_LENGTH, tmp_path / str(size))
+
+
+def noisy(logistic, spread, seed):
+    curve = read_curve(logistic, 7)
+    series = SmoothFamily(curve.name, 7, 2, smooth(curve, 2).series, SQUARED_LENGTH)
+    return series, NoisyFamily(series, read_curve(spread, 7), seed)
+
+
+def test_a_noisy_map_with_no_spread_is_the_smooth_map(logistic, tmp_path):
+    series, family = noisy(logistic, spreads(tmp_path, 0.0), 3)
+    assert list(islice(orbit(family.at(3.5), "0.5"), 40)) == list(islice(orbit(series.at(3.5), "0.5"), 40))
+
+
+def test_its_noise_is_the_spread_times_a_normal_draw_the_seed_the_gain_and_the_state_fix(logistic, tmp_path):
+    series, family = noisy(logistic, spreads(tmp_path, 0.25), 4)
+    answer = series.series.at(0.3) + 0.25 * standard_normal(drawn_key(4, 3.5, "0.3"))
+    assert family.at(3.5).step("0.3") == repr(3.5 * answer / SQUARED_LENGTH) == family.at(3.5).step("0.3")
+    assert len({family.reseeded(seed).at(3.5).step("0.3") for seed in range(4, 9)} | {family.at(3.6).step("0.3")}) == 6
+    assert family.reseeded(9).spec == {**series.spec, "kind": "noisy", "spreads": read_curve(spreads(tmp_path, 0.25), 7).name, "seed": 9}
+
+
+def test_a_normal_draw_is_the_same_number_for_a_key_everywhere_and_draws_are_standard_normal():
+    assert standard_normal(b"key") == 1.9385964400148743
+    draws = [standard_normal(str(index).encode()) for index in range(20000)]
+    mean = math.fsum(draws) / len(draws)
+    assert abs(mean) < 0.025 and math.sqrt(math.fsum((draw - mean) ** 2 for draw in draws) / len(draws)) == pytest.approx(1, abs=0.015)
+
+
+def test_the_maps_that_draw_are_drawing_families_and_a_reseeding_changes_only_the_seed(logistic, tmp_path):
+    _, family = noisy(logistic, spreads(tmp_path, 0.1), 0)
+    sampled = SampledFamily(None, 0.7, 0)
+    assert isinstance(family, Drawing) and isinstance(sampled, Drawing) and not isinstance(family.smooth, Drawing)
+    assert sampled.reseeded(5) == SampledFamily(None, 0.7, 5) and family.reseeded(5) == NoisyFamily(family.smooth, family.spreads, 5)
+
+
+def test_the_spread_of_a_noisy_cycle_s_return_is_the_noise_a_cascade_predicts_and_its_mean_the_nearest_point(logistic, tmp_path, capsys):
+    # A spread of 1e-4 in the answer is 1e-4 r / 2.5 in the push, carried to the return by the noise
+    # gain: small against every distance, so the draws land where the cycle does, spread by that.
+    from test_cascade import NEAREST, NOISE, SUPERSTABLE
+
+    noise = spreads(tmp_path, 1e-4)
+    argv = ["spread", "--map", "noisy", "--curve", str(logistic), "--layer", "7", "--degree", "2", "--spreads", str(noise), "--seed", "0"]
+    argv += ["--critical", "0.5", "--period", "2", "--draws", "400"] + [flag for period in (2, 4, 8) for flag in ("--value", repr(SUPERSTABLE[period]))]
+    assert command(argv) == 0
+    header, *rows = capsys.readouterr().out.splitlines()
+    assert header.split() == ["period", "value", "draws", "nearest", "point", "error", "return", "error", "spread", "error"]
+    for period, row, line in zip((2, 4, 8), rows[:3], rows[3:]):
+        _, _, draws, mean, mean_error, returned, returned_error, deviation, deviation_error = (float(field) for field in row.split())
+        predicted = SUPERSTABLE[period] * 1e-4 / SQUARED_LENGTH * NOISE[period]
+        assert draws == 400 and abs(mean - NEAREST[period]) < 3 * mean_error and abs(returned) < 3 * returned_error
+        assert abs(deviation - predicted) < 3 * deviation_error and deviation_error == pytest.approx(predicted / math.sqrt(800), rel=0.25)
+        assert line.startswith(f"spread over nearest distance at period {period}: ") and float(line.split(": ")[1].split()[0]) == pytest.approx(deviation / abs(mean), rel=1e-6)
+
+
+def test_a_spread_is_refused_for_a_map_that_draws_nothing(logistic, capsys):
+    argv = ["spread", *flags(logistic), "--critical", "0.5", "--period", "2", "--draws", "10", "--value", "3.2"]
+    assert command(argv) == EXIT_CONFIG
+    assert "this map draws nothing, so every run of its orbit lands in one place" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "rest, message",
+    [
+        (["--period", "3", "--draws", "10"], "must be even, a period with a point half of it round, got 3"),
+        (["--period", "2", "--draws", "1"], "must be 2 at least, the fewest draws that spread, got 1"),
+    ],
+)
+def test_a_spread_is_read_at_an_even_period_over_two_draws_at_least(logistic, tmp_path, capsys, rest, message):
+    argv = ["spread", "--map", "noisy", "--curve", str(logistic), "--layer", "7", "--degree", "2", "--spreads", str(spreads(tmp_path, 1e-4)), "--seed", "0", "--critical", "0.5", "--value", "3.2", *rest]
+    with pytest.raises(SystemExit):  # argparse's own refusal
+        command(argv)
+    assert message in capsys.readouterr().err
+
+
+def test_a_noisy_map_needs_its_spreads_and_seed_and_the_smooth_map_reads_neither(logistic, tmp_path, capsys):
+    assert command(["loop", *flags(logistic), "--start", "0.5", "--steps", "1", "--value", "3", "--seed", "1"]) == EXIT_CONFIG
+    assert "--seed does not describe the smooth map, which reads --curve, --layer, --degree" in capsys.readouterr().err
+    argv = ["loop", "--map", "noisy", "--curve", str(logistic), "--layer", "7", "--degree", "2", "--start", "0.5", "--steps", "1", "--value", "3"]
+    assert command(argv) == EXIT_CONFIG
+    assert "the noisy map is a series of some degree fitted to a curve's readings at a layer; pass --spreads, --seed" in capsys.readouterr().err
 
 
 def test_a_curve_is_read_between_its_pushes_on_the_line_through_the_two_either_side():

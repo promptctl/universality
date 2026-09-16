@@ -1,12 +1,13 @@
 """uni cascade: the superstable values of a cascade and the ratios of their spacings, on the map whose are known."""
 
 import math
+import random
 from pathlib import Path
 
 import pytest
 
 from uni import cascade
-from uni.cascade import Reading, amplification, evaluated, growths, nearest, quotients, ratios, reaches, returns
+from uni.cascade import Reading, Spread, amplification, evaluated, growths, measured, nearest, quotients, ratios, reaches, returns, spread
 from uni.fit import Estimate, FitError, crossing, fit
 from uni.cli import EXIT_CONFIG, main
 from uni.maps import NUMBERS, Logistic
@@ -109,6 +110,24 @@ def test_a_superstable_value_s_error_reaches_a_growth_once_through_the_differenc
     noises = (Reading(2.0, 0.0, 4.0, zero), Reading(5.0, 0.0, 10.0, later))
     (found,) = growths(reaches(noises, (Reading(0.3, 0.0, 0.6, zero), Reading(-0.12, 0.0, -0.12, later))))
     assert (found.value, found.error) == pytest.approx((6.25, 6.25 * 0.01))
+
+
+def test_a_spread_is_the_draws_mean_and_deviation_and_the_deviation_s_error_follows_their_tails():
+    four = spread([1.0, 2.0, 3.0, 4.0])
+    assert (four.mean.value, four.deviation.value) == (2.5, pytest.approx(math.sqrt(5 / 3)))
+    assert four.mean.error == pytest.approx(math.sqrt(5 / 3) / 2)
+    assert spread([1.5, 1.5, 1.5]) == Spread(Estimate(1.5, 0.0), Estimate(0.0, 0.0))
+    # A normal draw's deviation is uncertain by itself over sqrt(2 n); a draw with a heavier tail, by more.
+    noise = random.Random(3)
+    normal = spread([noise.gauss(0, 2) for _ in range(20000)])
+    assert normal.deviation.error == pytest.approx(2 / math.sqrt(40000), rel=0.05)
+    tailed = spread([noise.gauss(0, 2) * (10 if noise.random() < 0.01 else 1) for _ in range(20000)])
+    assert tailed.deviation.error > 3 * tailed.deviation.value / math.sqrt(40000)
+
+
+def test_a_measured_reach_is_the_return_s_deviation_over_the_mean_nearest_point_s_size_with_both_errors():
+    reach = measured(Spread(Estimate(0.0, 1.0), Estimate(0.3, 0.01)), Spread(Estimate(-1.5, 0.05), Estimate(9.0, 9.0)))
+    assert reach.value == pytest.approx(0.2) and reach.error == pytest.approx(0.2 * math.hypot(0.01 / 0.3, 0.05 / 1.5))
 
 
 def test_a_quotient_s_error_is_its_two_values_relative_errors_added_in_quadrature():
