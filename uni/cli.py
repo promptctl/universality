@@ -607,6 +607,18 @@ def run(argv: Sequence[str], env: Mapping[str, str], cwd: Path) -> int:
     return run_remote(remote_target_from_env({**dotenv, **env}), rest, tree)
 
 
+def say(message: str) -> None:
+    """Tell whoever is reading stderr why the run stopped, if anyone still is.
+
+    The exit code is the answer and this line is its explanation, so a stderr that cannot carry it
+    - `2>&1 | head` once head has gone - costs the explanation and not the answer. Raising here
+    would cost both: a traceback with nowhere to go, and an exit code other than the one this
+    run earned. [LAW:no-silent-failure] [LAW:single-enforcer] the one place a refusal is said.
+    """
+    with contextlib.suppress(OSError):
+        print(f"uni: {message}", file=sys.stderr)
+
+
 def main(argv: Sequence[str], env: Mapping[str, str], cwd: Path) -> int:
     """Run the command, and turn whatever stopped it into something the shell can read.
 
@@ -616,29 +628,41 @@ def main(argv: Sequence[str], env: Mapping[str, str], cwd: Path) -> int:
     else reaching here is a bug, and a bug is still a traceback.
     """
     try:
-        return run(argv, env, cwd)
+        code = run(argv, env, cwd)
+        # The last of the output is written here rather than left to interpreter exit, which
+        # answers a failure to deliver it with exit 120 and a message nobody asked for. Here it
+        # is a write like every other, so a full disk under `> file` is EXIT_IO.
+        sys.stdout.flush()
+        return code
     except ConfigError as error:
-        print(f"uni: {error}", file=sys.stderr)
+        say(str(error))
         return EXIT_CONFIG
     except BrokenPipeError:
         # Before OSError below, which it is one of, and answered rather than reported: a consumer
-        # that stops reading is ordinary shell usage and not a fault of this run. Python then
-        # flushes stdout on the way out and prints "Exception ignored in: <_io.TextIOWrapper
-        # name='<stdout>'>" over the top of whatever the user piped into, so the last thing to do
-        # is give that flush somewhere to land. Suppressed because a stdout that is not a real
-        # file - a captured one under a test - has no descriptor to redirect, which is not a
-        # failure of anything.
-        with contextlib.suppress(OSError, AttributeError):
-            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        # that stops reading is ordinary shell usage and not a fault of this run.
         return EXIT_PIPE
     except OSError as error:
         # The environment, reported in the OS's own words: `str` on an OSError already names the
         # errno, what it means, and the file it was about, which is the whole of what a person
         # fixes. Reported and not raised onward, because a machine that will not do the work is
         # not a bug in the program that asked. [LAW:no-silent-failure]
-        print(f"uni: {error}", file=sys.stderr)
+        say(str(error))
         return EXIT_IO
 
 
 def entry() -> None:
-    sys.exit(main(sys.argv[1:], os.environ, Path.cwd()))
+    code = main(sys.argv[1:], os.environ, Path.cwd())
+    # Python flushes both streams again on its way out, and one that cannot take what is left in
+    # it prints "Exception ignored in: <_io.TextIOWrapper ...>" over whatever the user piped into
+    # and exits 120 in place of `code`. `main` has already answered for the run and flushed its
+    # output, so what is left belongs to a run already answered for and has nowhere to go. Here
+    # and not in `main` because it rewires this process's own descriptors, which a caller of
+    # `main` in the same process still needs. [LAW:effects-at-boundaries]
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+        except OSError:
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, stream.fileno())
+            os.close(devnull)
+    sys.exit(code)

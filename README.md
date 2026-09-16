@@ -27,15 +27,20 @@ about them differs.
 |---|---|
 | `0` | it did what was asked |
 | `1` | the determinism gate ran and some case produced more than one hash |
+| `2` | the command line did not parse: a flag this program does not have, or one it needs left out or given no value |
 | `74` | the machine would not do the work: a full disk, a read-only volume, a path in the way |
-| `78` | the run as described cannot be run: a flag, a file, or a value this program refuses |
+| `78` | the command parsed, and the run it describes cannot be run: a file, a value, or a combination this program refuses |
 | `79` | a sweep ran and some cell of it has no orbit, so it came up short of its grid |
-| `141` | something downstream stopped reading, as `uni ... \| head` does — nothing failed |
+| `141` | something downstream stopped reading, as `uni ... \| head` does — the run was told to stop, not refused |
 
 `78` and `74` are the pair worth telling apart: the first is something you asked for, the
 second is something about where you asked it. A loop running unattended can fix a `78` and
-try again, while a `74` will not fix itself and is where such a loop should stop. Anything
-else — a traceback — is a bug here, and worth reporting as one.
+try again, while a `74` will not fix itself and is where such a loop should stop.
+
+With `--remote` the code is the one `uni` exited with on the host, so the table holds there
+too — unless the trip itself fails, and then the code is ssh's or rsync's: `255` from ssh, and
+rsync's own codes, one of which is `1`. Beyond those, a traceback is a bug here, and worth
+reporting as one.
 
 ## Determinism
 
@@ -205,12 +210,13 @@ Two things a refused cell does not get, and both are deliberate. It is not remem
 runs it again, pays for its orbit again, and is refused again, so an unattended resume loop does
 not converge — read the exit code, which is `79` when a sweep ran and came up short, distinct from
 the `78` that says the command itself cannot be run. The two do not add up: a run that refused
-some cells and was then stopped outright exits `78`, because what ended it outranks how far it
-got, and its refusals are on stderr rather than in the code. And the states it did produce are
-thrown away rather than written under their own shorter name, which would put a file in the
-directory this sweep never named and no rerun would ever look for. Both are the price of a sweep
-directory that holds finished orbits and nothing else; `universality-sweep-81g` carries the
-question of whether a sweep should be able to say "tried and cannot" somewhere.
+some cells and was then stopped outright exits with whatever stopped it — `78`, `74`, or `141` —
+because what ended it outranks how far it got, and its refusals are on stderr rather than in the
+code. And the states it did produce are thrown away rather than written under their own shorter
+name, which would put a file in the directory this sweep never named and no rerun would ever look
+for. Both are the price of a sweep directory that holds finished orbits and nothing else;
+`universality-sweep-81g` carries the question of whether a sweep should be able to say "tried and
+cannot" somewhere.
 
 The sweep writes `sweeps/<name>/`: one trajectory per cell, in the same format `uni loop` writes
 and `uni observe` reads, beside a `sweep.json` naming the map, the values, the starts, and the
