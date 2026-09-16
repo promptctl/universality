@@ -14,6 +14,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from uni.parse import ConfigError
+
 VARIABLES = ("UNI_REMOTE_HOST", "UNI_REMOTE_USER", "UNI_REMOTE_DIR")
 
 # Plain characters only, so the path needs no quoting on either side of ssh: rsync
@@ -40,8 +42,13 @@ SYNC_FILTERS = (
 )
 
 
-class RemoteConfigError(Exception):
-    """The environment does not describe a usable host. The message says what to fix."""
+class RemoteConfigError(ConfigError):
+    """The environment does not describe a usable host. The message says what to fix.
+
+    A ConfigError because that is what it is - the run as described cannot be run - and because
+    the CLI answered it exactly like one anyway, from a clause of its own. Two types with one
+    behaviour is a distinction that does nothing. [LAW:one-type-per-behavior]
+    """
 
 
 @dataclass(frozen=True)
@@ -100,7 +107,12 @@ def run_remote(target: RemoteTarget, argv: Sequence[str], tree: Path) -> int:
     """
     for command in (sync_command(target, tree), run_command(target, argv)):
         # [LAW:no-silent-failure] ssh and rsync speak for themselves on stderr; stop at the first miss.
-        code = subprocess.run(command).returncode
+        returncode = subprocess.run(command).returncode
+        # A step killed by a signal - rsync or ssh on a Ctrl-C, say - comes back as minus the
+        # signal, which sys.exit would turn into 256 minus it. 128 plus it is what a shell says of
+        # the same death, and the number every reader of an exit code already knows. (Not `| head`:
+        # ssh ignores SIGPIPE, and a closed pipe reaches it as a write error it exits on itself.)
+        code = returncode if returncode >= 0 else 128 - returncode
         if code:
             return code
     return 0

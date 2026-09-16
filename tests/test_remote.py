@@ -1,11 +1,12 @@
 import platform
+import signal
 import subprocess
 from pathlib import Path
 
 import pytest
 
 from uni.cli import EXIT_CONFIG, main, split_remote
-from uni.remote import RemoteConfigError, remote_target_from_env, run_command, sync_command
+from uni.remote import RemoteConfigError, remote_target_from_env, run_command, run_remote, sync_command
 
 ENV = {"UNI_REMOTE_HOST": "box", "UNI_REMOTE_USER": "me", "UNI_REMOTE_DIR": "/srv/uni"}
 # Assembled, not written: a literal ssh target here would trip test_no_identity, as it should.
@@ -36,6 +37,13 @@ def test_remote_command_runs_uni_in_the_remote_dir_over_ssh():
         SSH_TARGET,
         "cd /srv/uni && exec uv run uni gen 'hello world'",
     ]
+
+
+def test_a_step_killed_by_a_signal_exits_as_a_shell_would_say_it(monkeypatch):
+    # subprocess reports rsync or ssh killed by Ctrl-C as -2, which sys.exit turns into 254; a shell
+    # says 130 of the same death.
+    monkeypatch.setattr(subprocess, "run", lambda command: subprocess.CompletedProcess(command, -signal.SIGINT))
+    assert run_remote(remote_target_from_env(ENV), ["sweep"], Path("/tree")) == 128 + signal.SIGINT
 
 
 def test_sync_mirrors_the_working_tree_as_git_sees_it_and_creates_the_dir():
