@@ -17,6 +17,7 @@ from uni.observe import (
     Projection,
     Step,
     Value,
+    Weights,
     identities,
     observables,
     readings,
@@ -63,13 +64,13 @@ def test_the_template_comes_back_off_the_trajectory():
 def test_a_trajectory_from_another_kind_of_map_has_no_model_observables():
     # And costs no checkpoint to find that out: what an orbit can be read for is decided by the
     # kind its file records, before anything that needs weights is built.
-    assert observables(Trajectory({"kind": "logistic"}, 0.0, "a", ())) == (Length(), Value())
+    assert observables(Trajectory({"kind": "logistic"}, 0.0, "a", ()), Weights()) == (Length(), Value())
 
 
 def test_an_orbit_of_a_kind_this_build_cannot_read_is_refused():
     # Answering with the length alone would read as a full reading of a file nothing here knows.
     with pytest.raises(ObserveError, match="'henon' orbit is not one this build can read"):
-        observables(Trajectory({"kind": "henon"}, 0.0, "a", ()))
+        observables(Trajectory({"kind": "henon"}, 0.0, "a", ()), Weights())
 
 
 def test_a_trajectory_that_recorded_no_template_is_refused():

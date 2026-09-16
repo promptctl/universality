@@ -12,7 +12,7 @@ import pytest
 from uni.cli import EXIT_CONFIG, main
 from uni.figure import Readings, named, orbit_diagram, read, return_map
 from uni.loop import read_trajectory
-from uni.observe import ObserveError, observables
+from uni.observe import ObserveError, Weights, observables
 from uni.sweep import MANIFEST, finished, pending, read_sweep
 
 
@@ -75,7 +75,7 @@ def test_an_observable_this_sweep_does_not_read_is_refused_by_name(tmp_path, mon
     written, home = sweep(tmp_path, monkeypatch)
     trajectory = read_trajectory(home / finished(written, home)[0].name)
     with pytest.raises(ObserveError, match="no observable 'logprob' for this sweep; it reads length, x"):
-        named(observables(trajectory), "logprob")
+        named(observables(trajectory, Weights()), "logprob")
 
 
 def test_the_return_map_pairs_each_reading_with_the_one_after_it():
@@ -141,3 +141,27 @@ def test_a_sweep_with_nothing_settled_is_refused_rather_than_drawn_empty(tmp_pat
 def test_a_directory_that_holds_no_sweep_is_refused(tmp_path, monkeypatch, capsys):
     assert command(["plot", str(tmp_path), "--observable", "x"]) == EXIT_CONFIG
     assert "cannot be read: No such file" in capsys.readouterr().err
+
+
+def test_a_picture_of_a_model_sweep_reads_the_checkpoint_once(tmp_path, monkeypatch):
+    # Every cell of a sweep is read through the same model, because the sweep's own description
+    # says so. Building the observables per cell is right - the knob's setting differs, and each
+    # cell's recorded checkpoint is checked against the loaded one - but loading per cell is not.
+    from uni.loop import Trajectory, write_trajectory
+    from uni.maps import model_spec
+    from uni.pinned import load_pinned
+    from uni.sweep import Sweep
+    from uni.template import load_templates
+
+    loads = []
+    monkeypatch.setattr("uni.observe.Model", lambda pinned: loads.append(pinned))
+    spec = model_spec(load_pinned(), load_templates()["rewrite"], None)
+    values, start = (0.0, 1.0, 2.0), "hello"
+    written = Sweep(spec, values, (start,), 2)
+    home = written.home(tmp_path)
+    for value in values:
+        write_trajectory(Trajectory(spec, value, start, ("a", "bb")), home)
+
+    series = read(written, home, "length", burn_in=0)
+    assert [one.numbers for one in series] == [(1.0, 2.0)] * 3  # the lengths of "a" and "bb"
+    assert len(loads) == 1

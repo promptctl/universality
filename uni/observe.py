@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Protocol
 
 from uni.loop import Trajectory
@@ -114,6 +115,27 @@ class Projection:
         return self.direction.project(self.model.reply_residual(prompt, step.state, self.direction.contrast.layer))
 
 
+@dataclass(frozen=True)
+class Weights:
+    """The checkpoint observables read through, held so that many orbits read it once.
+
+    Held rather than loaded, and for the reason `ModelFamily` holds `Pinned` rather than a `Model`:
+    saying what an orbit can be read for is a description, and a checkpoint is a resource. One of
+    these is made per command and handed to every orbit that command reads, so a picture drawn
+    from a thousand cells reads half a billion parameters once and not a thousand times.
+    [LAW:carrying-cost]
+    """
+
+    @cached_property
+    def pinned(self) -> Pinned:
+        # An orbit of numbers never asks, so a logistic sweep does not read pinned.toml either.
+        return load_pinned()
+
+    @cached_property
+    def model(self) -> Model:
+        return Model(self.pinned)
+
+
 def template_of(trajectory: Trajectory) -> Template:
     """The template the trajectory recorded, so the prompt behind each step can be rendered again."""
     # [LAW:one-source-of-truth] the prompts are derived from the template the file already
@@ -173,36 +195,39 @@ def readings(observables: Sequence[Observable], step: Step) -> tuple[float, ...]
         raise ObserveError(f"step {step.index}: {error}") from error
 
 
-def model_observables(trajectory: Trajectory) -> tuple[Observable, ...]:
+def model_observables(trajectory: Trajectory, weights: Weights) -> tuple[Observable, ...]:
     """What a model's orbit can be read for, past the length any orbit answers.
 
-    Reading any of these costs the checkpoint, so it is loaded here and only here: an orbit of a
-    map that has no prompts behind its states never pays for one.
+    Reading any of these costs the checkpoint, and it is `weights` that owns it: an orbit of a map
+    with no prompts behind its states never pays for one, and a second orbit of this map does not
+    pay again.
     """
     template = template_of(trajectory)
-    pinned = written_by(trajectory, load_pinned())
+    # Checked against this orbit even though the checkpoint is shared: the weights are what the
+    # numbers mean, and a sweep's cells all recording the same checkpoint is not the same fact as
+    # each of them recording the one loaded here. [LAW:no-silent-failure]
+    pinned = written_by(trajectory, weights.pinned)
     directions = steering_directions(trajectory, pinned)
-    model = Model(pinned)
     return (
-        Logprob(model, template, steering_additions(directions, trajectory.value)),
-        *(Projection(model, template, direction) for direction in directions),
+        Logprob(weights.model, template, steering_additions(directions, trajectory.value)),
+        *(Projection(weights.model, template, direction) for direction in directions),
     )
 
 
-def numeric_observables(trajectory: Trajectory) -> tuple[Observable, ...]:
-    """What an orbit of numbers can be read for: the numbers."""
+def numeric_observables(trajectory: Trajectory, weights: Weights) -> tuple[Observable, ...]:
+    """What an orbit of numbers can be read for: the numbers, and no checkpoint to read them."""
     return (Value(),)
 
 
 # What each kind of map's states can be read for, past the length every state has. A map that is
 # not in here is one this build cannot read, which is a thing to say rather than to answer around.
-KINDS: Mapping[str, Callable[[Trajectory], tuple[Observable, ...]]] = {
+KINDS: Mapping[str, Callable[[Trajectory, Weights], tuple[Observable, ...]]] = {
     "model": model_observables,
     "logistic": numeric_observables,
 }
 
 
-def observables(trajectory: Trajectory) -> tuple[Observable, ...]:
+def observables(trajectory: Trajectory, weights: Weights) -> tuple[Observable, ...]:
     """Every number this orbit can be read for, which is decided by what its states are made of.
 
     [LAW:dataflow-not-control-flow] the kind is looked up rather than branched on, once, here;
@@ -213,7 +238,7 @@ def observables(trajectory: Trajectory) -> tuple[Observable, ...]:
         # [LAW:no-silent-failure] answering with the length alone would read as a full reading of
         # a file this build has no observables for, and the length is never the interesting one.
         raise ObserveError(f"a {kind!r} orbit is not one this build can read; the kinds are {', '.join(KINDS)}")
-    return (Length(), *KINDS[kind](trajectory))
+    return (Length(), *KINDS[kind](trajectory, weights))
 
 
 def identities(states: Sequence[str]) -> tuple[int, ...]:

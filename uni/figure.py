@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from uni.loop import read_trajectory
-from uni.observe import Observable, ObserveError, observables, readings, steps
+from uni.observe import Observable, ObserveError, Weights, observables, readings, steps
 from uni.sweep import Sweep, finished
 
 
@@ -71,10 +71,13 @@ def read(sweep: Sweep, home: Path, name: str, burn_in: int) -> tuple[Readings, .
     steps before the orbit settled are not what either picture is about - and a picture that
     dropped its own would be a second place deciding what settled means. [LAW:single-enforcer]
     """
+    # One checkpoint for the whole picture, not one per cell: what every cell of a sweep is read
+    # through is the same model, because the sweep's own description says so. [LAW:carrying-cost]
+    weights = Weights()
     out = []
     for cell in finished(sweep, home):
         trajectory = read_trajectory(home / cell.name)
-        observable = named(observables(trajectory), name)
+        observable = named(observables(trajectory, weights), name)
         numbers = tuple(readings((observable,), step)[0] for step in steps(trajectory)[burn_in:])
         out.append(Readings(trajectory.value, numbers))
     return tuple(out)

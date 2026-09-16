@@ -63,18 +63,51 @@ def tracked_files() -> list[str]:
     return [path for path in out.split("\0") if path]
 
 
+def tracked_bytes() -> dict[str, bytes]:
+    return {path: (ROOT / path).read_bytes() for path in tracked_files()}
+
+
 def tracked_text() -> dict[str, str]:
-    return {path: (ROOT / path).read_text(errors="replace") for path in tracked_files()}
+    """The tracked files that are text, as text. A file that is not text is not in here at all.
+
+    Decoded strictly, and not with `errors="replace"`: a figure forced through a text decode comes
+    out as mojibake in which `IDENTITY_PATTERNS` finds an ssh target every few thousand bytes, so
+    committing one picture would fail this file with a hundred leaks that are not there. The shapes
+    below describe text, so text is what they are read over - and the literal check that follows
+    reads every tracked file as bytes, which is where a real value hiding in a binary would be
+    caught. [LAW:parse-dont-validate]
+    """
+    text = {}
+    for path, raw in tracked_bytes().items():
+        try:
+            decoded = raw.decode()
+        except UnicodeDecodeError:
+            continue
+        if "\0" not in decoded:  # git's own tell, so a UTF-8-decodable binary is still binary
+            text[path] = decoded
+    return text
 
 
 def test_tracked_files_carry_no_host_identity():
     assert [(path, *leak) for path, text in tracked_text().items() for leak in leaks_in(text)] == []
 
 
+def test_a_figure_is_not_read_as_text_and_does_not_invent_leaks():
+    # This repo commits PNGs, and compressed image bytes hold user-at-host shapes by the hundred.
+    # The
+    # guard must be about what it says it is about, or the first committed picture turns it off.
+    figures = [path for path in tracked_files() if path.endswith(".png")]
+    assert figures, "this test is about committed figures and there are none to check"
+    assert not any(path in tracked_text() for path in figures)
+    assert all(path in tracked_bytes() for path in figures)  # still read, still checked for values
+
+
 def test_tracked_files_carry_no_value_from_the_real_env():
     # The patterns approximate an identity; your own .env defines it. Without a .env this checks nothing.
-    secrets = [re.compile(rf"(?<![\w-]){re.escape(value)}(?![\w-])") for value in dotenv_values(ROOT / ".env").values() if value]
-    leaks = [(path, secret.pattern) for path, text in tracked_text().items() for secret in secrets if secret.search(text)]
+    # Searched as bytes over every tracked file, text or not: a literal host name is a literal
+    # host name wherever it sits, and unlike the shapes above it cannot turn up in a PNG by chance.
+    secrets = [re.compile(rf"(?<![\w-]){re.escape(value)}(?![\w-])".encode()) for value in dotenv_values(ROOT / ".env").values() if value]
+    leaks = [(path, secret.pattern) for path, raw in tracked_bytes().items() for secret in secrets if secret.search(raw)]
     assert leaks == []
 
 

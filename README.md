@@ -236,6 +236,52 @@ There are three things the detector can say, and only one of them carries a numb
 already known and not wanted. It is rarely needed: the detector reports where the cycle began,
 which is the same fact measured rather than assumed.
 
+## The two pictures
+
+    uv run uni plot sweeps/<name> --observable x --burn-in 200
+
+Reads a persisted sweep and writes two figures under `figures/`. Nothing about either one asks
+which map ran. The **return map** is the observable's sequence plotted against itself one step
+later, which for a map whose states are numbers is the map itself drawn. The **orbit diagram** is
+the same readings against the value they were taken at, which is the picture PROJECT.md's Rung 1
+is about: period doubling is branches splitting as the value grows.
+
+Both are the same kind of value — points with an x, a y, and a number that colours them — so
+there is one drawing function rather than two to keep in step. The return map is coloured by the
+value each orbit ran at, so a sweep of one value is one colour and a grid is a fan of them. The
+orbit diagram is one colour, because the value is already its x axis.
+
+`--burn-in N` drops the first N steps of every cell, which is where a picture wants a settled
+orbit and not the transient that got there. A sweep that is still running is drawn from the cells
+that are on disk, which is the point of persisting them one at a time; a sweep with nothing on
+disk, or a burn-in that ate every step, is refused rather than written as an empty figure that
+looks like an answer.
+
+The figure files are named for the sweep they came from, so a picture says which sweep it is of
+and two sweeps do not overwrite each other.
+
+### The logistic cascade
+
+![orbit diagram of the logistic map](figures/e84d01205c88ec92-x-orbit.png)
+
+    uv run uni sweep --map logistic --grid 2.5:4.0:600 --start 0.2 --start 0.7 --steps 400
+    uv run uni plot sweeps/e84d01205c88ec92 --observable x --burn-in 200
+
+This is the reference picture, and it is the textbook one. The single branch to r = 3; the first
+split exactly at 3.0; the second at about 3.449; the third at about 3.544; the branches crowding
+into the accumulation near 3.5699 and then the chaotic band; and inside the band the period-3
+window at about 3.83, with its own miniature cascade. The start is 0.2 and 0.7 rather than 0.5,
+because 0.5 is exactly the pre-image of the map's maximum: at r = 4 it lands on 1.0 and then on
+0.0, and the whole right-hand edge of the picture would be a single dot at zero.
+
+![return map of the logistic map](figures/e84d01205c88ec92-x-return.png)
+
+The return map of the same sweep is the family of parabolas, one per r, fanning up to the r = 4
+one that touches 1.0. PROJECT.md asks of Rung 1 whether the return map has one smooth hump,
+because that is the property the whole theory rests on. For this map it does, by construction —
+which is what makes the logistic map the fixture: a wrong answer here is visible as a wrong
+answer rather than as a result.
+
 ## Running on the experiment host
 
 Every `uni` command accepts `--remote`. With it, this working tree, uncommitted edits
