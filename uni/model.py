@@ -154,13 +154,15 @@ class Model:
                 hooks.callback(handle.remove)
             yield
 
+    # Both are reachable from a hand-written contrast or a hand-edited direction file, so they are
+    # reported rather than raised: this is the earliest place that knows the model's own shape.
     def _layer(self, layer: int) -> int:
         if layer not in range(len(self.layers)):
-            raise ValueError(f"layer must be in 0..{len(self.layers) - 1}, got {layer}")
+            raise ModelError(f"layer must be in 0..{len(self.layers) - 1}, got {layer}")
         return layer
 
     def _residual_vector(self, addition: ResidualAdd) -> torch.Tensor:
         self._layer(addition.layer)
         if addition.vector.shape != (self.hidden_size,):
-            raise ValueError(f"vector must have shape ({self.hidden_size},), got {tuple(addition.vector.shape)}")
+            raise ModelError(f"vector must have shape ({self.hidden_size},), got {tuple(addition.vector.shape)}")
         return addition.vector.to(self.device, self.dtype)

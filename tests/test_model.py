@@ -61,5 +61,5 @@ def test_hooks_are_removed_after_generation(model, baseline):
 )
 def test_malformed_additions_are_refused_before_generating(model, layer, size, message):
     addition = ResidualAdd(layer=layer, vector=torch.zeros(size or model.hidden_size))
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(ModelError, match=message):
         model.generate(PROMPT, [addition])
