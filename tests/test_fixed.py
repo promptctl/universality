@@ -23,8 +23,15 @@ def test_the_logistic_fixed_point_and_slope_are_the_textbook_ones(r):
 
 
 def test_a_bracket_the_map_carries_one_way_is_refused_rather_than_answered_with_an_end():
-    with pytest.raises(FixedError, match="carries both 0.7 and 0.9 the same way"):
+    with pytest.raises(FixedError, match="carries 0.7 by -0.175 and 0.9 by -0.675; a bracket is two states"):
         fixed_point(Logistic(2.5), NUMBERS["logistic"], 0.7, 0.9)
+
+
+def test_a_bracket_whose_end_the_map_holds_still_is_refused_rather_than_answered_with_that_end(capsys):
+    # 0 is the logistic map's other fixed point: answered, every row would be it, and the slope
+    # below it would be read at a state the map cannot hold.
+    assert command(["fixed", "--map", "logistic", "--grid", "2.5:3.5:5", "--bracket", "0:0.9", "--step", "0.001"]) == EXIT_CONFIG
+    assert "carries 0 by +0 and 0.9 by -0.675; a bracket is two states it carries in opposite directions" in capsys.readouterr().err
 
 
 def test_a_step_finer_than_the_map_writes_is_refused():
@@ -36,6 +43,10 @@ def test_crossings_are_placed_between_the_values_either_side():
     assert crossings((1.0, 2.0, 3.0), (0.0, -2.0, 0.0), -1.0) == (1.5, 2.5)
     assert crossings((1.0, 2.0), (-0.5, -1.0), -1.0) == (2.0,)  # landing on the level is passing through it
     assert crossings((1.0, 2.0), (-1.0, -1.0), -1.0) == ()
+    assert crossings((1.0, 2.0, 3.0), (-0.9, -1.0, -0.9), -1.0) == ()  # a touch from above and back
+    assert crossings((1.0, 2.0, 3.0), (-0.9, -1.0, -1.1), -1.0) == (2.0,)
+    assert crossings((1.0, 2.0), (-1.0, -1.25), -1.0) == (1.0,)  # on the level where the grid starts
+    assert crossings((1.0, 2.0, 3.0, 4.0), (-0.9, -1.0, -1.0, -1.1), -1.0) == (2.0,)
 
 
 def test_the_command_finds_the_logistic_flip_at_three(capsys):
