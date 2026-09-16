@@ -634,14 +634,89 @@ That second attractor then does exactly what a unimodal map's cascade does. It d
 leave splits of a few thousandths that are not yet the cycle's own. By about 4.55 it no longer
 repeats within 200 steps, and between 5.05 and 5.075 it vanishes: from there on, the orbit from
 the top falls onto the fixed point too. Measuring those doublings to more than a grid step, and
-their ratios against 4.669, is Rung 3 (`universality-rung3-sbn`). It needs a period read at a
-resolution rather than exactly, for the flicker described above.
+their ratios against 4.669, is Rung 3, below.
 
 This is Rung 2 met: the fixed point is found, its slope is measured across the gain, and it gives
 way at mu_1 = 13.59 +- 0.02, with the orbits splitting where the slope says they must. What this
 loop adds to PROJECT.md is a coexisting attractor with its own cascade, reached from the top of the
 hump long before the fixed point flips. In one dimension that is the only kind of "different
 bifurcation first" there can be.
+
+### The cascade: delta from six superstable gains
+
+An orbit is a poor instrument for a doubling. Just past one it settles slowly, so the cells either
+side of 3.875 above hold splits that are not yet the cycle's own, and at four decimals a settled
+orbit can still flicker between neighbouring spellings, which an exact detector counts as a period.
+So the cascade is read without waiting for anything to settle.
+
+A cycle that passes through the top of the hump, the critical point x_c where the map's slope is
+zero, has a multiplier of zero: it is superstable. Each period 2^n of a cascade has one gain where
+its cycle is, between that cycle's birth and its own doubling, and the spacings of those gains
+shrink by the same ratio as the doublings do. Feigenbaum measured delta that way. At a
+superstable gain the orbit from x_c is back at x_c after 2^n steps, so F^p(x_c) - x_c is zero
+there, and of opposite signs either side. It is read at a grid of gains around each one, with no
+burn-in and no period detected, and a parabola fitted through those readings crosses zero at the
+superstable gain. The fit's scatter gives the crossing its error. A parabola and not a line,
+because a line cannot follow the curve and misplaces the logistic map's superstable values by
+three times the error it reports, where a parabola misplaces them by one.
+
+The starting point x_c is itself a measurement, and an error in it moves every superstable gain by
+that error over how steeply F^p(x_c) - x_c crosses zero. The obvious way around that, starting a
+step later from the top value F(x_c), does not work: the map is flat at its top, so F(x_c) barely
+depends on x_c, but for the same reason F^p(F(x_c)) - F(x_c) only touches zero and never changes
+sign. So the top is measured first:
+
+    uv run uni critical --map response --template rewrite --knob formality \
+        --text "The meeting moved to Thursday because the room was booked." \
+        --layer 23 --decimals 6 --value 20 --grid=-9.1:-8.1:101
+
+`uni critical` fits a cubic to the map over a grid of states, since the hump falls away faster on
+one side than the other and would pull a parabola's top toward the gentler side, and finds where
+its slope crosses zero. At gains 4.5 and 20, over 61 and 101 states, the top is at -8.61403 +-
+0.00002. On the logistic map it finds 0.5.
+
+`--decimals` sets how many decimals the response map writes a push to. The default is four, for the
+flicker described above. A superstable gain detects no period, so it can use more: at six, the
+readings below scatter three to thirty-five times less than at four, and what is left is the
+model's own float32 roughness. The spelling is recorded in every trajectory the map writes.
+
+    uv run uni cascade --map response --template rewrite --knob formality \
+        --text "The meeting moved to Thursday because the room was booked." \
+        --layer 23 --decimals 6 --critical=-8.614030 --period 2 \
+        --grid 3.067:3.075:21 --grid 4.161:4.169:21 --grid 4.4653:4.4673:21 \
+        --grid 4.5302:4.5324:21 --grid 4.5442:4.5466:21 --grid 4.5478:4.5491:21
+
+| period | superstable gain | error |
+| -----: | ---------------: | ----: |
+| 2 | 3.0712744 | 0.0000001 |
+| 4 | 4.1657353 | 0.0000021 |
+| 8 | 4.4663795 | 0.0000025 |
+| 16 | 4.5313866 | 0.0000042 |
+| 32 | 4.5454385 | 0.0000050 |
+| 64 | 4.5484729 | 0.0000049 |
+
+| spacing ratio over periods | delta_n |
+| :------------------------- | ------: |
+| 2, 4, 8 | 3.6404 +- 0.0000 |
+| 4, 8, 16 | 4.6248 +- 0.0004 |
+| 8, 16, 32 | 4.6262 +- 0.0024 |
+| 16, 32, 64 | 4.6309 +- 0.0120 |
+
+Starting from -8.613930 instead, five times the top's error away, moves those three ratios by
+-0.0019, +0.0056 and -0.0111, so the top's own error adds at most 0.0004, 0.0011 and 0.0022. Grids
+twice and half as wide move the ratio over 4, 8, 16 by 0.0008 at most.
+
+The ratios are 4.625, within one percent of 4.6692, which is the target PROJECT.md set for Rung 3,
+and nowhere near the 7.28 a quartic top would give. On the logistic map the same command returns
+the superstable values to 2e-9 and their ratios 4.6808, 4.6630 and 4.6684. But three ratios in a row
+at 4.625, with these errors, are not yet converging on 4.669: they are 0.9% below it and flat. For
+the logistic map the ratios at these periods are already within 0.25% of it. This map is not the
+logistic map. Its hump falls away unevenly, its answer has the shoulder between -3 and 0 described
+above, and a stable fixed point coexists with the cascade. Whether its ratios go on to 4.669 is a question
+about doublings past 64, where the float32 roughness of the model's answer swamps the reading: at
+period 64 the readings already scatter by 0.0008. That is the next measurement
+(`universality-rung3-arw`), on a smooth fit to the model's own answers, so it can be followed
+past where the model's arithmetic ends.
 
 ## Running on the experiment host
 
