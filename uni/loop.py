@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -83,8 +84,14 @@ class Trajectory:
 def write_trajectory(trajectory: Trajectory, dir: Path) -> Path:
     dir.mkdir(parents=True, exist_ok=True)
     path = dir / trajectory.name
-    # Written beside it and renamed over it, so a rerun killed mid-write leaves the earlier file whole.
-    partial = path.with_suffix(".partial")
+    # Written beside it and renamed over it, so a rerun killed mid-write leaves the earlier file
+    # whole. The scratch name carries this process's id because resuming a sweep is rerunning the
+    # same command: two of them reach the same cell together, and under a shared scratch name one
+    # would truncate the file the other was about to rename into place - promoting an empty file
+    # to a finished cell, which is the one thing renaming into place is here to make impossible.
+    # The cost is that a killed run leaves its scratch file behind instead of overwriting it next
+    # time, which is litter rather than damage. [LAW:no-silent-failure]
+    partial = path.with_suffix(f".{os.getpid()}.partial")
     partial.write_bytes(trajectory.encode())
     partial.replace(path)
     return path

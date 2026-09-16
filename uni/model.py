@@ -137,12 +137,21 @@ class Model:
             raise ModelError("the reply has no finite log-probability; the residual additions overflow this model's arithmetic")
         return mean
 
+    def room(self, ids: torch.Tensor) -> int:
+        """How many tokens the context leaves to generate after this prompt, refused if none.
+
+        [LAW:single-enforcer] the one place that decides whether a prompt fits, so a sweep asking
+        before it starts is told exactly what the run would have told it, a cell in.
+        """
+        room = self.context_limit - ids.shape[1]
+        if room <= 0:
+            raise ModelError(f"prompt is {ids.shape[1]} tokens; the context limit of {self.context_limit} leaves no room to generate")
+        return room
+
     @torch.inference_mode()
     def generate(self, prompt: str, additions: Sequence[ResidualAdd] = ()) -> Generation:
         step_ids = self.encode(prompt)
-        room = self.context_limit - step_ids.shape[1]
-        if room <= 0:
-            raise ModelError(f"prompt is {step_ids.shape[1]} tokens; the context limit of {self.context_limit} leaves no room to generate")
+        room = self.room(step_ids)
         past = None
         token_ids: list[int] = []
         logprobs: list[float] = []

@@ -75,3 +75,18 @@ def test_a_family_reads_the_checkpoint_once_and_not_until_a_cell_runs(monkeypatc
     first, second = family.at(0.0), family.at(2.0 - 2.0)
     assert (first.model, second.model) == ("the checkpoint", "the checkpoint")
     assert len(loaded) == 1
+
+
+def test_a_family_refuses_a_start_the_context_has_no_room_to_answer(model, templates, monkeypatch):
+    # The states a model map cannot step are the ones that leave the context no room for a reply,
+    # and that is the model's own arithmetic rather than a second copy of it in the family. Asked
+    # of the checkpoint the run is about to load anyway, so a sweep does not write its manifest,
+    # load the model, die on its first cell, and die there again on every resume.
+    from uni.maps import ModelFamily
+    from uni.model import ModelError
+
+    monkeypatch.setattr("uni.model.Model", lambda pinned: model)
+    family = ModelFamily(model.pinned, templates["rewrite"], NoKnob())
+    family.holds(("a start the context has plenty of room to answer",))
+    with pytest.raises(ModelError, match="leaves no room to generate"):
+        family.holds(("word " * model.context_limit,))

@@ -348,3 +348,16 @@ def test_two_values_are_one_cell_exactly_when_they_are_one_file():
     # hashes the spelling, and they name two files. Refusing them as a repeated value would be a
     # refusal the directory disagrees with, so the check is keyed by the spelling too.
     assert len({cell.name for cell in Sweep(LOGISTIC, (0.0, -0.0), ("0.5",), 4).cells}) == 2
+
+
+def test_status_answers_without_asking_the_map_about_the_starts(tmp_path, monkeypatch, capsys):
+    # The deliberate edge of putting `holds` below the --status return: a model family answers
+    # about starts with the checkpoint, and counting files on disk must not cost one. So --status
+    # reports on a sweep whose starts the map would refuse, and running it is what refuses them.
+    monkeypatch.setattr("uni.cli.SWEEPS", tmp_path)
+    argv = ["sweep", "--map", "logistic", "--grid", "3.2:3.5:4", "--start", "0.10", "--steps", "5"]
+    assert command([*argv, "--status"]) == 0
+    assert "0 of 4 cells done, 4 to run" in capsys.readouterr().out
+    assert command(argv) == EXIT_CONFIG
+    assert "write 0.1, not '0.10'" in capsys.readouterr().err
+    assert list(tmp_path.iterdir()) == []

@@ -302,9 +302,6 @@ def run_sweep(args: argparse.Namespace) -> int:
     # Built once for the whole grid, which is the point of a family: the checkpoint behind a model
     # sweep is read once, and not until a cell is actually run.
     family = args.map.build(args, values)
-    # Every start, like every value, is offered to the map before anything is written: a start it
-    # cannot step is a sweep that dies partway and dies in the same place on every resume.
-    family.holds(args.start)
     sweep = Sweep(family.spec, values, tuple(args.start), args.steps)
     home = sweep.home(SWEEPS)
     left = pending(sweep, home)
@@ -315,12 +312,17 @@ def run_sweep(args: argparse.Namespace) -> int:
     # exploratory query would leave an empty sweep nothing can tell from an abandoned one.
     if args.status:
         return 0
+    # Every start, like every value, is offered to the map before anything is written: a start it
+    # cannot step is a sweep that dies partway and dies in the same place on every resume. Below
+    # the return above rather than beside the values, because a model family answers this with the
+    # checkpoint, and `--status` runs no cell and should load nothing.
+    family.holds(args.start)
     write_sweep(sweep, SWEEPS)
     for done, cell in enumerate(left, start=1):
         map = family.at(cell.value)
         # The map's own description and its own value, the way `uni loop` records them, so what
         # the file says the orbit ran at is what it ran at. [LAW:one-source-of-truth]
-        states = tuple(islice(orbit(map, cell.start), args.steps))
+        states = tuple(islice(orbit(map, cell.start), sweep.steps))
         trajectory = Trajectory(map.spec, map.value, cell.start, states)
         # [LAW:no-silent-failure] the sweep named this cell's file before running it, and
         # resumption is that name coming true. A map that described itself differently, or that

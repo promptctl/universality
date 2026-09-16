@@ -80,10 +80,11 @@ class Family(Protocol):
         """Refuse any of these states that no map of this family could step.
 
         The parameter does not move the states a map holds - r does not change [0, 1], and a knob
-        setting does not make a string unreadable - so which states are legal is the family's own
-        answer, given before the first cell runs rather than discovered by reaching one. Cheap by
-        contract: it may not run the map. A sweep handed a start its map cannot step would
-        otherwise write its manifest, run every cell before that start, and die there - and die
+        setting does not move where the context limit falls - so which states are legal is the
+        family's own answer. It is asked once a run is about to begin, not when a sweep is merely
+        being named, so a family may use whatever it would load to run anyway: the answer costs
+        nothing a cell was not about to cost. A sweep handed a start its map cannot step would
+        otherwise write its manifest, run every cell before that start and die there - and die
         again in the same place on every resume. [LAW:no-silent-failure]
         """
         ...
@@ -150,10 +151,13 @@ class ModelFamily:
         return model_spec(self.pinned, self.template, self.knob.spec)
 
     def holds(self, states: Sequence[str]) -> None:
-        # Every text is a state here: the template renders whatever it is given and the model
-        # replies to whatever it renders. Nothing to refuse, and this says so rather than leaving
-        # the question unanswered - a family that held only some strings would have to say which.
-        return None
+        # A model map steps any text the context leaves room to answer, which is the model's own
+        # arithmetic rather than a second copy of it here. The checkpoint this asks is the one the
+        # run is about to load, so a start that cannot be stepped costs the same to find out about
+        # now as it would have cost a cell in - and a cell in, the manifest is already written and
+        # every resume dies in the same place.
+        for state in states:
+            self.model.room(self.model.encode(self.template.render(state)))
 
     @cached_property
     def model(self) -> Model:
