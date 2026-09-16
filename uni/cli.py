@@ -462,6 +462,47 @@ def run_plot(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_response(args: argparse.Namespace) -> int:
+    """Print the model's own response to each push on the grid at each layer, and draw the curves."""
+    import hashlib
+    import json
+    from dataclasses import asdict
+
+    from uni.draw import scatter
+    from uni.figure import Picture, Point
+    from uni.model import Model
+    from uni.pinned import load_pinned
+    from uni.response import admit, response, turns
+    from uni.steer import Steer, read_direction
+    from uni.sweep import grid
+
+    values = grid(args.grid)
+    prompt = template(args.template)
+    pinned = load_pinned()
+    steer = Steer(read_direction(args.knob, pinned))
+    model = Model(pinned)
+    # Every cell put to the refusals before the first forward pass, rather than met at its turn: a
+    # layer the response cannot be read at, or a push too large to read, is wrong before anything
+    # is computed, and the table is printed only once every curve is done.
+    rounding = max(admit(model, steer, value, layer) for layer in args.layer for value in values)
+    curves = {layer: tuple(response(model, prompt.render(args.start), steer, value, layer) for value in values) for layer in args.layer}
+    name = steer.direction.contrast.name
+    print(f"{pinned.dtype} rounding of the push moves no reading below by more than {rounding:.2g}")
+    print(f"{'value':>10}" + "".join(f"{f'layer {layer}':>12}" for layer in curves))
+    for i, value in enumerate(values):
+        print(f"{value:>10.4g}" + "".join(f"{curve[i]:>12.4f}" for curve in curves.values()))
+    for layer, curve in curves.items():
+        top = max(range(len(values)), key=curve.__getitem__)
+        print(f"layer {layer}: maximum {curve[top]:.4f} at {values[top]:.4g}; the slope changes sign at {list(turns(values, curve))}")
+    # Named for everything that fixes the curves, as a sweep's pictures are named for the sweep.
+    fixed = {"pinned": asdict(pinned), "template": prompt.text, "start": args.start, "knob": steer.spec, "values": list(values), "layers": list(curves)}
+    stem = hashlib.sha256(json.dumps(fixed, sort_keys=True).encode()).hexdigest()[:16]
+    points = tuple(Point(value, reading, layer) for layer, curve in curves.items() for value, reading in zip(values, curve))
+    picture = Picture(points, f"response along {name}", f"push along {name}", f"what the layers after the push write along {name}", "layer" if len(curves) > 1 else None)
+    print(scatter(picture, args.out / f"response-{stem}.png"))
+    return 0
+
+
 def verdict(period: Period) -> str:
     """What the detector saw, in a sentence. The one branch is the domain's own three answers."""
     match period:
@@ -550,6 +591,14 @@ def build_parser() -> argparse.ArgumentParser:
     plot.add_argument("--out", type=Path, default=FIGURES, help=f"where to write the figures (default: {FIGURES})")
     plot.set_defaults(run=run_plot)
     observe.set_defaults(run=run_observe)
+    answer = commands.add_parser("response", help="read how the layers after a steering push answer it, with no token generated")
+    answer.add_argument("--template", required=True, help="the template the start is rendered into, named in uni/templates.toml")
+    answer.add_argument("--knob", required=True, help="the direction in uni/directions to push along")
+    answer.add_argument("--start", required=True, help="the text the prompt is made from; write --start=TEXT when it begins with '-'")
+    answer.add_argument("--grid", required=True, help="the pushes, as FROM:TO:COUNT with TO included")
+    answer.add_argument("--layer", type=whole, action="append", required=True, help="a layer to read the response at; repeat it for each one")
+    answer.add_argument("--out", type=Path, default=FIGURES, help=f"where to write the figure (default: {FIGURES})")
+    answer.set_defaults(run=run_response)
     direction = commands.add_parser("direction", help="derive a steering direction from uni/directions/<name>.toml")
     direction.add_argument("contrast", type=contrast, help="the contrast's name")
     direction.set_defaults(run=run_direction)
@@ -570,8 +619,12 @@ def checkout_root(cwd: Path) -> Path:
 # the converters, one of which reads a direction and so imports torch, and `--remote` exists
 # precisely so this machine never pays for that. A set of names costs nothing to consult, and what
 # keeps it in step with the parser below is a test that enumerates the parser's own subcommands -
-# a name in here that no command answers to is a guard that silently stops guarding.
-HERE = frozenset({"plot"})
+# a name in here that no command answers to is a guard that silently stops guarding. Each name
+# carries what to do instead, which differs by what the command reads.
+HERE = {
+    "plot": "bring the sweep home first (see the README) and run it without --remote",
+    "response": "run it without --remote; the table it prints travels back, the figure it draws would not",
+}
 
 
 def stays_here(rest: Sequence[str]) -> bool:
@@ -594,10 +647,7 @@ def run(argv: Sequence[str], env: Mapping[str, str], cwd: Path) -> int:
         # [LAW:no-silent-failure] the sync has one leg and figures/ is not on it, so this would
         # draw on the host, print a path that does not exist here, and exit 0 as though it had
         # answered. The sweep is the thing that travels; the picture is drawn where it is kept.
-        raise ConfigError(
-            f"{rest[0]} writes a file into this checkout, so it runs here, not on the host; "
-            "bring the sweep home first (see the README) and run it without --remote"
-        )
+        raise ConfigError(f"{rest[0]} writes a file into this checkout, so it runs here, not on the host; {HERE[rest[0]]}")
     if not remote:
         args = build_parser().parse_args(rest)
         return args.run(args)

@@ -99,9 +99,8 @@ class Model:
         ids, empty, prefix = chat(reply), chat(""), self.encode(prompt)
         # A reply generated against a prompt that nearly fills the context is a reply the model
         # can write and cannot then be shown its own transcript of: the closing tokens this adds
-        # push the two past the limit together. [LAW:single-enforcer] the one place that knows.
-        if ids.shape[1] > self.context_limit:
-            raise ModelError(f"prompt and reply are {ids.shape[1]} tokens together; the context limit of {self.context_limit} cannot hold them")
+        # push the two past the limit together.
+        self.fits(ids, "prompt and reply together")
         # What the template puts after an empty reply is what closes every reply, such as <|im_end|>.
         start = prefix.shape[1]
         closing = empty[:, start:]
@@ -111,6 +110,16 @@ class Model:
         if not (torch.equal(ids[:, :start], prefix) and torch.equal(ids[:, end:], closing)):
             raise RuntimeError("the chat template encodes a prompt or its closing differently around this reply")
         return ids, slice(start, end)
+
+    def fits(self, ids: torch.Tensor, what: str) -> None:
+        """Refuse a sequence the context cannot hold, before a forward pass reads it anyway.
+
+        The model runs past its limit without complaint, at positions it was never trained on, and
+        the numbers it gives there look like any others. [LAW:single-enforcer] the one place that
+        decides whether a sequence can be read; `room` decides whether one can be answered.
+        """
+        if ids.shape[1] > self.context_limit:
+            raise ModelError(f"{what} are {ids.shape[1]} tokens; the context limit of {self.context_limit} cannot hold them")
 
     @torch.inference_mode()
     def reply_residual(self, prompt: str, reply: str, layer: int) -> torch.Tensor:
@@ -126,6 +135,27 @@ class Model:
         finally:
             handle.remove()
         return captured[0][0, span].mean(dim=0)
+
+    @torch.inference_mode()
+    def prompt_residual(self, prompt: str, additions: Sequence[ResidualAdd], layer: int) -> torch.Tensor:
+        """The residual stream leaving decoder `layer` with `additions` made, at each of the prompt's tokens, shape (tokens, hidden_size).
+
+        Read by a hook registered after the additions' own, so at the layer an addition is made the
+        reading holds it: hooks on one layer run in the order they were registered, each handed the
+        output the one before it returned. Token by token and not averaged, because a caller that
+        takes an addition back out has to do it before the average: the sum of the tokens rounds at
+        the size of the addition, and the size of what the model wrote is lost in it.
+        """
+        ids = self.encode(prompt)
+        self.fits(ids, "the prompt's tokens")
+        captured = []
+        with self._residual(additions):
+            handle = self.layers[self._layer(layer)].register_forward_hook(lambda _m, _i, hidden: captured.append(hidden))
+            try:
+                self.model(input_ids=ids, logits_to_keep=1)
+            finally:
+                handle.remove()
+        return captured[0][0]
 
     @torch.inference_mode()
     def reply_logprob(self, prompt: str, reply: str, additions: Sequence[ResidualAdd]) -> float:

@@ -493,7 +493,53 @@ answer is already the answer it would give to itself, steered or not.
 
 What it points to is a loop that forgets where it started, which a loop carrying the whole text
 forward cannot: a state small enough that the map is a smooth function of one number, as
-PROJECT.md's continuous version of the loop has it. That is filed as `universality-rung1-7er`.
+PROJECT.md's continuous version of the loop has it. That is what the next section measures.
+
+### A push and the model's answer to it: the hump
+
+    uv run uni response --template rewrite --knob formality \
+        --start "The meeting moved to Thursday because the room was booked." \
+        --grid=-40:40:321 --layer 12 --layer 14 --layer 16 --layer 18 --layer 20 --layer 23
+
+Here the state is a number rather than a text. The prompt is rendered once; the residual stream
+leaving layer 12 is pushed by that number times the formality direction; and the reading is how
+far the stream sits along the same direction at a later layer, averaged over the prompt, with no
+token generated. Nothing is sampled, so the reading is a smooth function of the push - which no
+number read off greedy text is, since the text holds still until one token overtakes another.
+
+The push itself is taken back out of the reading. The residual connections carry it to every
+later layer, so the stream's own projection is the push read back, 8.96 times the push (the
+direction's squared length), a straight line whatever the model does. What is left is what the
+layers after the push wrote in answer to it, and it is what `uni response` prints and draws.
+
+The push is taken out token by token, before the average, and a push too large to take out is
+refused rather than read. Every addition the stream makes while it holds the push rounds at the
+push's size, so a large enough push rounds the model's writes out of the stream, and what is left
+reads as a model that answers nothing. The command bounds that rounding from the push alone
+before it runs a forward pass, refuses any cell it could move by a hundredth or more, and prints
+the worst bound over the grid: 0.00051 for the run above, where a push of 1e12 would be 1.3e7.
+Like `uni plot`, it runs here and refuses `--remote`: the figure it draws would stay on the host.
+
+![the model's answer to a push along formality, at six layers](figures/response-6e6cae900235d2b4.png)
+
+At layer 12 there is no answer - the curve is flat at -4.3035, float jitter aside, because
+nothing after the push has run, which is also the check that the reading holds the push at all.
+From layer 14 on the answer has a **hump**: pushed informal, the layers push back toward formal,
+most strongly near -8.5; pushed further, less; pushed formal, they push back hard toward informal.
+By layer 23, the last one, the curve changes direction exactly once on the 321-point grid, at a
+maximum of 16.01 at -8.5, and falls on both sides all the way to -40 and 40. Layers 18 and 20 add
+a small dip between -3 and 0, which layer 23 has smoothed into a shoulder.
+
+Feigenbaum's 4.669 belongs to maps whose maximum is quadratic; a quartic top has its own constant,
+about 7.28. On 97 points across -14.5 to -2.5, layer 23's top sits at -8.625, and a quartic fit
+there gives a squared coefficient of -0.43, -0.40 and -0.40 on windows of 6, 4 and 2 either side,
+against a fourth-power coefficient of 0.002 to 0.004. Within 2 of the top a parabola alone fits
+to an rms of 0.05 on a range of 1.87, and how fast the curve falls away from the top goes as the
+distance to the power 1.75 on the left and 2.09 on the right. The top is quadratic.
+
+This is Rung 1 met, for a loop of this kind: one smooth maximum, of the order the theory needs. It
+is a map in waiting rather than a loop yet - closing it means turning the answer back into the
+next push, with a gain to turn, and finding the fixed point and its first flip, which is Rung 2.
 
 ## Running on the experiment host
 
