@@ -82,7 +82,7 @@ def test_another_run_of_the_same_cell_writes_under_its_own_scratch_name(tmp_path
     # other is about to rename into place, which would promote an empty file to a finished cell -
     # the one thing renaming into place exists to make impossible.
     written = trajectory()
-    foreign = tmp_path / written.name.replace(".json", ".999999.partial")
+    foreign = tmp_path / written.name.replace(".json", ".partial")  # a name no run here picks
     foreign.parent.mkdir(parents=True, exist_ok=True)
     foreign.write_bytes(b"")
     path = write_trajectory(written, tmp_path)

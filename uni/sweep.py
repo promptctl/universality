@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from uni.atomic import write_whole
 from uni.loop import trajectory_name
 from uni.parse import ConfigError, field
 
@@ -94,6 +95,11 @@ class Sweep:
     steps: int
 
     def __post_init__(self) -> None:
+        # One number, one spelling, for the reason `Trajectory` gives: a `values` of (3, 4) writes
+        # "values": [3, 4], which reads back as ints the parser refuses - a manifest this sweep's
+        # own reader would not take. It also makes 3 and 3.0 the one value they name one cell as,
+        # rather than two spellings the distinctness check below would let through.
+        object.__setattr__(self, "values", tuple(float(value) for value in self.values))
         # [LAW:parse-dont-validate] past this line a sweep's cells are distinct and every one of
         # them is a run that can be written down. A value or a start named twice is one cell named
         # twice: both runs write one file, so the second overwrites the first for no new data, the
@@ -149,16 +155,13 @@ MANIFEST = "sweep.json"
 def write_sweep(sweep: Sweep, dir: Path) -> Path:
     """The sweep's own directory, with the manifest in it. Rewriting it writes the same bytes."""
     home = sweep.home(dir)
-    home.mkdir(parents=True, exist_ok=True)
     path, written = home / MANIFEST, sweep.encode()
     # Left alone when it already says this, so resuming a finished sweep touches nothing at all.
     # The directory is named by the hash of these bytes, so a manifest here that differs was
     # edited by hand, and the command line is what a sweep is: it wins, and says nothing.
     if path.exists() and path.read_bytes() == written:
         return home
-    partial = home / (MANIFEST + ".partial")
-    partial.write_bytes(written)
-    partial.replace(path)
+    write_whole(path, written)
     return home
 
 

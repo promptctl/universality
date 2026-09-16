@@ -361,3 +361,35 @@ def test_status_answers_without_asking_the_map_about_the_starts(tmp_path, monkey
     assert command(argv) == EXIT_CONFIG
     assert "write 0.1, not '0.10'" in capsys.readouterr().err
     assert list(tmp_path.iterdir()) == []
+
+
+def test_another_run_of_the_same_sweep_writes_the_manifest_under_its_own_scratch_name(tmp_path):
+    # The manifest gets what the cells get. Two runs of one sweep start together on a fresh
+    # directory, both find no manifest, and under one scratch name the second would truncate the
+    # bytes the first was about to rename into place - leaving `sweep.json` a prefix of itself,
+    # which `read_sweep` refuses for a sweep whose cells are all fine.
+    written = Sweep(LOGISTIC, (3.2, 3.5), ("0.5",), 4)
+    home = written.home(tmp_path)
+    foreign = home / f"{MANIFEST}.partial"  # a name no run here picks, so no run here may write it
+    foreign.parent.mkdir(parents=True, exist_ok=True)
+    foreign.write_bytes(b"")
+    assert write_sweep(written, tmp_path) == home
+    assert read_sweep(home / MANIFEST) == written
+    assert foreign.read_bytes() == b""  # left alone: another process's scratch file is not ours
+
+
+def test_a_sweep_of_whole_numbers_writes_a_manifest_it_reads_back(tmp_path):
+    # `trajectory_name` floats the value before hashing it, so a sweep at 3 names the cells a
+    # sweep at 3.0 names - and would then describe itself in a manifest saying `"values": [3]`,
+    # which its own reader refuses as an int. One spelling, fixed where the sweep is made.
+    whole = Sweep(LOGISTIC, (3, 4), ("0.5",), 4)
+    assert whole == Sweep(LOGISTIC, (3.0, 4.0), ("0.5",), 4)
+    home = write_sweep(whole, tmp_path)
+    assert read_sweep(home / MANIFEST) == whole
+
+
+def test_one_value_written_two_ways_is_refused_as_the_one_cell_it_is():
+    # 3 and 3.0 are one number and name one file, so they are one cell named twice - the case the
+    # spelling-keyed distinctness check would let through if the spellings were not settled first.
+    with pytest.raises(SweepError, match="values names 3.0 twice"):
+        Sweep(LOGISTIC, (3, 3.0), ("0.5",), 4)
