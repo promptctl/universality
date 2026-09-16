@@ -80,6 +80,15 @@ def test_the_logprob_is_the_one_the_model_reported_as_it_generated(model):
     assert reading == pytest.approx(statistics.fmean(generation.logprobs[:-1]), abs=1e-4)
 
 
+def test_an_observable_is_periodic_when_the_orbit_is(model):
+    # At a fixed point every step re-sends the same prompt for the same reply, so every reading
+    # after the onset is the same number. A sweep locates a bifurcation by watching that fact
+    # break, so an observable carrying anything from one call to the next would ruin it.
+    trajectory = Trajectory(spec("identity"), 0.0, "hello", ("hello",) * 4)
+    readings = [Logprob(model, load_templates()["identity"]).read(step) for step in steps(trajectory)]
+    assert len(set(readings)) == 1
+
+
 def test_the_projection_separates_the_contrast_the_direction_was_built_from(model, formality):
     pair = formality.contrast.pairs[0]
     projection = Projection(model, formality.contrast.template, formality)
