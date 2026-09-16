@@ -21,6 +21,12 @@ def test_a_word_count_the_passage_cannot_be_cut_at_is_refused(count):
         prefixes("s", {"passage": PASSAGE, "words": [count]})
 
 
+def test_a_set_with_no_word_counts_is_refused():
+    # Named beside a --start, it would add nothing, and the sweep would run without saying so.
+    with pytest.raises(StartsError, match="has no word counts"):
+        prefixes("s", {"passage": PASSAGE, "words": []})
+
+
 @pytest.mark.parametrize("raw, missing", [({"words": [1]}, "passage"), ({"passage": PASSAGE}, "words")])
 def test_a_set_missing_a_field_is_refused_by_name(raw, missing):
     with pytest.raises(StartsError, match=f"start set 's': {missing} is missing"):

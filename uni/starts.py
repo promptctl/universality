@@ -29,8 +29,11 @@ def prefixes(name: str, raw: Mapping[str, Any]) -> tuple[str, ...]:
         counts = field(raw, "words", list, StartsError)
     except StartsError as error:
         raise StartsError(f"start set {name!r}: {error}") from error
-    # [LAW:no-silent-failure] a count past the end would cut nothing and hand back the whole passage
-    # under a number that says otherwise.
+    # [LAW:no-silent-failure] a set with no counts would add nothing to a sweep that names it, and
+    # a count past the end would cut nothing and hand back the whole passage under a number that
+    # says otherwise.
+    if not counts:
+        raise StartsError(f"start set {name!r} has no word counts, so naming it would add no starts")
     for count in counts:
         if type(count) is not int or not 1 <= count <= len(words):
             raise StartsError(f"start set {name!r}: word counts are whole numbers from 1 to the passage's {len(words)}, got {count!r}")

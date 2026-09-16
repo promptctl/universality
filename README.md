@@ -468,7 +468,9 @@ coefficients inside the range where replies end:
 The sweep exits `79` with 100 of 120 cells written; every refusal is a reply that did not end
 within the budget. The row at 0.0 is the unsteered sweep above over again, all 24 orbits text for
 text, which is what adding zero times a direction should be. At every coefficient each start
-that settles settles on a fixed point of its own - 85 of them, no two alike. Steering toward
+that settles settles on a fixed point of its own, and no two starts share one: 85 fixed points,
+84 different texts, because one start - the memo's first three words, "Following the review" -
+is left exactly as it is at both 0.0 and 1.0. Steering toward
 formal makes the orbits restless, seven of 23 still moving at step 6 at 1.0, but restless along
 the diagonal rather than onto a common attractor.
 
