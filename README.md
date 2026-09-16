@@ -174,11 +174,13 @@ the cell would be marked done by a run that did not do it, and nothing would eve
 What makes that a statement about the cell rather than about the sweep is *what* was refused, not
 how far the orbit got. A steering direction's layer, and the length of its vector, are fixed by
 the direction and not by the setting, so an addition the checkpoint cannot take is one no cell
-could have taken: that is refused where the map is made, at the first cell, before a token is
-generated — as is a map that comes back set to a value other than the one it was asked for. How
-early the orbit stopped would be the wrong test for the same thing, because residual additions
-large enough to overflow the model's arithmetic also refuse the first token, and *that* is a
-property of the value the cell runs at.
+could have taken: the family is asked for a map before the manifest is written, so that sweep is
+refused whole, with no token generated and no directory left behind to fill. A map that comes back
+set to a value other than the one it was asked for says the same kind of thing about every cell,
+but is found only by running one, so it stops the run where it is found. How early the orbit
+stopped would be the wrong test for the same thing, because residual additions large enough to
+overflow the model's arithmetic also refuse the first token, and *that* is a property of the
+value the cell runs at.
 
 Two things a refused cell does not get, and both are deliberate. It is not remembered: a rerun
 runs it again, pays for its orbit again, and is refused again, so an unattended resume loop does

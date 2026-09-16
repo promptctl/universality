@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import math
 import os
 import platform
@@ -329,6 +330,16 @@ def run_sweep(args: argparse.Namespace) -> int:
     # read half a billion parameters to print a number it already has - and, off Metal, would
     # raise where it should have answered.
     family.holds(tuple(dict.fromkeys(cell.start for cell in left)))  # each start once, in cell order
+    # And the map itself, once, at the same moment and for the same reason. What a map is made out
+    # of - a steering direction's layer, the length of its vector - is the family's and not the
+    # value's, so a family that cannot make one here cannot make one at any cell of this sweep.
+    # [LAW:parse-dont-validate] past this line a family that can make maps exists, which is what
+    # lets the line below write a directory: refused here the refusal costs nothing, and refused
+    # one line later it has already left a sweep directory no run will ever fill - the litter the
+    # `--status` return above exists to avoid. Guarded on `left` as `holds` is, so rerunning a
+    # finished sweep to see that it is finished still loads nothing.
+    if left:
+        family.at(left[0].value)
     write_sweep(sweep, SWEEPS)
     failures: list[Failed] = []
     # [LAW:no-silent-failure] the count and the refusals are printed however the run ends, because
@@ -363,9 +374,16 @@ def run_sweep(args: argparse.Namespace) -> int:
         # is for: `uni sweep ... | head` closes stdout, so printing the count first would raise
         # BrokenPipeError out of the finally, replace whatever ended the run, and take the
         # refusals with it - a pipe closing would be the one ending that silenced them.
-        for failure in failures:
-            print(f"uni: value {failure.cell.value!r} from {failure.cell.start!r} has no orbit: {failure.reason}", file=sys.stderr)
-        print(described(sweep, pending(sweep, home)), flush=True)
+        # Suppressed rather than let out, because a `finally` that raises replaces whatever ended
+        # the run: with stdout closed, the SweepError above would reach the user as a traceback
+        # instead of as `uni: ...` and EXIT_CONFIG, and no handler further out can recover an
+        # exception this block has already destroyed. Saying how far a run got to nobody is not a
+        # failure of the run. (That a closed pipe is a traceback at all is universality-errors-k9u
+        # and belongs to every command here; this is only the one ending it would swallow.)
+        with contextlib.suppress(BrokenPipeError):
+            for failure in failures:
+                print(f"uni: value {failure.cell.value!r} from {failure.cell.start!r} has no orbit: {failure.reason}", file=sys.stderr)
+            print(described(sweep, pending(sweep, home)), flush=True)
     return EXIT_INCOMPLETE if failures else 0
 
 

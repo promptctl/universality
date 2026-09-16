@@ -557,30 +557,78 @@ def unmakeable(value):
 
 def test_a_family_that_cannot_make_the_map_stops_the_sweep(capsys, tmp_path, monkeypatch):
     # What a map is made out of is the family's, not the value's: a steering direction's layer and
-    # the length of its vector are the same in every cell. So a family that cannot make a map at a
-    # value it was already offered cannot make one at any of them, and the run stops at the first
-    # cell rather than saying so once per cell for a sweep that can never write a file.
+    # the length of its vector are the same in every cell. So a family that cannot make a map at
+    # the first cell cannot make one at any of them, and the sweep is refused whole - before the
+    # manifest, as a grid the map refuses is - rather than once per cell for a run that can never
+    # write a file. An empty sweep directory left behind here is litter nothing ever fills: the
+    # spec that named it is the one that has to change before the run can work.
     argv = four_cells(tmp_path, monkeypatch, Assorted({value: unmakeable for value in grid("3.2:3.5:4")}))
     assert command(argv) == EXIT_CONFIG
     printed = capsys.readouterr()
-    assert "2/4" not in printed.out  # it stopped at the first cell rather than refusing all four
+    assert "1/4" not in printed.out  # no cell ran at all, never mind all four
     assert "uni: layer must be in 0..23, got 40" in printed.err
     assert "has no orbit" not in printed.err  # not dressed up as one cell's failure, because it is not
-    (home,) = tmp_path.iterdir()
-    assert cells(home) == []
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_the_cells_refused_so_far_are_named_even_when_something_else_ends_the_run(capsys, tmp_path, monkeypatch):
     # The count and the refusals are about what the run did, not about how it stopped. Said only
     # on the way out of a clean loop, this refusal would survive as one line in the scrollback of
     # a sweep that prints thousands, while the message that ended the run got the last word.
+    #
+    # A cell is written before the refusal on purpose, so the count on the way out is one the
+    # count before the run could not have printed: asserted against "0 of 4" - what this sweep
+    # starts at - the whole `finally` could be deleted and this test would not notice.
     values = grid("3.2:3.5:4")
-    argv = four_cells(tmp_path, monkeypatch, Assorted({values[0]: outgrows(3), values[1]: drifting}))
+    argv = four_cells(tmp_path, monkeypatch, Assorted({values[1]: outgrows(3), values[2]: drifting}))
     assert command(argv) == EXIT_CONFIG
     printed = capsys.readouterr()
-    assert "0 of 4 cells done, 4 to run" in printed.out  # the count it got to, printed on the way out
-    assert f"value {values[0]!r} from '0.5' has no orbit" in printed.err
+    assert "0 of 4 cells done, 4 to run" in printed.out  # what it was going to do, said before it ran
+    assert "1 of 4 cells done, 3 to run" in printed.out  # what it did, said on the way out
+    assert f"value {values[1]!r} from '0.5' has no orbit" in printed.err
     assert "does not describe itself the same way twice" in printed.err
+
+
+class Closed:
+    """A stdout nothing is reading any more, the way `uni sweep ... | head` leaves one."""
+
+    def __init__(self):
+        self.listening = True
+
+    def write(self, text):
+        if not self.listening:
+            raise BrokenPipeError(32, "Broken pipe")
+        return len(text)
+
+    def flush(self):
+        if not self.listening:
+            raise BrokenPipeError(32, "Broken pipe")
+
+
+def closing(stdout):
+    """A drifting map that stops the reader as it is made, so the pipe goes as the run is ending."""
+
+    def make(value):
+        stdout.listening = False
+        return drifting(value)
+
+    return make
+
+
+def test_a_closed_stdout_does_not_replace_what_ended_the_run(capsys, tmp_path, monkeypatch):
+    # The count is printed from a `finally`, and a `finally` that raises replaces the exception
+    # that got it there. Nothing further out can put that back, so with the reader gone the
+    # refusal this sweep exists to report would reach the user as a traceback from the reporting
+    # instead of as `uni: ...` and EXIT_CONFIG. Saying how far a run got to nobody is not a
+    # failure of the run.
+    values = grid("3.2:3.5:4")
+    stdout = Closed()
+    argv = four_cells(tmp_path, monkeypatch, Assorted({values[0]: outgrows(3), values[1]: closing(stdout)}))
+    monkeypatch.setattr(sys, "stdout", stdout)  # after the sweep is described: this run has a reader until cell 2
+    assert command(argv) == EXIT_CONFIG
+    printed = capsys.readouterr()
+    assert "does not describe itself the same way twice" in printed.err  # what ended the run, not what the finally hit
+    assert f"value {values[0]!r} from '0.5' has no orbit" in printed.err  # and the refusal it was carrying
 
 
 def test_a_map_that_refuses_a_cell_is_answered_with_a_value_and_not_an_exception():
