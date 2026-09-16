@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from uni import cascade
-from uni.cascade import amplification, evaluated, growths, nearest, quotients, ratios, returns
+from uni.cascade import Reading, amplification, evaluated, growths, nearest, quotients, ratios, returns
 from uni.fit import Estimate, FitError, crossing, fit
 from uni.cli import EXIT_CONFIG, main
 from uni.maps import NUMBERS, Logistic
@@ -50,13 +50,13 @@ def test_the_logistic_superstable_values_are_the_known_ones(period):
 
 @pytest.mark.parametrize("period", NEAREST)
 def test_the_cycle_s_nearest_point_to_the_top_is_the_known_one_and_its_error_covers_it(period):
-    distance = read(period, GRIDS[period])[1]
+    distance = read(period, GRIDS[period])[1].estimate
     assert distance.value == pytest.approx(NEAREST[period], abs=4e-9)
     assert abs(distance.value - NEAREST[period]) < 3 * distance.error
 
 
 def test_the_nearest_points_ratios_run_to_minus_alpha():
-    found = quotients(tuple(read(period, GRIDS[period])[1] for period in NEAREST))
+    found = quotients(tuple(read(period, GRIDS[period])[1].estimate for period in NEAREST))
     assert [estimate.value for estimate in found] == pytest.approx([-2.6547448, -2.5318377, -2.5087182, -2.5041128], abs=3e-6)
 
 
@@ -65,7 +65,7 @@ def test_the_noise_a_cycle_carries_is_the_known_amount_and_its_error_covers_it(p
     zero = superstable(period, GRIDS[period])
     first, last, count = GRIDS[period].split(":")
     values = [float(first) + (float(last) - float(first)) * index / (int(count) - 1) for index in range(int(count))]
-    noise = evaluated(values, [amplification(Logistic(value), NUMBERS["logistic"]({}), "0.5", period) for value in values], zero)
+    noise = evaluated(values, [amplification(Logistic(value), NUMBERS["logistic"]({}), "0.5", period) for value in values], zero).estimate
     assert noise.value == pytest.approx(NOISE[period], rel=1e-6)
     assert abs(noise.value - NOISE[period]) < 3 * noise.error
 
@@ -77,8 +77,19 @@ def test_unit_noise_after_one_step_is_one_and_after_two_is_carried_by_the_slope_
 
 
 def test_a_growth_is_the_noise_ratio_times_the_distance_ratio_with_four_relative_errors():
-    (found,) = growths((Estimate(2.0, 0.02), Estimate(5.0, 0.1)), (Estimate(0.3, 0.003), Estimate(-0.12, 0.0024)))
+    zero, later = Estimate(3.5, 0.01), Estimate(3.55, 0.01)
+    noises = (Reading(2.0, 0.02, 0.0, zero), Reading(5.0, 0.1, 0.0, later))
+    (found,) = growths(noises, (Reading(0.3, 0.003, 0.0, zero), Reading(-0.12, 0.0024, 0.0, later)))
     assert (found.value, found.error) == pytest.approx((6.25, 6.25 * math.sqrt(2 * 0.01**2 + 2 * 0.02**2)))
+
+
+def test_a_superstable_value_s_error_reaches_a_growth_once_through_the_difference_of_its_readings_relative_slopes():
+    # At the first value both readings move by twice themselves per unit of gain, so its error
+    # moves the growth not at all; at the second, the noise by twice and the distance by once.
+    zero, later = Estimate(3.5, 0.01), Estimate(3.55, 0.01)
+    noises = (Reading(2.0, 0.0, 4.0, zero), Reading(5.0, 0.0, 10.0, later))
+    (found,) = growths(noises, (Reading(0.3, 0.0, 0.6, zero), Reading(-0.12, 0.0, -0.12, later)))
+    assert (found.value, found.error) == pytest.approx((6.25, 6.25 * 0.01))
 
 
 def test_a_quotient_s_error_is_its_two_values_relative_errors_added_in_quadrature():

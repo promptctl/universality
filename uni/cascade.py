@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from itertools import islice
 from typing import TYPE_CHECKING
 
@@ -87,19 +88,37 @@ def amplification(map: Sloped, numbers: Numbers, critical: str, period: int) -> 
     return math.sqrt(variance)
 
 
-def evaluated(values: Sequence[float], readings: Sequence[float], zero: Estimate) -> Estimate:
-    """A reading taken across the grid, through a parabola, at the superstable value: its error the parabola's own there and the value's carried along its slope.
+@dataclass(frozen=True)
+class Reading:
+    """A number read through a parabola across a grid at the grid's superstable value: its own error, and how it moves when that value does.
 
-    Added as if independent: the readings and the return that placed the value come from the same
-    orbits, but the return crosses zero on the grid and these do not, so each is set by a different
-    part of what the orbits read.
+    Kept apart and not added into one error, because two readings at one superstable value move
+    together when it moves, and a ratio of the two cancels what they share. [LAW:one-source-of-truth]
     """
+
+    value: float
+    error: float  # the parabola's own, from its scatter
+    slope: float  # along the gain, at the superstable value
+    zero: Estimate  # the superstable value it was read at
+
+    @property
+    def estimate(self) -> Estimate:
+        """The reading on its own: the value's error carried along the slope and added to the parabola's.
+
+        Added as if independent: the readings and the return that placed the value come from the same
+        orbits, but the return crosses zero on the grid and these do not, so each is set by a different
+        part of what the orbits read.
+        """
+        return Estimate(self.value, math.hypot(self.error, self.slope * self.zero.error))
+
+
+def evaluated(values: Sequence[float], readings: Sequence[float], zero: Estimate) -> Reading:
+    """A reading taken across the grid, through a parabola, at the superstable value."""
     parabola = fit(values, readings, 2)
-    slope = parabola.at(zero.value, 1) / parabola.scale
-    return Estimate(parabola.at(zero.value), math.sqrt(parabola.spread(zero.value) + (slope * zero.error) ** 2))
+    return Reading(parabola.at(zero.value), math.sqrt(parabola.spread(zero.value)), parabola.at(zero.value, 1) / parabola.scale, zero)
 
 
-def nearest(values: Sequence[float], returned: Sequence[Mapping[int, float]], period: int, zero: Estimate) -> Estimate:
+def nearest(values: Sequence[float], returned: Sequence[Mapping[int, float]], period: int, zero: Estimate) -> Reading:
     """F^(p/2)(x_c) - x_c at the superstable value of an even period p: how far the cycle's point nearest the top lies from it.
 
     Read from the returns the grid already holds, since half the period divides it.
@@ -112,16 +131,19 @@ def quotients(values: Sequence[Estimate]) -> tuple[Estimate, ...]:
     return tuple(Estimate(first.value / after.value, abs(first.value / after.value) * math.hypot(first.error / first.value, after.error / after.value)) for first, after in zip(values, values[1:]))
 
 
-def growths(noises: Sequence[Estimate], distances: Sequence[Estimate]) -> tuple[Estimate, ...]:
+def growths(noises: Sequence[Reading], distances: Sequence[Reading]) -> tuple[Estimate, ...]:
     """How much more the noise moves each cycle than the one before, measured against each cycle's nearest distance: the ratios that run to kappa.
 
-    Each of the four numbers is read on a grid of its own period, two to a grid, and the errors are
-    added as independent, as `evaluated` adds its two.
+    A period's noise gain and distance are read at its one superstable value, and an error in that
+    value moves both along their slopes at once. The growth divides one by the other, so the error
+    reaches it through the difference of their relative slopes, counted once, as `ratios` counts the
+    value two spacings share. The four parabolas' own errors, and the two periods' values, are independent.
     """
     found = []
     for (noise, distance), (after, closer) in zip(zip(noises, distances), zip(noises[1:], distances[1:])):
         growth = abs(after.value / noise.value * distance.value / closer.value)
-        relative = math.hypot(noise.error / noise.value, after.error / after.value, distance.error / distance.value, closer.error / closer.value)
+        shared = ((distance.slope / distance.value - noise.slope / noise.value) * noise.zero.error, (after.slope / after.value - closer.slope / closer.value) * after.zero.error)
+        relative = math.hypot(noise.error / noise.value, after.error / after.value, distance.error / distance.value, closer.error / closer.value, *shared)
         found.append(Estimate(growth, growth * relative))
     return tuple(found)
 

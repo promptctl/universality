@@ -959,7 +959,7 @@ top: moving the fit's top by the model top's error, 2e-5, either way moves its d
 gap grows about tenfold a doubling from period 16, through 9e-6, 9.8e-5 and 9.9e-4. It has two
 candidate causes, and these measurements do not tell them apart. One is the model's float32
 roughness, about 7e-6 of push a step, which the direct reading carries and the fits remove. The
-other is shape the fits miss. The section after next measures how noise is carried along these cycles, and finds the roughness
+other is shape the fits miss. The next section measures how noise is carried along these cycles, and finds the roughness
 large enough.
 
 <details>
@@ -1016,7 +1016,7 @@ On the logistic map, on grids a hundredth of a spacing wide and taken to period 
         --grid 3.56994566872:3.56994566883:21
 
 the growths are 6.8839698, 6.6606340, 6.6277960, 6.6207460 and 6.6194037 over periods 2 to 64. They
-settle at 6.6190372 +- 6.9e-8 over 512, 1024 and 6.6190367 +- 1.5e-6 over 2048, 4096. The same gains
+settle at 6.6190372 +- 4.0e-8 over 512, 1024 and 6.6190367 +- 5.4e-7 over 2048, 4096. The same gains
 solved to 40 digits with mpmath, in `tests/test_cascade.py`, give 6.8839697, 6.660634, 6.627796 and
 6.620746. So kappa, read this way, is 6.619037.
 
@@ -1037,7 +1037,7 @@ On the four fits of the model's answer, from the commands of the section before 
 | 2048, 4096 | 6.61904 | 6.61846 | 6.61839 | 6.61844 | 6.61844 |
 | 4096, 8192 | 6.61904 | 6.61927 | 6.61930 | 6.61927 | 6.61927 |
 
-The fitted growths carry errors of 2.8e-6 to 5.4e-5.
+The fitted growths carry errors of 2.2e-6 to 5.3e-5.
 
 The pattern is alpha's. The early growths belong to the hump: they go 4.48, 10.05, 5.82, 6.99, 6.48
 on degree 150, where the logistic map's fall steadily from 6.88. From period 64 on they alternate
@@ -1045,7 +1045,7 @@ about 6.619, and each one's distance from 6.619037 is -1/2.43 to -1/2.54 times t
 all four fits. Over 2048, 4096 and 4096, 8192 they read 6.61839 to 6.61846 and 6.61927 to 6.61930,
 either side of the logistic map's 6.619037. Aitken's extrapolation on the last three growths printed
 gives 6.6190360, 6.6190362, 6.6190367 and 6.6190361 for degrees 60, 90, 150 and 220: the logistic
-map's kappa to within 1.2e-6, from growths printed with errors of about 5e-6.
+map's kappa to within 1.2e-6, from growths printed with errors of about 3e-6.
 
 The noise gain also accounts for what the model's direct readings could not resolve. The curve's
 jitter, 1.35e-5 in the answer, is 6.9e-6 of push a step at a gain of 4.55, and the direct cascade's

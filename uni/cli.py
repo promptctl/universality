@@ -660,16 +660,16 @@ def run_cascade(args: argparse.Namespace) -> int:
         # An odd period has no point half a period round; the first of a cascade from an odd one is its only such row.
         if period % 2 == 0:
             distances[period] = nearest(values, returned, period, found[-1])
-            row += f"  {distances[period].value:>15.8e}  {distances[period].error:>8.1e}"
+            row += f"  {distances[period].value:>15.8e}  {distances[period].estimate.error:>8.1e}"
             if sloped:
                 noises[period] = evaluated(values, [amplification(map, numbers, args.critical, period) for map in maps], found[-1])
-                row += f"  {noises[period].value:>15.8e}  {noises[period].error:>8.1e}"
+                row += f"  {noises[period].value:>15.8e}  {noises[period].estimate.error:>8.1e}"
         print(row, flush=True)
     for index, ratio in enumerate(ratios(found)):
         # Every digit a float gives, and the error beside it, as the values above are printed: which
         # of those digits mean anything is the error's to say, and a smooth map's say more than four do.
         print(f"spacing ratio over periods {', '.join(map(str, periods[index : index + 3]))}: {ratio.value:.7f} +- {ratio.error:.1e}")
-    for (period, _), quotient in zip(distances.items(), quotients(tuple(distances.values()))):
+    for (period, _), quotient in zip(distances.items(), quotients(tuple(distance.estimate for distance in distances.values()))):
         print(f"nearest-point ratio over periods {period}, {2 * period}: {quotient.value:.7f} +- {quotient.error:.1e}")
     for period, growth in zip(noises, growths(tuple(noises.values()), tuple(distances[period] for period in noises))):
         print(f"noise growth over periods {period}, {2 * period}: {growth.value:.7f} +- {growth.error:.1e}")
