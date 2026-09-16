@@ -128,6 +128,24 @@ class Model:
         return captured[0][0, span].mean(dim=0)
 
     @torch.inference_mode()
+    def prompt_residual(self, prompt: str, additions: Sequence[ResidualAdd], layer: int) -> torch.Tensor:
+        """The residual stream leaving decoder `layer` with `additions` made, averaged over the prompt's tokens, shape (hidden_size,).
+
+        Read by a hook registered after the additions' own, so at the layer an addition is made the
+        reading holds it: hooks on one layer run in the order they were registered, each handed the
+        output the one before it returned.
+        """
+        ids = self.encode(prompt)
+        captured = []
+        with self._residual(additions):
+            handle = self.layers[self._layer(layer)].register_forward_hook(lambda _m, _i, hidden: captured.append(hidden))
+            try:
+                self.model(input_ids=ids, logits_to_keep=1)
+            finally:
+                handle.remove()
+        return captured[0][0].mean(dim=0)
+
+    @torch.inference_mode()
     def reply_logprob(self, prompt: str, reply: str, additions: Sequence[ResidualAdd]) -> float:
         """The mean log-probability the model gives each token of `reply`, written after `prompt`.
 
