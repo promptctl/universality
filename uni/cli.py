@@ -349,20 +349,25 @@ def run_sweep(args: argparse.Namespace) -> int:
     try:
         for done, cell in enumerate(left, start=1):
             # [LAW:dataflow-not-control-flow] one line per cell whatever came of it, so the
-            # progress a person watches scroll past has one shape: the value it ran at, and either
-            # the file it wrote or what stopped it. The two arms are what running a cell can come
-            # to, as `verdict`'s three are what the detector can see.
+            # progress a person watches scroll past has one shape: the value it ran at, the cell
+            # it is, and what stopped it if anything did. The two arms are what running a cell can
+            # come to, as `verdict`'s three are what the detector can see.
             outcome = run_cell(family, cell, sweep.steps)
             match outcome:
                 case Trajectory() as trajectory:
                     write_trajectory(trajectory, home)
-                    note = trajectory.name
+                    note = ""
                 case Failed() as failure:
                     failures.append(failure)
-                    note = f"cannot run: {failure.reason}"
+                    note = f"  cannot run: {failure.reason}"
                 case _:  # a third outcome would otherwise leave the line below printing a stale note
                     assert_never(outcome)
-            print(f"{done:>5}/{len(left)}  value {cell.value:<12.6g} {note}", flush=True)  # a --remote run streams through a pipe
+            # The cell's own name and not the trajectory's, though `run_cell` has just proved them
+            # equal: it is what the cell is, so a refused cell is named here as exactly as a
+            # written one. The value beside it is rounded to fit a column a thousand of these
+            # scroll through, and rounded it names a different orbit - so it reads the line, and
+            # the name identifies it. [LAW:one-source-of-truth]
+            print(f"{done:>5}/{len(left)}  value {cell.value:<12.6g} {cell.name}{note}", flush=True)  # a --remote run streams through a pipe
     finally:
         # Said twice on purpose: inline, where a person watching sees which cell it was, and again
         # here, where it survives a thousand lines of scrollback. The value is written as the
@@ -380,7 +385,14 @@ def run_sweep(args: argparse.Namespace) -> int:
         # exception this block has already destroyed. Saying how far a run got to nobody is not a
         # failure of the run. (That a closed pipe is a traceback at all is universality-errors-k9u
         # and belongs to every command here; this is only the one ending it would swallow.)
-        with contextlib.suppress(BrokenPipeError):
+        #
+        # OSError and not BrokenPipeError, because the question this block has to answer is
+        # whether the stream can still carry a message, and OSError is what Python calls a stream
+        # that cannot: `| head` is the one that happens, but a full disk under `> file` and a
+        # detached terminal lose the report the same way and must not cost the run its message
+        # either. It is only ever the report that is dropped - `pending` reads a directory through
+        # `Path.exists`, which answers rather than raises.
+        with contextlib.suppress(OSError):
             for failure in failures:
                 print(f"uni: value {failure.cell.value!r} from {failure.cell.start!r} has no orbit: {failure.reason}", file=sys.stderr)
             print(described(sweep, pending(sweep, home)), flush=True)

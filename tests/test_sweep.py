@@ -498,7 +498,12 @@ def test_a_cell_the_map_cannot_run_leaves_the_cells_after_it_to_run(capsys, tmp_
     printed = capsys.readouterr()
     (home,) = tmp_path.iterdir()
     assert len(cells(home)) == 3
-    assert trajectory_name(LOGISTIC, values[1], "0.5", 6) not in cells(home)
+    refused = trajectory_name(LOGISTIC, values[1], "0.5", 6)
+    assert refused not in cells(home)  # nothing is written for a cell with no orbit
+    # And yet it is named where a person watching sees it. The value on that line is rounded to
+    # fit its column, and rounded it is 3.3 - an orbit in another file - so the name is what says
+    # which cell stopped.
+    assert refused in printed.out
     assert "3 of 4 cells done, 1 to run" in printed.out
     # Named, which is the whole of what the old message did not do: it said token counts and left
     # the reader to work out which of four hundred cells they were about. The value is written as
@@ -590,19 +595,20 @@ def test_the_cells_refused_so_far_are_named_even_when_something_else_ends_the_ru
 
 
 class Closed:
-    """A stdout nothing is reading any more, the way `uni sweep ... | head` leaves one."""
+    """A stdout that cannot carry anything more, the way `uni sweep ... | head` leaves one."""
 
-    def __init__(self):
+    def __init__(self, error):
+        self.error = error
         self.listening = True
 
     def write(self, text):
         if not self.listening:
-            raise BrokenPipeError(32, "Broken pipe")
+            raise self.error
         return len(text)
 
     def flush(self):
         if not self.listening:
-            raise BrokenPipeError(32, "Broken pipe")
+            raise self.error
 
 
 def closing(stdout):
@@ -615,14 +621,18 @@ def closing(stdout):
     return make
 
 
-def test_a_closed_stdout_does_not_replace_what_ended_the_run(capsys, tmp_path, monkeypatch):
+# A closed pipe is the one that happens, and a full disk under `> file` loses the report the same
+# way: what the run has to survive is a stream that cannot carry a message, not one particular
+# reason it cannot. Both, so the suppression is pinned to the question and not to the `| head`.
+@pytest.mark.parametrize("error", [BrokenPipeError(32, "Broken pipe"), OSError(28, "No space left on device")])
+def test_a_stdout_that_cannot_carry_the_report_does_not_replace_what_ended_the_run(capsys, tmp_path, monkeypatch, error):
     # The count is printed from a `finally`, and a `finally` that raises replaces the exception
     # that got it there. Nothing further out can put that back, so with the reader gone the
     # refusal this sweep exists to report would reach the user as a traceback from the reporting
     # instead of as `uni: ...` and EXIT_CONFIG. Saying how far a run got to nobody is not a
     # failure of the run.
     values = grid("3.2:3.5:4")
-    stdout = Closed()
+    stdout = Closed(error)
     argv = four_cells(tmp_path, monkeypatch, Assorted({values[0]: outgrows(3), values[1]: closing(stdout)}))
     monkeypatch.setattr(sys, "stdout", stdout)  # after the sweep is described: this run has a reader until cell 2
     assert command(argv) == EXIT_CONFIG

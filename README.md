@@ -185,9 +185,11 @@ value the cell runs at.
 Two things a refused cell does not get, and both are deliberate. It is not remembered: a rerun
 runs it again, pays for its orbit again, and is refused again, so an unattended resume loop does
 not converge — read the exit code, which is `79` when a sweep ran and came up short, distinct from
-the `78` that says the command itself cannot be run. And the states it did produce are thrown
-away rather than written under their own shorter name, which would put a file in the directory
-that this sweep never named and no rerun would ever look for. Both are the price of a sweep
+the `78` that says the command itself cannot be run. The two do not add up: a run that refused
+some cells and was then stopped outright exits `78`, because what ended it outranks how far it
+got, and its refusals are on stderr rather than in the code. And the states it did produce are
+thrown away rather than written under their own shorter name, which would put a file in the
+directory this sweep never named and no rerun would ever look for. Both are the price of a sweep
 directory that holds finished orbits and nothing else; `universality-sweep-81g` carries the
 question of whether a sweep should be able to say "tried and cannot" somewhere.
 
