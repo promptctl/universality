@@ -282,6 +282,56 @@ because that is the property the whole theory rests on. For this map it does, by
 which is what makes the logistic map the fixture: a wrong answer here is visible as a wrong
 answer rather than as a result.
 
+### The rewrite loop over the steering coefficient
+
+The same two pictures for the map this project is actually about: the model rewriting its own
+output, with the formality direction added to the residual stream at layer 12, swept over the
+coefficient.
+
+    uv run uni sweep --remote --map model --template rewrite --knob formality \
+        --grid=-6:6:25 --start "The meeting moved to Thursday because the room was booked." --steps 30
+    uv run uni plot sweeps/1a8fce648065056f --observable along:formality --burn-in 10
+
+![orbit diagram of the rewrite loop along the formality direction](figures/1a8fce648065056f-along-formality-orbit.png)
+
+The knob works, and monotonically: where the settled state sits along the formality direction
+rises steadily from about -4 at a coefficient of -6 to about +5 at +3.5, and then stops rising.
+That is the knob doing what a knob should.
+
+What the picture does not show is a cascade. Over most of the range each coefficient carries a
+single dot, which is an orbit that has reached a fixed point: the model rewrites a text into
+itself. The periods are measured rather than eyeballed — `uni observe` reports each one — and
+across the 25 cells they are 19 fixed points, a period 2 at -0.5, 1.0 and 1.5, a period 3 at 0.5,
+a period 4 at -6, and one orbit at +6 that had not repeated within its 31 states. The cycles
+longer than one sit around the unsteered point and at the far ends, not in a doubling sequence,
+and 0.5 apart on the knob is far too coarse a grid to call any of it a bifurcation.
+
+![return map of the rewrite loop along the formality direction](figures/1a8fce648065056f-along-formality-return.png)
+
+The return map says the same thing in one line: the points lie on the diagonal. Rung 1 of
+PROJECT.md asks whether this map has one smooth hump, because that is the shape the whole theory
+rests on. This is not that shape — it is the identity, which is what a return map of fixed points
+looks like. A hump needs states that move.
+
+![orbit diagram of the rewrite loop read for length](figures/1a8fce648065056f-length-orbit.png)
+
+Read for the character length of the state instead, the same sweep shows the knob's real effect
+on this loop: near zero the fixed point is a single tidy sentence of about 60 characters, and
+steering in either direction inflates it by more than twenty times.
+
+**And that is the caveat this sweep has to carry.** The pinned `generation.max_new_tokens` is
+256, and **446 of the 750 states in this sweep are at or over that ceiling**. So over much of the
+range the map being iterated is not the rewrite loop but the rewrite loop truncated, and a fixed
+point reached by filling the budget every step is a fixed point of the ceiling as much as of the
+model. Read the middle of the picture, where the states are short, and treat the wings as
+measuring the cap. Filed as `universality-sweep-zjh`.
+
+What this sweep settles is therefore narrow and worth stating plainly: at this template, this
+direction, this start, this step count and this resolution, the rewrite loop does not period
+double. It converges. Whether a finer grid, a longer run, more starts, or a knob that does not
+drive the model into the token ceiling would show anything else is the next question, and it is
+the question Rung 1 exists to ask.
+
 ## Running on the experiment host
 
 Every `uni` command accepts `--remote`. With it, this working tree, uncommitted edits
