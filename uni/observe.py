@@ -51,6 +51,27 @@ class Observable(Protocol):
 
 
 @dataclass(frozen=True)
+class Weights:
+    """The checkpoint observables read through, held so that many orbits read it once.
+
+    Held rather than loaded, and for the reason `ModelFamily` holds `Pinned` rather than a `Model`:
+    saying what an orbit can be read for is a description, and a checkpoint is a resource. One of
+    these is made per command and handed to every orbit that command reads, so a picture drawn
+    from a thousand cells reads half a billion parameters once and not a thousand times.
+    [LAW:carrying-cost]
+    """
+
+    @cached_property
+    def pinned(self) -> Pinned:
+        # An orbit of numbers never asks, so a logistic sweep does not read pinned.toml either.
+        return load_pinned()
+
+    @cached_property
+    def model(self) -> Model:
+        return Model(self.pinned)
+
+
+@dataclass(frozen=True)
 class Length:
     """Characters in the state. The one observable any map's states can answer."""
 
@@ -83,7 +104,7 @@ class Value:
 class Logprob:
     """How likely the model finds the state it wrote, per token of it, at the setting it wrote it at."""
 
-    model: Model
+    weights: Weights  # the checkpoint this would read through, read when a reading is actually asked for
     template: Template
     additions: Sequence[ResidualAdd]  # what the knob added during the run; empty for an unsteered one
 
@@ -92,14 +113,14 @@ class Logprob:
         return "logprob"
 
     def read(self, step: Step) -> float:
-        return self.model.reply_logprob(self.template.render(step.previous), step.state, self.additions)
+        return self.weights.model.reply_logprob(self.template.render(step.previous), step.state, self.additions)
 
 
 @dataclass(frozen=True)
 class Projection:
     """How far along a steering direction the state sits, read where the knob writes."""
 
-    model: Model
+    weights: Weights  # as Logprob holds it, and for the same reason
     template: Template
     direction: Direction
 
@@ -112,28 +133,8 @@ class Projection:
         # layer is the same vector at every step, so reading through it would add a constant that
         # says nothing about the state and everything about the setting.
         prompt = self.template.render(step.previous)
-        return self.direction.project(self.model.reply_residual(prompt, step.state, self.direction.contrast.layer))
-
-
-@dataclass(frozen=True)
-class Weights:
-    """The checkpoint observables read through, held so that many orbits read it once.
-
-    Held rather than loaded, and for the reason `ModelFamily` holds `Pinned` rather than a `Model`:
-    saying what an orbit can be read for is a description, and a checkpoint is a resource. One of
-    these is made per command and handed to every orbit that command reads, so a picture drawn
-    from a thousand cells reads half a billion parameters once and not a thousand times.
-    [LAW:carrying-cost]
-    """
-
-    @cached_property
-    def pinned(self) -> Pinned:
-        # An orbit of numbers never asks, so a logistic sweep does not read pinned.toml either.
-        return load_pinned()
-
-    @cached_property
-    def model(self) -> Model:
-        return Model(self.pinned)
+        residual = self.weights.model.reply_residual(prompt, step.state, self.direction.contrast.layer)
+        return self.direction.project(residual)
 
 
 def template_of(trajectory: Trajectory) -> Template:
@@ -198,9 +199,11 @@ def readings(observables: Sequence[Observable], step: Step) -> tuple[float, ...]
 def model_observables(trajectory: Trajectory, weights: Weights) -> tuple[Observable, ...]:
     """What a model's orbit can be read for, past the length any orbit answers.
 
-    Reading any of these costs the checkpoint, and it is `weights` that owns it: an orbit of a map
-    with no prompts behind its states never pays for one, and a second orbit of this map does not
-    pay again.
+    Reading any of these costs the checkpoint, and it is `weights` that owns it - held by each of
+    them rather than read into them, so that saying what this orbit can be read for costs nothing
+    and only a reading actually taken pays. Naming a model orbit's observables, or drawing a
+    picture of the one observable every map answers, therefore loads no model at all, and on a
+    machine with no Metal it is an answer rather than a raise. [LAW:carrying-cost]
     """
     template = template_of(trajectory)
     # Checked against this orbit even though the checkpoint is shared: the weights are what the
@@ -209,8 +212,8 @@ def model_observables(trajectory: Trajectory, weights: Weights) -> tuple[Observa
     pinned = written_by(trajectory, weights.pinned)
     directions = steering_directions(trajectory, pinned)
     return (
-        Logprob(weights.model, template, steering_additions(directions, trajectory.value)),
-        *(Projection(weights.model, template, direction) for direction in directions),
+        Logprob(weights, template, steering_additions(directions, trajectory.value)),
+        *(Projection(weights, template, direction) for direction in directions),
     )
 
 

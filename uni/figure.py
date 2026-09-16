@@ -82,13 +82,16 @@ def read(sweep: Sweep, home: Path, name: str, burn_in: int) -> tuple[Readings, .
     weights = Weights()
     out = []
     for cell in finished(sweep, home):
-        trajectory = read_trajectory(home / cell.name)
-        observable = named(observables(trajectory, weights), name)
-        settled = [step for step in steps(trajectory) if step.index >= burn_in]
-        # [LAW:no-silent-failure] `readings` names the step it could not read, which was the whole
-        # story when the caller was one named trajectory. Over a sweep it is the cell that says
-        # which file to go and look at.
+        # [LAW:no-silent-failure] every refusal about a cell names the cell. The messages under
+        # here are about one orbit - a checkpoint that has changed since it was written, a
+        # direction whose file no longer matches, a state no observable can read - and each was
+        # written when the caller was one trajectory the user had named. Over a sweep of a
+        # thousand, the cell is the file to go and look at, and it arrives after minutes of
+        # readings taken from the cells before it.
         try:
+            trajectory = read_trajectory(home / cell.name)
+            observable = named(observables(trajectory, weights), name)
+            settled = [step for step in steps(trajectory) if step.index >= burn_in]
             numbers = tuple(readings((observable,), step)[0] for step in settled)
         except ObserveError as error:
             raise ObserveError(f"{cell.name}: {error}") from error

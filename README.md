@@ -298,9 +298,11 @@ The middle line is not decoration. The sweep ran on the host and its cells stay 
 is excluded from the sync, and the sync has no leg coming back - so the directory has to be
 brought home before anything here can draw it. Plotting is a local command by design: a figure
 is an output this repo commits, and drawing one on the host puts it where no commit can reach
-it, which is also why `figures/` is excluded from the sync rather than deleted by it. The
-sweep's name is the same on both machines, because it is the hash of what the sweep is. There
-is no `uni fetch` doing this for you yet; it is filed as `universality-remote-lhh`.
+it, which is also why `figures/` is excluded from the sync rather than deleted by it. `uni plot
+--remote` is refused for the same reason rather than left to draw somewhere unreachable and exit
+0 - it is the one command that says where its answer lands. The sweep's name is the same on both
+machines, because it is the hash of what the sweep is. There is no `uni fetch` doing the middle
+line for you yet; it is filed as `universality-remote-lhh`.
 
 ![orbit diagram of the rewrite loop along the formality direction](figures/1a8fce648065056f-along-formality-orbit.png)
 

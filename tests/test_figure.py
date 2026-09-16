@@ -168,25 +168,89 @@ def test_a_directory_that_holds_no_sweep_is_refused(tmp_path, monkeypatch, capsy
     assert "cannot be read: No such file" in capsys.readouterr().err
 
 
-def test_a_picture_of_a_model_sweep_reads_the_checkpoint_once(tmp_path, monkeypatch):
-    # Every cell of a sweep is read through the same model, because the sweep's own description
-    # says so. Building the observables per cell is right - the knob's setting differs, and each
-    # cell's recorded checkpoint is checked against the loaded one - but loading per cell is not.
+def model_sweep(tmp_path):
+    """A model sweep on disk, whose cells no model has to exist to have written."""
     from uni.loop import Trajectory, write_trajectory
     from uni.maps import model_spec
     from uni.pinned import load_pinned
     from uni.sweep import Sweep
     from uni.template import load_templates
 
-    loads = []
-    monkeypatch.setattr("uni.observe.Model", lambda pinned: loads.append(pinned))
     spec = model_spec(load_pinned(), load_templates()["rewrite"], None)
     values, start = (0.0, 1.0, 2.0), "hello"
     written = Sweep(spec, values, (start,), 2)
     home = written.home(tmp_path)
     for value in values:
         write_trajectory(Trajectory(spec, value, start, ("a", "bb")), home)
+    return written, home
 
+
+def test_a_picture_of_what_every_map_answers_reads_no_checkpoint_at_all(tmp_path, monkeypatch):
+    # Saying what a model orbit can be read for must not cost the reading. The length of a state
+    # is characters in JSON already on disk, so drawing it loads nothing - which is also the
+    # difference, on a machine with no Metal, between an answer and an uncaught RuntimeError.
+    loads = []
+    monkeypatch.setattr("uni.observe.Model", lambda pinned: loads.append(pinned))
+    written, home = model_sweep(tmp_path)
     series = read(written, home, "length", burn_in=0)
     assert [one.numbers for one in series] == [(1.0, 2.0)] * 3  # the lengths of "a" and "bb"
+    assert loads == []
+
+
+def test_a_picture_of_a_model_observable_reads_the_checkpoint_once(tmp_path, monkeypatch):
+    # And when a reading does need the model, every cell of the sweep is read through one: the
+    # sweep's own description says they are all the same model, so loading per cell is waste.
+    class Stub:
+        def reply_logprob(self, prompt, state, additions):
+            return -1.5
+
+    loads = []
+    monkeypatch.setattr("uni.observe.Model", lambda pinned: (loads.append(pinned), Stub())[1])
+    written, home = model_sweep(tmp_path)
+    series = read(written, home, "logprob", burn_in=0)
+    assert [one.numbers for one in series] == [(-1.5, -1.5)] * 3
     assert len(loads) == 1
+
+
+def test_a_figure_is_named_by_the_sweep_and_not_by_the_directory_it_was_found_in(tmp_path, monkeypatch):
+    # They agree for a sweep this program wrote. When they do not - a copied directory, a renamed
+    # one - it is the manifest that says which sweep this is a picture of.
+    written, home = sweep(tmp_path, monkeypatch)
+    copied = home.parent / "a-name-of-my-own"
+    copied.mkdir()
+    for path in home.iterdir():
+        copied.joinpath(path.name).write_bytes(path.read_bytes())
+    out = tmp_path / "figures"
+    assert command(["plot", str(copied), "--observable", "x", "--out", str(out)]) == 0
+    assert sorted(p.name for p in out.glob("*.png")) == [f"{written.name}-x-orbit.png", f"{written.name}-x-return.png"]
+
+
+def test_a_cell_that_cannot_be_read_says_which_cell(tmp_path, monkeypatch, capsys):
+    # The messages underneath are about one orbit and were written when the caller had named it.
+    # Over a sweep the cell is the file to go and look at, and it arrives after every cell before
+    # it has already been read.
+    written, home = sweep(tmp_path, monkeypatch)
+    broken = finished(written, home)[1]
+    # A kind this build cannot read, which `observables` refuses before any reading is taken - the
+    # half of the per-cell work the message used to come out of unattributed.
+    (home / broken.name).write_text('{"map": {"kind": "henon"}, "value": 3.3, "start": "0.2", "states": ["0.5"]}')
+    assert command(["plot", str(home), "--observable", "x", "--out", str(tmp_path / "figures")]) == EXIT_CONFIG
+    printed = capsys.readouterr().err
+    assert broken.name in printed and "'henon' orbit is not one this build can read" in printed
+
+
+def test_plot_is_refused_on_the_host_rather_than_drawing_where_nothing_can_reach_it(capsys):
+    # The sync has one leg and figures/ is not on it, so this would draw on the host, print a path
+    # that does not exist here, and exit 0 as though it had answered.
+    assert main(["plot", "--remote", "sweeps/whatever", "--observable", "x"], {}, Path.cwd()) == EXIT_CONFIG
+    assert "runs here, not on the host" in capsys.readouterr().err
+
+
+def test_every_other_command_still_travels():
+    # The refusal is one command declaring where its answer lands, not a rule about --remote.
+    from uni.cli import stays_here
+
+    assert stays_here(["plot", "sweeps/x", "--observable", "x"])
+    assert not stays_here(["host"])
+    assert not stays_here(["sweep", "--map", "logistic", "--grid", "3:4:2", "--start", "0.2", "--steps", "5"])
+    assert not stays_here(["observe", "trajectories/x.json"])

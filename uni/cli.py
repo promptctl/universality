@@ -379,9 +379,12 @@ def run_plot(args: argparse.Namespace) -> int:
             "needs two from one cell, an orbit diagram one"
         )
     for kind, picture in pictures.items():
-        # Named for the sweep and what was read off it, so two sweeps and two observables are four
-        # files rather than one overwritten four times.
-        stem = f"{args.sweep.resolve().name}-{args.observable.replace(':', '-')}-{kind}"
+        # Named by the sweep and what was read off it, so two sweeps and two observables are four
+        # files rather than one overwritten four times. The name comes from the manifest and not
+        # from the directory it was found in: they agree for a sweep this program wrote, and when
+        # they do not - a copied directory, a renamed one - it is the sweep that says which
+        # picture this is. [LAW:one-source-of-truth]
+        stem = f"{sweep.name}-{args.observable.replace(':', '-')}-{kind}"
         print(f"{scatter(picture, args.out / f'{stem}.png')}  {len(picture.points)} points", flush=True)
     return 0
 
@@ -441,6 +444,9 @@ def build_parser() -> argparse.ArgumentParser:
         parents=[REMOTE],
         allow_abbrev=False,
     )
+    # Every command travels to the host unless it says otherwise, which is the case for all but
+    # the one whose answer is a file this checkout keeps.
+    parser.set_defaults(here=False)
     commands = parser.add_subparsers(dest="command", required=True)
     host = commands.add_parser("host", help="print where uni is running")
     host.set_defaults(run=run_host)
@@ -471,7 +477,7 @@ def build_parser() -> argparse.ArgumentParser:
     plot.add_argument("--observable", required=True, help="the number to read off each step, as `uni observe` names its columns")
     plot.add_argument("--burn-in", type=whole, default=0, dest="burn_in", help="steps to pass over before the orbit is taken as settled (default: 0)")
     plot.add_argument("--out", type=Path, default=FIGURES, help=f"where to write the figures (default: {FIGURES})")
-    plot.set_defaults(run=run_plot)
+    plot.set_defaults(run=run_plot, here=True)
     observe.set_defaults(run=run_observe)
     direction = commands.add_parser("direction", help="derive a steering direction from uni/directions/<name>.toml")
     direction.add_argument("contrast", type=contrast, help="the contrast's name")
@@ -488,8 +494,26 @@ def checkout_root(cwd: Path) -> Path:
     return Path(found.stdout.strip())
 
 
+def stays_here(rest: Sequence[str]) -> bool:
+    """Whether the command in `rest` is one whose answer is a file in this checkout.
+
+    Asked of the parsed command rather than of the text, so a command joins this set by declaring
+    `here=True` beside its `run` and nothing here grows a list of names to keep in step with it.
+    Parsed with `parse_known_args` because what the host runs is still `rest` itself: this reads
+    the command out of it and leaves everything else alone. [LAW:one-source-of-truth]
+    """
+    return bool(build_parser().parse_known_args(list(rest))[0].here)
+
+
 def main(argv: Sequence[str], env: Mapping[str, str], cwd: Path) -> int:
     remote, rest = split_remote(argv)
+    if remote and stays_here(rest):
+        # [LAW:no-silent-failure] the sync has one leg and figures/ is not on it, so this would
+        # draw on the host, print a path that does not exist here, and exit 0 as though it had
+        # answered. The sweep is the thing that travels; the picture is drawn where it is kept.
+        print("uni: plot writes a figure into this checkout, so it runs here, not on the host; "
+              "bring the sweep home first (see the README) and plot it without --remote", file=sys.stderr)
+        return EXIT_CONFIG
     if not remote:
         args = build_parser().parse_args(rest)
         try:
