@@ -498,7 +498,7 @@ def run_response(args: argparse.Namespace) -> int:
     fixed = {"pinned": asdict(pinned), "template": prompt.text, "start": args.start, "knob": steer.spec, "values": list(values), "layers": list(curves)}
     stem = hashlib.sha256(json.dumps(fixed, sort_keys=True).encode()).hexdigest()[:16]
     points = tuple(Point(value, reading, layer) for layer, curve in curves.items() for value, reading in zip(values, curve))
-    picture = Picture(points, f"response along {name}", f"push along {name}", f"what the layers after the push write along {name}", "layer")
+    picture = Picture(points, f"response along {name}", f"push along {name}", f"what the layers after the push write along {name}", "layer" if len(curves) > 1 else None)
     print(scatter(picture, args.out / f"response-{stem}.png"))
     return 0
 
@@ -619,8 +619,12 @@ def checkout_root(cwd: Path) -> Path:
 # the converters, one of which reads a direction and so imports torch, and `--remote` exists
 # precisely so this machine never pays for that. A set of names costs nothing to consult, and what
 # keeps it in step with the parser below is a test that enumerates the parser's own subcommands -
-# a name in here that no command answers to is a guard that silently stops guarding.
-HERE = frozenset({"plot"})
+# a name in here that no command answers to is a guard that silently stops guarding. Each name
+# carries what to do instead, which differs by what the command reads.
+HERE = {
+    "plot": "bring the sweep home first (see the README) and run it without --remote",
+    "response": "run it without --remote; the table it prints travels back, the figure it draws would not",
+}
 
 
 def stays_here(rest: Sequence[str]) -> bool:
@@ -643,10 +647,7 @@ def run(argv: Sequence[str], env: Mapping[str, str], cwd: Path) -> int:
         # [LAW:no-silent-failure] the sync has one leg and figures/ is not on it, so this would
         # draw on the host, print a path that does not exist here, and exit 0 as though it had
         # answered. The sweep is the thing that travels; the picture is drawn where it is kept.
-        raise ConfigError(
-            f"{rest[0]} writes a file into this checkout, so it runs here, not on the host; "
-            "bring the sweep home first (see the README) and run it without --remote"
-        )
+        raise ConfigError(f"{rest[0]} writes a file into this checkout, so it runs here, not on the host; {HERE[rest[0]]}")
     if not remote:
         args = build_parser().parse_args(rest)
         return args.run(args)

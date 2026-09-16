@@ -264,6 +264,6 @@ def test_the_commands_that_stay_here_are_commands_and_the_rest_travel():
     # argparse offers no public way to enumerate subcommands; `choices` on the action it made for
     # them is the nearest thing, and a test is the right place to reach for it.
     commands = next(action for action in build_parser()._actions if action.dest == "command").choices
-    assert HERE <= set(commands), "a name in HERE that no command answers to guards nothing"
+    assert HERE.keys() <= set(commands), "a name in HERE that no command answers to guards nothing"
     assert {name for name in commands if stays_here([name])} == set(HERE)
     assert stays_here(["plot", "sweeps/x", "--observable", "x"])  # and with its arguments, as typed

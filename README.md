@@ -518,6 +518,7 @@ push's size, so a large enough push rounds the model's writes out of the stream,
 reads as a model that answers nothing. The command bounds that rounding from the push alone
 before it runs a forward pass, refuses any cell it could move by a hundredth or more, and prints
 the worst bound over the grid: 0.00051 for the run above, where a push of 1e12 would be 1.3e7.
+Like `uni plot`, it runs here and refuses `--remote`: the figure it draws would stay on the host.
 
 ![the model's answer to a push along formality, at six layers](figures/response-6e6cae900235d2b4.png)
 

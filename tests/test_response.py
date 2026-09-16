@@ -77,3 +77,32 @@ def test_a_run_refuses_a_cell_before_it_reads_any(model, monkeypatch, capsys):
     argv = ["response", "--template", "rewrite", "--knob", "formality", "--start", "a", "--grid=-40:40:3", "--layer", "16", "--layer", "30"]
     assert main(argv, {}, Path.cwd()) == EXIT_CONFIG
     assert "got 30" in capsys.readouterr().err
+
+
+def test_a_prompt_past_the_context_limit_is_refused_rather_than_read(model):
+    # Found in review: the model reads past its limit without complaint, at positions it never saw.
+    from uni.determinism import context_limit_prompt
+
+    with pytest.raises(ModelError, match=f"the prompt's tokens are {model.context_limit + 1} tokens; the context limit"):
+        model.prompt_residual(context_limit_prompt(model, -1), (), 23)
+
+
+def test_response_is_refused_on_the_host_whose_figure_would_not_come_back(capsys):
+    from uni.cli import EXIT_CONFIG, main
+
+    argv = ["--remote", "response", "--template", "rewrite", "--knob", "formality", "--start", "a", "--grid", "0:0:1", "--layer", "23"]
+    assert main(argv, {}, Path.cwd()) == EXIT_CONFIG
+    assert "response writes a file into this checkout, so it runs here, not on the host; run it without --remote" in capsys.readouterr().err
+
+
+def test_one_layer_is_drawn_with_no_key_for_the_one_shade(model, monkeypatch, tmp_path):
+    # Found in review: a single --layer keyed a colour bar spanning one value, against Picture's contract.
+    from uni.cli import main
+
+    drawn = []
+    monkeypatch.setattr("uni.model.Model", lambda pinned: model)
+    monkeypatch.setattr("uni.draw.scatter", lambda picture, path: drawn.append(picture) or path)
+    for layers in (["--layer", "23"], ["--layer", "16", "--layer", "23"]):
+        argv = ["response", "--template", "rewrite", "--knob", "formality", "--start", "a", "--grid", "0:0:1", "--out", str(tmp_path), *layers]
+        assert main(argv, {}, Path.cwd()) == 0
+    assert [picture.shade_label for picture in drawn] == [None, "layer"]
