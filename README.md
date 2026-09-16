@@ -18,6 +18,25 @@ The model, its revision, dtype, and generation limit are pinned in
 runs on Metal, greedy at batch size one; the checkpoint's own sampling settings are
 ignored. CPU is too slow for this work, so it is not an option.
 
+## What a run's exit code means
+
+Each code is its own answer rather than a generic failure, because what a reader does
+about them differs.
+
+| code | what happened |
+|---|---|
+| `0` | it did what was asked |
+| `1` | the determinism gate ran and some case produced more than one hash |
+| `74` | the machine would not do the work: a full disk, a read-only volume, a path in the way |
+| `78` | the run as described cannot be run: a flag, a file, or a value this program refuses |
+| `79` | a sweep ran and some cell of it has no orbit, so it came up short of its grid |
+| `141` | something downstream stopped reading, as `uni ... \| head` does — nothing failed |
+
+`78` and `74` are the pair worth telling apart: the first is something you asked for, the
+second is something about where you asked it. A loop running unattended can fix a `78` and
+try again, while a `74` will not fix itself and is where such a loop should stop. Anything
+else — a traceback — is a bug here, and worth reporting as one.
+
 ## Determinism
 
 Every measurement in this project compares hashes of generated text, so the same input

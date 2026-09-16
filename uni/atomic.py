@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 from pathlib import Path
 
@@ -44,5 +45,11 @@ def write_whole(path: Path, data: bytes) -> Path:
         # that ends the process outright runs no finally block and does leave its scratch file,
         # which is what the process id in the name is for - that litter is inert, and the run
         # resuming the work makes its own.
-        partial.unlink(missing_ok=True)
+        #
+        # Suppressed because a cleanup that raises replaces the failure it was cleaning up after:
+        # where the rename failed because the directory went read-only, the unlink fails for the
+        # same reason, and the user would read an error about the scratch file instead of about
+        # the write. A scratch file left behind is the inert litter above; a lost error is not.
+        with contextlib.suppress(OSError):
+            partial.unlink(missing_ok=True)
     return path

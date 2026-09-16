@@ -7,6 +7,7 @@ import contextlib
 import math
 import os
 import platform
+import signal
 import subprocess
 import sys
 from collections.abc import Callable, Mapping, Sequence
@@ -35,6 +36,17 @@ EXIT_DIVERGED = 1  # the determinism gate ran and some case produced more than o
 # that one is. [LAW:no-silent-failure] the distinction the determinism gate already draws with
 # EXIT_DIVERGED: the command worked, and what it found is the bad news.
 EXIT_INCOMPLETE = 79
+# The run was fine and the machine would not do it: a full disk, a read-only volume, a sweeps
+# directory mangled by hand. Distinct from EXIT_CONFIG because what the reader does about it is
+# different - nothing about the command or the files it named needs changing, and a resume loop
+# that would retry a fixed grid must stop for a disk that will not empty itself. The name is
+# sysexits' own for this, as EXIT_CONFIG is. Until now it was the traceback's exit 1, which is
+# EXIT_DIVERGED: a crash and a determinism failure read alike to anything reading the code.
+EXIT_IO = os.EX_IOERR
+# Nothing failed: something downstream stopped reading, which `uni sweep ... | head` does on
+# purpose. 128 + the signal, which is what a shell reports for a producer killed by this same
+# event - so `PIPESTATUS[0]` says the same thing whether Python handled it or died of it.
+EXIT_PIPE = 128 + signal.SIGPIPE
 
 # --remote is parsed here, once, and never reaches a subcommand: what is left over is
 # exactly what the host runs. [LAW:one-source-of-truth]
@@ -571,31 +583,61 @@ def stays_here(rest: Sequence[str]) -> bool:
     return bool(rest) and rest[0] in HERE
 
 
-def main(argv: Sequence[str], env: Mapping[str, str], cwd: Path) -> int:
+def run(argv: Sequence[str], env: Mapping[str, str], cwd: Path) -> int:
+    """Do what the command line asks. How it says that it could not is `main`'s, not this one's.
+
+    Split from `main` so that turning a failure into an exit code happens in one place, and so
+    that place covers the remote leg as well as the local one. [LAW:effects-at-boundaries]
+    """
     remote, rest = split_remote(argv)
     if remote and stays_here(rest):
         # [LAW:no-silent-failure] the sync has one leg and figures/ is not on it, so this would
         # draw on the host, print a path that does not exist here, and exit 0 as though it had
         # answered. The sweep is the thing that travels; the picture is drawn where it is kept.
-        print(f"uni: {rest[0]} writes a file into this checkout, so it runs here, not on the host; "
-              "bring the sweep home first (see the README) and run it without --remote", file=sys.stderr)
-        return EXIT_CONFIG
+        raise ConfigError(
+            f"{rest[0]} writes a file into this checkout, so it runs here, not on the host; "
+            "bring the sweep home first (see the README) and run it without --remote"
+        )
     if not remote:
         args = build_parser().parse_args(rest)
-        try:
-            return args.run(args)
-        except ConfigError as error:  # [LAW:single-enforcer] the one type the CLI reports; a bug here is a traceback
-            print(f"uni: {error}", file=sys.stderr)
-            return EXIT_CONFIG
+        return args.run(args)
+    tree = checkout_root(cwd)
+    # The checkout's .env, under the real environment: a set variable wins over the file.
+    dotenv = {k: v for k, v in dotenv_values(tree / ".env").items() if v is not None}
+    return run_remote(remote_target_from_env({**dotenv, **env}), rest, tree)
+
+
+def main(argv: Sequence[str], env: Mapping[str, str], cwd: Path) -> int:
+    """Run the command, and turn whatever stopped it into something the shell can read.
+
+    [LAW:single-enforcer] the one place a failure becomes an exit code, so these three are the
+    three answers this program has. They are three rather than one because what a reader does
+    about them differs: change what you asked for, fix the machine, or nothing at all. Anything
+    else reaching here is a bug, and a bug is still a traceback.
+    """
     try:
-        tree = checkout_root(cwd)
-        # The checkout's .env, under the real environment: a set variable wins over the file.
-        dotenv = {k: v for k, v in dotenv_values(tree / ".env").items() if v is not None}
-        target = remote_target_from_env({**dotenv, **env})
-    except RemoteConfigError as error:
+        return run(argv, env, cwd)
+    except ConfigError as error:
         print(f"uni: {error}", file=sys.stderr)
         return EXIT_CONFIG
-    return run_remote(target, rest, tree)
+    except BrokenPipeError:
+        # Before OSError below, which it is one of, and answered rather than reported: a consumer
+        # that stops reading is ordinary shell usage and not a fault of this run. Python then
+        # flushes stdout on the way out and prints "Exception ignored in: <_io.TextIOWrapper
+        # name='<stdout>'>" over the top of whatever the user piped into, so the last thing to do
+        # is give that flush somewhere to land. Suppressed because a stdout that is not a real
+        # file - a captured one under a test - has no descriptor to redirect, which is not a
+        # failure of anything.
+        with contextlib.suppress(OSError, AttributeError):
+            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        return EXIT_PIPE
+    except OSError as error:
+        # The environment, reported in the OS's own words: `str` on an OSError already names the
+        # errno, what it means, and the file it was about, which is the whole of what a person
+        # fixes. Reported and not raised onward, because a machine that will not do the work is
+        # not a bug in the program that asked. [LAW:no-silent-failure]
+        print(f"uni: {error}", file=sys.stderr)
+        return EXIT_IO
 
 
 def entry() -> None:

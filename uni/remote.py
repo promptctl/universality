@@ -14,6 +14,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from uni.parse import ConfigError
+
 VARIABLES = ("UNI_REMOTE_HOST", "UNI_REMOTE_USER", "UNI_REMOTE_DIR")
 
 # Plain characters only, so the path needs no quoting on either side of ssh: rsync
@@ -40,8 +42,13 @@ SYNC_FILTERS = (
 )
 
 
-class RemoteConfigError(Exception):
-    """The environment does not describe a usable host. The message says what to fix."""
+class RemoteConfigError(ConfigError):
+    """The environment does not describe a usable host. The message says what to fix.
+
+    A ConfigError because that is what it is - the run as described cannot be run - and because
+    the CLI answered it exactly like one anyway, from a clause of its own. Two types with one
+    behaviour is a distinction that does nothing. [LAW:one-type-per-behavior]
+    """
 
 
 @dataclass(frozen=True)
