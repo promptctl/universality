@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from uni.atomic import write_whole
 from uni.parse import ConfigError, field
 
 
@@ -41,6 +42,16 @@ def orbit(map: Map, start: str) -> Iterator[str]:
         yield state
 
 
+def trajectory_name(map: Mapping[str, Any], value: float, start: str, steps: int) -> str:
+    """The file an orbit of this many steps writes itself to, from what fixes it and nothing else.
+
+    Known before the orbit is run, which is what lets a sweep ask whether a cell is already
+    on disk without a second record of what it has done. [LAW:one-source-of-truth]
+    """
+    inputs = json.dumps([map, float(value), start, steps], sort_keys=True)
+    return hashlib.sha256(inputs.encode()).hexdigest()[:16] + ".json"
+
+
 class TrajectoryError(ConfigError):
     """A file does not hold a trajectory. The message says which field is wrong."""
 
@@ -62,8 +73,7 @@ class Trajectory:
     @property
     def name(self) -> str:
         """The file name, from what fixes the orbit, so rerunning a command rewrites its own file."""
-        inputs = json.dumps([self.map, self.value, self.start, len(self.states)], sort_keys=True)
-        return hashlib.sha256(inputs.encode()).hexdigest()[:16] + ".json"
+        return trajectory_name(self.map, self.value, self.start, len(self.states))
 
     def encode(self) -> bytes:
         # Sorted keys and no timestamp: the same orbit is the same bytes.
@@ -72,13 +82,9 @@ class Trajectory:
 
 
 def write_trajectory(trajectory: Trajectory, dir: Path) -> Path:
-    dir.mkdir(parents=True, exist_ok=True)
-    path = dir / trajectory.name
-    # Written beside it and renamed over it, so a rerun killed mid-write leaves the earlier file whole.
-    partial = path.with_suffix(".partial")
-    partial.write_bytes(trajectory.encode())
-    partial.replace(path)
-    return path
+    # [LAW:no-silent-failure] whole or absent, which is what lets a sweep read "this cell is done"
+    # off the directory listing: see uni.atomic for why that holds even under two runs at once.
+    return write_whole(dir / trajectory.name, trajectory.encode())
 
 
 def _field(raw: dict[str, Any], key: str, kind: type) -> Any:

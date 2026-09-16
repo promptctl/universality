@@ -145,6 +145,47 @@ hash of the file itself: a direction file that has been edited by hand, or deriv
 different checkpoint than the one pinned, is refused. Re-derive when the contrast or the
 checkpoint changes.
 
+## Sweeps
+
+One map run at every value on a grid, from every start, kept together:
+
+    uv run uni sweep --remote --map logistic --grid 2.8:4.0:200 --start 0.5 --steps 400
+
+`--grid FROM:TO:COUNT` names the values, `TO` included, and the ends are exactly the numbers
+asked for rather than what the arithmetic lands near — a sweep to r = 4 is a sweep to the edge of
+the logistic map's range, and one ulp past it is a cell the map refuses. `--start` is repeated
+once per start. Everything else means what it means for `uni loop`.
+
+A sweep runs each cell exactly once, so a grid or a set of starts that names one twice is refused
+rather than run twice into one file, and so is a grid the map cannot take — every value is offered
+to the map and to the knob before the first cell runs, because a sweep that dies two hundred cells
+in dies again on every resume.
+
+The sweep writes `sweeps/<name>/`: one trajectory per cell, in the same format `uni loop` writes
+and `uni observe` reads, beside a `sweep.json` naming the map, the values, the starts, and the
+step count. The directory is a hash of exactly those, so rerunning the same command resumes the
+same sweep, and changing any of them starts a different one.
+
+It is resumable, and by construction rather than by bookkeeping. A trajectory's file name is a
+hash of what fixes the orbit, all of which is known before the cell is run, so a cell is done
+when its file is on disk — and `uni loop` already writes each file under a temporary name and
+renames it into place, so a run killed part way leaves no half-written cell to mistake for a
+finished one. The manifest records what the sweep *is* and never what it has finished: a count of
+progress kept beside the files would be a second thing to believe, free to disagree with them.
+
+    uv run uni sweep --remote --map logistic --grid 2.8:4.0:200 --start 0.5 --steps 400 --status
+
+The same command with `--status` says how many cells are done and runs none of them — and writes
+nothing, not even the sweep's own directory: a question that left something behind would be an
+answer that had changed what it just measured. It costs no checkpoint either, because a map family
+holds the pinned configuration rather than a loaded model and reads the checkpoint only when a
+cell is actually run. A sweep is identified by what it is, so there is no way to ask about one you
+cannot describe.
+
+Sweeps are kept where trajectories are: written on the machine that ran them, gitignored, and
+excluded from the `--remote` sync — which runs one way, this tree to the host, with `--delete`. So
+a local sweep is never pushed and the host's own is never deleted, and each machine keeps its own.
+
 ## Observables and the period
 
 A trajectory is read back from its file rather than re-run, so an observable thought of today

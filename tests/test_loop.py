@@ -74,3 +74,17 @@ def test_a_file_that_is_not_a_trajectory_is_refused(tmp_path, text, message):
     path.write_text(text)
     with pytest.raises(TrajectoryError, match=message):
         read_trajectory(path)
+
+
+def test_another_run_of_the_same_cell_writes_under_its_own_scratch_name(tmp_path):
+    # Resuming a sweep is rerunning the same command, so two runs of one sweep reach the same cell
+    # together. Each writes under a scratch name of its own: neither can truncate the file the
+    # other is about to rename into place, which would promote an empty file to a finished cell -
+    # the one thing renaming into place exists to make impossible.
+    written = trajectory()
+    foreign = tmp_path / written.name.replace(".json", ".partial")  # a name no run here picks
+    foreign.parent.mkdir(parents=True, exist_ok=True)
+    foreign.write_bytes(b"")
+    path = write_trajectory(written, tmp_path)
+    assert read_trajectory(path) == written
+    assert foreign.read_bytes() == b""  # left alone: another process's scratch file is not ours

@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 import torch
 
+from uni.atomic import write_whole
 from uni.maps import Turned
 from uni.model import ResidualAdd
 from uni.parse import ConfigError, field
@@ -153,12 +154,9 @@ def derive(model: Model, contrast: Contrast) -> Direction:
 
 
 def write_direction(direction: Direction) -> Path:
-    path = DIRECTIONS / f"{direction.contrast.name}.json"
-    # Renamed over the committed file, as trajectories are, so a derivation killed mid-write leaves it whole.
-    partial = path.with_suffix(".partial")
-    partial.write_bytes(direction.encode())
-    partial.replace(path)
-    return path
+    # Whole or absent, as every file here is: a derivation killed mid-write leaves the committed
+    # direction standing rather than replacing it with half of the next one.
+    return write_whole(DIRECTIONS / f"{direction.contrast.name}.json", direction.encode())
 
 
 @dataclass(frozen=True)
@@ -167,12 +165,18 @@ class Steer:
 
     direction: Direction
 
-    def turn(self, value: float) -> Turned:
+    @property
+    def spec(self) -> dict[str, Any]:
+        # What the knob is, which turning it does not change: the value is recorded beside this,
+        # once, and a sweep names the knob in its manifest before it has turned anything.
         contrast = self.direction.contrast
-        spec = {
+        return {
             "kind": "steer",
             "direction": contrast.name,
             "layer": contrast.layer,
             "sha256": self.direction.sha256,
         }
-        return Turned(value, spec, (ResidualAdd(contrast.layer, value * torch.tensor(self.direction.vector)),))
+
+    def turn(self, value: float) -> Turned:
+        layer = self.direction.contrast.layer
+        return Turned(value, self.spec, (ResidualAdd(layer, value * torch.tensor(self.direction.vector)),))
