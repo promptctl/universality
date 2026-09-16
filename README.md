@@ -251,8 +251,11 @@ there is one drawing function rather than two to keep in step. The return map is
 value each orbit ran at, so a sweep of one value is one colour and a grid is a fan of them. The
 orbit diagram is one colour, because the value is already its x axis.
 
-`--burn-in N` drops the first N steps of every cell, which is where a picture wants a settled
-orbit and not the transient that got there. A sweep that is still running is drawn from the cells
+`--burn-in N` keeps each cell from step N onward, which is where a picture wants a settled orbit
+and not the transient that got there. It means exactly what it means to `uni observe`, which
+counts the start as step 0 - so a period read off one command and a picture drawn by the other are
+about the same states. Nothing has a reading for the start, so `--burn-in 0` and `--burn-in 1`
+draw the same picture. A sweep that is still running is drawn from the cells
 that are on disk, which is the point of persisting them one at a time; a sweep with nothing on
 disk, or a burn-in that ate every step, is refused rather than written as an empty figure that
 looks like an answer.

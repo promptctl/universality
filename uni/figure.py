@@ -83,12 +83,18 @@ def read(sweep: Sweep, home: Path, name: str, burn_in: int) -> tuple[Readings, .
     weights = Weights()
     out = []
     for cell in finished(sweep, home):
-        # [LAW:no-silent-failure] every refusal about a cell names the cell. The messages under
-        # here are about one orbit - a checkpoint that has changed since it was written, a
-        # direction whose file no longer matches, a state no observable can read - and each was
-        # written when the caller was one trajectory the user had named. Over a sweep of a
-        # thousand, the cell is the file to go and look at, and it arrives after minutes of
-        # readings taken from the cells before it.
+        # [LAW:no-silent-failure] a refusal about a cell names the cell. The messages under here
+        # are about one orbit - a checkpoint that has changed since it was written, a direction
+        # whose file no longer matches, a state no observable can read - and each was written when
+        # the caller was one trajectory the user had named. Over a sweep of a thousand, the cell is
+        # the file to go and look at, and it arrives after minutes of readings taken from the cells
+        # before it.
+        #
+        # One kind of refusal is not about the cell and still gets its name: the checkpoint itself
+        # failing to load, which happens at the first reading that needs one and so happens inside
+        # some cell. The name is then noise on a message about the whole sweep. Fixing it wants an
+        # observable that can say reading it costs a checkpoint, so this could settle that once
+        # before the loop: filed as universality-observe-16d.
         try:
             trajectory = read_trajectory(home / cell.name)
             observable = named(observables(trajectory, weights), name)

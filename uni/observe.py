@@ -188,10 +188,14 @@ def readings(observables: Sequence[Observable], step: Step) -> tuple[float, ...]
     """Every observable's number for one step, or a refusal that says which step has no number."""
     try:
         return tuple(observable.read(step) for observable in observables)
-    # Every observable was built before the table started printing - the checkpoint read, the
-    # template parsed, the directions checked against it - so nothing about the run's description
-    # is still waiting to fail here, and a refusal that arrives is about this one state. It is
-    # truthful already; what it cannot know is which step it was reading.
+    # The template was parsed and the directions checked against the pinned config before the
+    # table started printing, so most of what could fail about the run's description already has.
+    # The checkpoint is the exception, and deliberately so: an observable holds the `Weights` and
+    # reads through it, so a model that cannot be loaded at all is refused here, at the first
+    # reading that wanted one, and comes out labelled with that step. The label is then noise on a
+    # message that is about the whole run - true, but named after the step that tripped it. What
+    # would fix it is an observable able to say that reading it costs a checkpoint, so the caller
+    # could settle that once before any step is named: filed as universality-observe-16d.
     except ConfigError as error:
         raise ObserveError(f"step {step.index}: {error}") from error
 

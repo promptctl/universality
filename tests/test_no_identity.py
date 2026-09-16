@@ -72,8 +72,12 @@ def tracked_bytes() -> dict[str, bytes]:
     return {path: (ROOT / path).read_bytes() for path in tracked_files()}
 
 
-def tracked_text() -> dict[str, str]:
+def tracked_text(raw: dict[str, bytes] | None = None) -> dict[str, str]:
     """The tracked files that are text, as text. A file that is not text is not in here at all.
+
+    Handed the bytes when the caller already has them, so a check that wants both reads the repo
+    once rather than twice. Reading them itself is the convenience for a caller that wants only
+    the text.
 
     Decoded strictly, and not with `errors="replace"`: a figure forced through a text decode comes
     out as mojibake in which `IDENTITY_PATTERNS` finds an ssh target every few thousand bytes, so
@@ -83,9 +87,9 @@ def tracked_text() -> dict[str, str]:
     caught. [LAW:parse-dont-validate]
     """
     text = {}
-    for path, raw in tracked_bytes().items():
+    for path, content in (raw if raw is not None else tracked_bytes()).items():
         try:
-            decoded = raw.decode()
+            decoded = content.decode()
         except UnicodeDecodeError:
             continue
         if "\0" not in decoded:  # git's own tell, so a UTF-8-decodable binary is still binary
@@ -147,10 +151,12 @@ def test_tracked_files_carry_no_value_from_the_real_env():
     # drawn where chance stops being the likelier explanation, and what it costs is named: a value
     # shorter than that is checked everywhere a person could have written it and nowhere else.
     values = [value for value in dotenv_values(ROOT / ".env").values() if value]
-    # Read once each, not once per file: `tracked_text` reads every tracked file itself, so asking
-    # it inside the comprehension below read the whole repo once for every file in it.
-    text = tracked_text()
-    binary = {path: raw for path, raw in tracked_bytes().items() if path not in text}
+    # Read once each. `tracked_text` reads every tracked file itself when it has to, so asking it
+    # inside the comprehension below read the whole repo once for every file in it - and asking it
+    # beside `tracked_bytes` still read everything twice. It takes the bytes now.
+    every = tracked_bytes()
+    text = tracked_text(every)
+    binary = {path: content for path, content in every.items() if path not in text}
     assert value_leaks(values, text, binary) == []
 
 

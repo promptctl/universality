@@ -364,6 +364,7 @@ def run_plot(args: argparse.Namespace) -> int:
     # this is. [LAW:one-source-of-truth]
     sweep = read_sweep(args.sweep / MANIFEST)
     series = read(sweep, args.sweep, args.observable, args.burn_in)
+    total = len(sweep.values) * len(sweep.starts)
     pictures = {"return": return_map(series, args.observable), "orbit": orbit_diagram(series, args.observable)}
     # [LAW:no-silent-failure] an empty picture is a file that looks like an answer, so it is the
     # pictures that are checked and not the readings behind them: the return map needs two
@@ -374,7 +375,7 @@ def run_plot(args: argparse.Namespace) -> int:
     if bare:
         raise PlotError(
             f"nothing to draw the {' and '.join(bare)} map of: {len(series)} of "
-            f"{len(sweep.values) * len(sweep.starts)} cells are on disk, and --burn-in {args.burn_in} "
+            f"{total} cells are on disk, and --burn-in {args.burn_in} "
             f"leaves {sum(len(one.numbers) for one in series)} readings across them - a return map "
             "needs two from one cell, an orbit diagram one"
         )
@@ -389,7 +390,11 @@ def run_plot(args: argparse.Namespace) -> int:
         # they do not - a copied directory, a renamed one - it is the sweep that says which
         # picture this is. [LAW:one-source-of-truth]
         stem = f"{sweep.name}-{args.observable.replace(':', '-')}-burn{args.burn_in}-{kind}"
-        print(f"{scatter(picture, args.out / f'{stem}.png')}  {len(picture.points)} points", flush=True)
+        drawn = scatter(picture, args.out / f"{stem}.png")
+        # [LAW:no-silent-failure] the count on the refusal below says how much of the sweep is
+        # there, and the success line said nothing - so a picture of twelve cells out of six
+        # hundred looked exactly like a picture of all of them, under the same name.
+        print(f"{drawn}  {len(picture.points)} points from {len(series)} of {total} cells", flush=True)
     return 0
 
 
