@@ -472,7 +472,7 @@ def run_response(args: argparse.Namespace) -> int:
     from uni.figure import Picture, Point
     from uni.model import Model
     from uni.pinned import load_pinned
-    from uni.response import response, turns
+    from uni.response import admit, response, turns
     from uni.steer import Steer, read_direction
     from uni.sweep import grid
 
@@ -481,8 +481,13 @@ def run_response(args: argparse.Namespace) -> int:
     pinned = load_pinned()
     steer = Steer(read_direction(args.knob, pinned))
     model = Model(pinned)
+    # Every cell put to the refusals before the first forward pass, rather than met at its turn: a
+    # layer the response cannot be read at, or a push too large to read, is wrong before anything
+    # is computed, and the table is printed only once every curve is done.
+    rounding = max(admit(model, steer, value, layer) for layer in args.layer for value in values)
     curves = {layer: tuple(response(model, prompt.render(args.start), steer, value, layer) for value in values) for layer in args.layer}
     name = steer.direction.contrast.name
+    print(f"{pinned.dtype} rounding of the push moves no reading below by more than {rounding:.2g}")
     print(f"{'value':>10}" + "".join(f"{f'layer {layer}':>12}" for layer in curves))
     for i, value in enumerate(values):
         print(f"{value:>10.4g}" + "".join(f"{curve[i]:>12.4f}" for curve in curves.values()))

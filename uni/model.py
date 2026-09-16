@@ -129,11 +129,13 @@ class Model:
 
     @torch.inference_mode()
     def prompt_residual(self, prompt: str, additions: Sequence[ResidualAdd], layer: int) -> torch.Tensor:
-        """The residual stream leaving decoder `layer` with `additions` made, averaged over the prompt's tokens, shape (hidden_size,).
+        """The residual stream leaving decoder `layer` with `additions` made, at each of the prompt's tokens, shape (tokens, hidden_size).
 
         Read by a hook registered after the additions' own, so at the layer an addition is made the
         reading holds it: hooks on one layer run in the order they were registered, each handed the
-        output the one before it returned.
+        output the one before it returned. Token by token and not averaged, because a caller that
+        takes an addition back out has to do it before the average: the sum of the tokens rounds at
+        the size of the addition, and the size of what the model wrote is lost in it.
         """
         ids = self.encode(prompt)
         captured = []
@@ -143,7 +145,7 @@ class Model:
                 self.model(input_ids=ids, logits_to_keep=1)
             finally:
                 handle.remove()
-        return captured[0][0].mean(dim=0)
+        return captured[0][0]
 
     @torch.inference_mode()
     def reply_logprob(self, prompt: str, reply: str, additions: Sequence[ResidualAdd]) -> float:

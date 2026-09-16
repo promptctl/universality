@@ -1,5 +1,7 @@
 """The model's own response to a push along the formality direction, on the pinned model."""
 
+from pathlib import Path
+
 import pytest
 
 from uni.model import ModelError
@@ -31,9 +33,10 @@ def test_a_few_layers_on_the_response_rises_to_one_maximum_and_falls(model, form
     assert at[-40.0] < at[-10.0] > at[0.0] > at[10.0]
 
 
-def test_a_layer_before_the_push_is_refused(model, formality):
-    with pytest.raises(ModelError, match="at or after the layer the direction pushes, 12"):
-        response(model, PROMPT, formality, 1.0, 11)
+@pytest.mark.parametrize("layer", [11, 24])
+def test_a_layer_before_the_push_or_past_the_model_is_refused(model, formality, layer):
+    with pytest.raises(ModelError, match=f"from the one the direction pushes, 12, to the model's last, 23; got {layer}"):
+        response(model, PROMPT, formality, 1.0, layer)
 
 
 def test_turns_are_where_the_slope_changes_sign_on_the_grid_as_given():
@@ -46,6 +49,31 @@ def test_turns_are_where_the_slope_changes_sign_on_the_grid_as_given():
     assert turns((0, 1, 2, 3, 4), (3, 1, 1, 1, 2)) == (1,)
 
 
-def test_a_push_that_overflows_the_model_is_refused_rather_than_read(model, formality):
-    with pytest.raises(ModelError, match="no finite projection"):
-        response(model, PROMPT, formality, 1e38, 16)
+def test_a_push_that_drowns_what_the_model_writes_is_refused_rather_than_read(model, formality):
+    # Found in review: at 1e12 the model's writes are rounded out of the stream, and what is left once
+    # the push is taken back out read -0.0003 - an answer of nothing, printed as one more reading.
+    with pytest.raises(ModelError, match="rounding could move the answer to a push of 1e\\+12 at layer 23"):
+        response(model, PROMPT, formality, 1e12, 23)
+    with pytest.raises(ModelError, match="rounding"):
+        response(model, PROMPT, formality, float("nan"), 23)
+
+
+def test_the_measured_grid_is_read_well_inside_the_tolerance(model, formality):
+    from uni.response import TOLERANCE, admit
+
+    # The bound grows with the push and with the layers the push passes through, so the grid's far
+    # end at the last layer is its worst cell.
+    assert admit(model, formality, -40.0, 23) < TOLERANCE / 10
+    assert admit(model, formality, 0.0, 23) == 0.0
+
+
+def test_a_run_refuses_a_cell_before_it_reads_any(model, monkeypatch, capsys):
+    # Found in review: a layer past the model was met only after every layer before it had been
+    # read across the whole grid, and the run died having printed nothing.
+    from uni.cli import EXIT_CONFIG, main
+
+    monkeypatch.setattr("uni.model.Model", lambda pinned: model)
+    monkeypatch.setattr(model, "prompt_residual", lambda *_: pytest.fail("read a cell of a run that was going to be refused"))
+    argv = ["response", "--template", "rewrite", "--knob", "formality", "--start", "a", "--grid=-40:40:3", "--layer", "16", "--layer", "30"]
+    assert main(argv, {}, Path.cwd()) == EXIT_CONFIG
+    assert "got 30" in capsys.readouterr().err

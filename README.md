@@ -512,6 +512,13 @@ later layer, so the stream's own projection is the push read back, 8.96 times th
 direction's squared length), a straight line whatever the model does. What is left is what the
 layers after the push wrote in answer to it, and it is what `uni response` prints and draws.
 
+The push is taken out token by token, before the average, and a push too large to take out is
+refused rather than read. Every addition the stream makes while it holds the push rounds at the
+push's size, so a large enough push rounds the model's writes out of the stream, and what is left
+reads as a model that answers nothing. The command bounds that rounding from the push alone
+before it runs a forward pass, refuses any cell it could move by a hundredth or more, and prints
+the worst bound over the grid: 0.00051 for the run above, where a push of 1e12 would be 1.3e7.
+
 ![the model's answer to a push along formality, at six layers](figures/response-6e6cae900235d2b4.png)
 
 At layer 12 there is no answer - the curve is flat at -4.3035, float jitter aside, because
