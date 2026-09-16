@@ -42,3 +42,14 @@ def test_the_directory_a_file_goes_in_is_made(tmp_path):
     # A sweep's home and the trajectories directory are both made this way, so neither caller
     # carries its own mkdir for the writer to have to agree with.
     assert write_whole(tmp_path / "sweeps" / "abcd" / "orbit.json", b"{}\n").read_bytes() == b"{}\n"
+
+
+def test_two_files_that_differ_only_by_extension_do_not_share_a_scratch_file(tmp_path, monkeypatch):
+    # The scratch name is one file's, not one stem's. Put in place of the extension instead of
+    # after the whole name, it would make `a.json` and `a.txt` write through each other - the
+    # collision the process id is here to prevent, with the process id left out of it.
+    seen = []
+    monkeypatch.setattr(Path, "replace", lambda self, target: seen.append(self))
+    for name in ("orbit.json", "orbit.txt"):
+        write_whole(tmp_path / name, b"{}\n")
+    assert len(set(seen)) == 2

@@ -24,7 +24,10 @@ def write_whole(path: Path, data: bytes) -> Path:
     for trajectories and not for the manifest that names them.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    partial = path.with_suffix(f".{os.getpid()}.partial")
+    # Appended to the whole name rather than put in place of the extension, so the scratch file is
+    # one file's and not one stem's: a directory holding both `a.json` and `a.txt` would otherwise
+    # have them writing through each other, which is the collision above with the pid left out.
+    partial = path.with_name(f"{path.name}.{os.getpid()}.partial")
     partial.write_bytes(data)
     partial.replace(path)
     return path
