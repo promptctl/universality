@@ -9,7 +9,7 @@ import torch
 
 from uni.cli import main
 from uni.loop import Trajectory, write_trajectory
-from uni.maps import model_spec
+from uni.maps import logistic_state, model_spec
 from uni.observe import (
     Length,
     Logprob,
@@ -63,7 +63,7 @@ def test_the_template_comes_back_off_the_trajectory():
 def test_a_trajectory_from_another_kind_of_map_has_no_model_observables(weights):
     # And costs no checkpoint to find that out: what an orbit can be read for is decided by the
     # kind its file records, before anything that needs weights is built.
-    assert observables(Trajectory({"kind": "logistic"}, 0.0, "a", ()), Weights()) == (Length(), Value())
+    assert observables(Trajectory({"kind": "logistic"}, 0.0, "a", ()), Weights()) == (Length(), Value(logistic_state))
 
 
 def test_an_orbit_of_a_kind_this_build_cannot_read_is_refused():

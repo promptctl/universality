@@ -176,15 +176,31 @@ def turned_at(knob: Knob, values: Sequence[float]) -> Knob:
     return knob
 
 
-# The flags that describe the model's map and no other one. Declared here rather than on `uni
-# loop` directly so the set has a single spelling: every other map's builder refuses whatever
-# this parser holds, so a flag added to it is refused by them without anything else being
-# edited. A model-only flag listed nowhere is one a logistic run would accept and quietly
-# ignore, which is the failure the refusal exists to prevent. [LAW:one-source-of-truth]
-MODEL_FLAGS = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
-MODEL_FLAGS.add_argument("--template", help="the model map's template, named in uni/templates.toml")
-MODEL_FLAGS.add_argument("--knob", help="a direction in uni/directions for the model map to steer along, or none")
-MODEL_ONLY = tuple(vars(MODEL_FLAGS.parse_args([])))  # the flags above, under the names args carries them by
+# The flags that describe a map, as opposed to a run of one. Declared here rather than on `uni
+# loop` directly so the set has a single spelling: each map's builder names the ones it reads and
+# `refuse_unread` refuses the rest, so a flag added here is refused by every map that does not
+# name it without anything else being edited. A flag a map ignores is one a run would accept and
+# quietly drop, which is the failure the refusal exists to prevent. [LAW:one-source-of-truth]
+MAP_FLAGS = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+MAP_FLAGS.add_argument("--template", help="the model or response map's template, named in uni/templates.toml")
+MAP_FLAGS.add_argument("--knob", help="a direction in uni/directions: what the model map steers along (or none), or what the response map pushes along")
+MAP_FLAGS.add_argument("--text", help="the response map's text, rendered once into its template")
+MAP_FLAGS.add_argument("--layer", type=whole, help="the layer the response map reads its answer at")
+MAP_OPTIONS = tuple(vars(MAP_FLAGS.parse_args([])))  # the flags above, under the names args carries them by
+
+
+def refuse_unread(args: argparse.Namespace, name: str, reads: Sequence[str]) -> None:
+    """Refuse every map flag given that the `name` map does not read. [LAW:single-enforcer]
+
+    [LAW:no-silent-failure] carried over from an earlier command and dropped without a word, a flag
+    would read back as a setting this run had honoured.
+    """
+    from uni.maps import MapError
+
+    for flag in MAP_OPTIONS:
+        if getattr(args, flag) is not None and flag not in reads:
+            described = ", ".join(f"--{one}" for one in reads) or "no flag; its one parameter is the value"
+            raise MapError(f"--{flag} does not describe the {name} map, which reads {described}")
 
 
 def model_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
@@ -196,6 +212,7 @@ def model_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
     """
     from uni.maps import MapError, ModelFamily, NoKnob  # torch-free, so a refusal below costs nothing
 
+    refuse_unread(args, "model", ("template", "knob"))
     # [LAW:types-are-the-program] exception: argparse can require a flag for neither --map or for
     # both, so the map that reads a template is the one that refuses a run without it.
     if args.template is None:
@@ -227,13 +244,9 @@ def model_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
 
 def logistic_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
     """x -> r x (1 - x), where the value is r. Pure arithmetic: this map never loads a checkpoint."""
-    from uni.maps import LogisticFamily, MapError
+    from uni.maps import LogisticFamily
 
-    # [LAW:no-silent-failure] these describe the model's map. Carried over from an earlier command
-    # and dropped without a word, they would read back as settings this run had honoured.
-    for flag in MODEL_ONLY:
-        if getattr(args, flag) is not None:
-            raise MapError(f"--{flag} describes the model map; the logistic map's one parameter is the value, which is r")
+    refuse_unread(args, "logistic", ())
     family = LogisticFamily()
     # [LAW:no-silent-failure] every value on the grid is offered to the map up front, as every
     # value is offered to the knob above. A sweep to r = 4.2 would otherwise write its manifest,
@@ -242,6 +255,34 @@ def logistic_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
     for value in values:
         family.at(value)
     return family
+
+
+def response_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
+    """The model's answer to a push, fed back as the next push times the gain, where the value is the gain."""
+    from uni.maps import MapError, ResponseFamily
+
+    refuse_unread(args, "response", ("template", "knob", "text", "layer"))
+    # [LAW:types-are-the-program] exception: argparse cannot require a flag for one --map only.
+    missing = [f"--{flag}" for flag in ("template", "knob", "text", "layer") if getattr(args, flag) is None]
+    if missing or args.knob == "none":
+        raise MapError(f"the response map pushes along a direction and reads the answer to a text at a layer; pass {', '.join(missing) or '--knob with a direction'}")
+    prompt = template(args.template)
+    from uni.pinned import load_pinned
+    from uni.steer import Steer, read_direction
+
+    pinned = load_pinned()
+    # Every gain is a map: a negative one feeds the answer back reversed, and 0 sends every push to
+    # 0. What a gain can carry the orbit into is refused where it happens, by the reading's bound.
+    return ResponseFamily(pinned, prompt, args.text, Steer(read_direction(args.knob, pinned)), args.layer)
+
+
+def response_value(given: float | None) -> float:
+    """The gain has no default worth having, for the reason r has none: 0 is a legal gain, answered `period 1`."""
+    from uni.maps import MapError
+
+    if given is None:
+        raise MapError("the response map's parameter is the gain; pass --value")
+    return given
 
 
 def model_value(given: float | None) -> float:
@@ -275,7 +316,7 @@ class Kind:
     value: Callable[[float | None], float]  # a single run's parameter; a sweep's come from the grid
 
 
-MAPS = {"model": Kind(model_map, model_value), "logistic": Kind(logistic_map, logistic_value)}
+MAPS = {"model": Kind(model_map, model_value), "logistic": Kind(logistic_map, logistic_value), "response": Kind(response_map, response_value)}
 
 
 def map_named(name: str) -> Kind:
@@ -567,13 +608,13 @@ def build_parser() -> argparse.ArgumentParser:
     determinism = commands.add_parser("determinism", help="generate each gate case many times and check every hash is equal")
     determinism.add_argument("--runs", type=positive, default=RUNS, help=f"runs per case (default: {RUNS})")
     determinism.set_defaults(run=run_determinism)
-    loop = commands.add_parser("loop", parents=[MODEL_FLAGS], help="iterate a map from a start state and write the trajectory")
+    loop = commands.add_parser("loop", parents=[MAP_FLAGS], help="iterate a map from a start state and write the trajectory")
     loop.add_argument("--map", type=map_named, default="model", help=f"the map to iterate: {', '.join(MAPS)} (default: model)")
     loop.add_argument("--start", required=True, help="the first state; may be empty; write --start=TEXT when it begins with '-'")
     loop.add_argument("--steps", type=positive, required=True, help="how many times to step the map")
-    loop.add_argument("--value", type=finite, help="the map's parameter: the knob's setting (default: 0), or r, which has no default")
+    loop.add_argument("--value", type=finite, help="the map's parameter: the knob's setting (default: 0), r, or the response map's gain; the last two have no default")
     loop.set_defaults(run=run_loop)
-    sweep = commands.add_parser("sweep", parents=[MODEL_FLAGS], help="run a map at every value on a grid, from every start, and keep the orbits")
+    sweep = commands.add_parser("sweep", parents=[MAP_FLAGS], help="run a map at every value on a grid, from every start, and keep the orbits")
     sweep.add_argument("--map", type=map_named, default="model", help=f"the map to sweep: {', '.join(MAPS)} (default: model)")
     sweep.add_argument("--grid", required=True, help="the values to sweep, as FROM:TO:COUNT with TO included, as in 2.8:4.0:200")
     sweep.add_argument("--start", action="append", default=[], help="a start state; repeat it for each one, and write --start=TEXT when it begins with '-'")

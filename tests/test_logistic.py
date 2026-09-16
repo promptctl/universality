@@ -12,9 +12,9 @@ from pathlib import Path
 
 import pytest
 
-from uni.cli import EXIT_CONFIG, MODEL_ONLY, main
+from uni.cli import EXIT_CONFIG, MAP_OPTIONS, main
 from uni.loop import Trajectory, orbit, read_trajectory, write_trajectory
-from uni.maps import Logistic, MapError
+from uni.maps import Logistic, MapError, logistic_state
 from uni.observe import ObserveError, Step, Value, readings
 from uni.period import Cycle, NoCycle, detect
 
@@ -134,14 +134,14 @@ def test_the_command_reads_the_orbit_back_with_the_same_observables(tmp_path, mo
 def test_the_state_is_the_observable():
     # Nothing to derive: the return map of a map whose states are numbers is the map itself drawn,
     # which is what makes this orbit's plot checkable against a published one.
-    assert Value().read(Step(1, "0.5", "0.8")) == 0.8
-    assert Value().name == "x"
+    assert Value(logistic_state).read(Step(1, "0.5", "0.8")) == 0.8
+    assert Value(logistic_state).name == "x"
 
 
 def test_a_state_no_logistic_orbit_could_hold_is_refused_by_the_observable():
     # The same refusal the map makes when it writes one, because it is the same function.
     with pytest.raises(ObserveError, match="step 2: a logistic state is a number in 0..1"):
-        readings((Value(),), Step(2, "0.5", "1.5"))
+        readings((Value(logistic_state),), Step(2, "0.5", "1.5"))
 
 
 def test_the_logistic_map_costs_no_checkpoint(tmp_path):
@@ -162,7 +162,13 @@ def test_the_flags_of_the_other_map_are_refused_rather_than_dropped(capsys):
     for flag, value in (("--template", "rewrite"), ("--knob", "formality")):
         argv = ["loop", "--map", "logistic", "--start", "0.5", "--steps", "1", "--value", "3.2", flag, value]
         assert command(argv) == EXIT_CONFIG
-        assert f"{flag} describes the model map" in capsys.readouterr().err
+        assert f"{flag} does not describe the logistic map" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("flag, value", [("--text", "a"), ("--layer", "23")])
+def test_the_model_map_refuses_the_response_maps_flags(capsys, flag, value):
+    assert command(["loop", "--template", "rewrite", "--start", "x", "--steps", "1", flag, value]) == EXIT_CONFIG
+    assert f"{flag} does not describe the model map, which reads --template, --knob" in capsys.readouterr().err
 
 
 def test_r_is_asked_for_rather_than_defaulted(capsys):
@@ -184,14 +190,14 @@ def test_a_refusal_of_this_map_costs_no_checkpoint(tmp_path, flag, value):
     assert run.stdout.split() == [str(EXIT_CONFIG), "False"]
 
 
-def test_every_model_flag_is_one_this_map_refuses(capsys):
-    # Derived from the parser the model's flags are declared in, not copied from it: a flag added
+def test_every_map_flag_is_one_this_map_refuses(capsys):
+    # Derived from the parser the map flags are declared in, not copied from it: a flag added
     # there and nowhere else is refused here rather than accepted and silently dropped.
-    assert MODEL_ONLY == ("template", "knob")
-    for flag in MODEL_ONLY:
-        argv = ["loop", "--map", "logistic", "--start", "0.5", "--steps", "1", "--value", "3.2", f"--{flag}", "rewrite"]
+    assert MAP_OPTIONS == ("template", "knob", "text", "layer")
+    for flag in MAP_OPTIONS:
+        argv = ["loop", "--map", "logistic", "--start", "0.5", "--steps", "1", "--value", "3.2", f"--{flag}", "1"]
         assert command(argv) == EXIT_CONFIG
-        assert f"--{flag} describes the model map" in capsys.readouterr().err
+        assert f"--{flag} does not describe the logistic map, which reads no flag" in capsys.readouterr().err
 
 
 def test_an_r_that_is_a_whole_number_writes_a_file_that_reads_back(tmp_path):
