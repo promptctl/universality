@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Protocol
@@ -399,3 +399,20 @@ class ResponseMap:
         family = self.family
         answer = response(family.model, family.prompt, family.steer, response_state(state), family.layer)
         return response_text(self.gain * answer / family.steer.direction.squared_length)
+
+
+@dataclass(frozen=True)
+class Numbers:
+    """How a map whose states are numbers reads a state as its number, and writes a number as the state it would be."""
+
+    read: Callable[[str], float]
+    write: Callable[[float], str]
+
+
+# The kinds of map whose states are numbers, and each one's own spelling of them. What reads an
+# orbit for its numbers and what asks a map where it holds still both look the kind up here, so a
+# third numeric map is one entry and not a branch in each of them. [LAW:one-source-of-truth]
+NUMBERS: Mapping[str, Numbers] = {
+    "logistic": Numbers(logistic_state, repr),
+    "response": Numbers(response_state, response_text),
+}

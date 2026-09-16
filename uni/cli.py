@@ -544,6 +544,49 @@ def run_response(args: argparse.Namespace) -> int:
     return 0
 
 
+def bracket(text: str) -> tuple[float, float]:
+    """LOW:HIGH, two finite numbers in order: where `uni fixed` looks for a fixed point."""
+    parts = text.split(":")
+    try:
+        low, high = (finite(part) for part in parts) if len(parts) == 2 else (math.nan, math.nan)
+    except (ValueError, argparse.ArgumentTypeError):
+        low = high = math.nan
+    if not low < high:  # nan fails this too
+        raise argparse.ArgumentTypeError(f"a bracket is LOW:HIGH, two finite numbers with LOW below HIGH; got {text!r}")
+    return low, high
+
+
+def run_fixed(args: argparse.Namespace) -> int:
+    """Print the fixed point and the map's slope there at each value on the grid, and where the slope passes through -1."""
+    from uni.fixed import FixedError, crossings, fixed_point, slope
+    from uni.maps import NUMBERS
+    from uni.sweep import grid
+
+    values = grid(args.grid)
+    family = args.map.build(args, values)
+    kind = family.spec["kind"]
+    # [LAW:no-silent-failure] a fixed point is a number, and so is a slope; a map whose states are
+    # texts has neither, and is told so rather than asked to spell a midpoint.
+    if kind not in NUMBERS:
+        raise FixedError(f"uni fixed reads a map whose states are numbers, and the {kind} map's are not; the maps whose are: {', '.join(NUMBERS)}")
+    numbers = NUMBERS[kind]
+    low, high = args.bracket
+    print(f"{'value':>10}  {'fixed point':>14}  {'slope':>10}", flush=True)
+    slopes = []
+    for value in values:
+        map = family.at(value)
+        point = fixed_point(map, numbers, low, high)
+        slopes.append(slope(map, numbers, point, args.step))
+        print(f"{value:>10.6g}  {numbers.write(point):>14}  {slopes[-1]:>10.4f}", flush=True)
+    # -1 is where a fixed point gives way to a period-2 orbit, and +1 where it is born or dies
+    # beside another; both are said, since a map need not meet the first before the second.
+    for level in (-1.0, 1.0):
+        found = crossings(values, slopes, level)
+        where = f"passes through {level:+g} at {', '.join(f'{value:.6g}' for value in found)}" if found else f"does not pass through {level:+g} on this grid"
+        print(f"the slope {where}")
+    return 0
+
+
 def verdict(period: Period) -> str:
     """What the detector saw, in a sentence. The one branch is the domain's own three answers."""
     match period:
@@ -632,6 +675,12 @@ def build_parser() -> argparse.ArgumentParser:
     plot.add_argument("--out", type=Path, default=FIGURES, help=f"where to write the figures (default: {FIGURES})")
     plot.set_defaults(run=run_plot)
     observe.set_defaults(run=run_observe)
+    fixed = commands.add_parser("fixed", parents=[MAP_FLAGS], help="find where a map of numbers holds still at each value, and its slope there")
+    fixed.add_argument("--map", type=map_named, required=True, help=f"the map to read: {', '.join(MAPS)}; its states must be numbers")
+    fixed.add_argument("--grid", required=True, help="the values, as FROM:TO:COUNT with TO included")
+    fixed.add_argument("--bracket", type=bracket, required=True, help="LOW:HIGH, states the map carries in opposite directions; write --bracket=LOW:HIGH when LOW is negative")
+    fixed.add_argument("--step", type=finite, required=True, help="the half-width of the central difference the slope is read across, in the state's own units")
+    fixed.set_defaults(run=run_fixed)
     answer = commands.add_parser("response", help="read how the layers after a steering push answer it, with no token generated")
     answer.add_argument("--template", required=True, help="the template the start is rendered into, named in uni/templates.toml")
     answer.add_argument("--knob", required=True, help="the direction in uni/directions to push along")

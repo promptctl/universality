@@ -13,7 +13,7 @@ from functools import cached_property
 from typing import Protocol
 
 from uni.loop import Trajectory
-from uni.maps import logistic_state, response_state
+from uni.maps import NUMBERS
 from uni.model import Model, ResidualAdd
 from uni.parse import ConfigError, field, nullable
 from uni.pinned import Pinned, load_pinned
@@ -223,22 +223,16 @@ def model_observables(trajectory: Trajectory, weights: Weights) -> tuple[Observa
     )
 
 
-def logistic_observables(trajectory: Trajectory, weights: Weights) -> tuple[Observable, ...]:
-    """What an orbit of numbers can be read for: the numbers, and no checkpoint to read them."""
-    return (Value(logistic_state),)
-
-
-def response_observables(trajectory: Trajectory, weights: Weights) -> tuple[Observable, ...]:
-    """The pushes, which are the states: the checkpoint read them once already, to make them."""
-    return (Value(response_state),)
+def numeric_observables(trajectory: Trajectory, weights: Weights) -> tuple[Observable, ...]:
+    """What an orbit of numbers can be read for: the numbers, in the map's own spelling, and no checkpoint to read them."""
+    return (Value(NUMBERS[trajectory.map["kind"]].read),)
 
 
 # What each kind of map's states can be read for, past the length every state has. A map that is
 # not in here is one this build cannot read, which is a thing to say rather than to answer around.
 KINDS: Mapping[str, Callable[[Trajectory, Weights], tuple[Observable, ...]]] = {
     "model": model_observables,
-    "logistic": logistic_observables,
-    "response": response_observables,
+    **{kind: numeric_observables for kind in NUMBERS},
 }
 
 
