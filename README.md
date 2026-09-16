@@ -94,9 +94,10 @@ empty.
 
 `--map` chooses which map is iterated, and defaults to the model. Whichever it is, the runner
 only ever calls `step(state)` on it, so nothing below the command line knows there is more than
-one. `--value` is that map's parameter: the knob's setting for the model, and r for the logistic
-map below. Each map reads the flags that describe it and refuses the other's, so a `--knob`
-carried over from a model run does not ride along unapplied on an orbit of numbers.
+one. `--value` is that map's parameter: the knob's setting for the model, r for the logistic map
+below, and the gain for the response map further down. Each map reads the flags that describe it
+and refuses the rest, so a `--knob` carried over from a model run does not ride along unapplied on
+an orbit of numbers.
 
 ## The logistic map
 
@@ -540,6 +541,81 @@ distance to the power 1.75 on the left and 2.09 on the right. The top is quadrat
 This is Rung 1 met, for a loop of this kind: one smooth maximum, of the order the theory needs. It
 is a map in waiting rather than a loop yet - closing it means turning the answer back into the
 next push, with a gain to turn, and finding the fixed point and its first flip, which is Rung 2.
+
+### The loop closed: a gain, a fixed point, and the first flip
+
+    uv run uni loop --map response --template rewrite --knob formality \
+        --text "The meeting moved to Thursday because the room was booked." \
+        --layer 23 --value 3 --start=-8.5000 --steps 40
+
+`--map response` turns the answer back into the next push. The state is the push x. One step reads
+the answer r(x) exactly as `uni response` does, and the next push is `gain * r(x) / |v|^2`, where
+the gain is `--value`. Dividing by the direction's squared length, 8.96, puts the answer in the
+units of the push, since a push of x reads back as x |v|^2 along the direction. So at gain 1 the
+next push is exactly the push the answer amounts to, and the gain is PROJECT.md's feedback gain
+made literal: how much of the answer is fed back. `uni sweep --map response` sweeps the gain.
+
+The state is the push written to four decimals, `-8.5000` and not `-8.5`, and a start spelled any
+other way is refused with the spelling to use. A push held to every bit of a float64 is more than
+the model can tell apart: the answer is float32, and so is the push on its way into the stream.
+Measured at gains 1 to 12, a settled orbit's float64 states spread over 2e-7 to 7e-6, and the
+detector counted that spread as cycles of three and six and as real periods doubled. Four decimals
+is fourteen times the widest spread. Even so, near an attractor an orbit can flicker between two
+neighbouring spellings, a cycle whose points are 0.0001 to 0.0007 apart, which the exact detector
+reports as a period. Such a period is not one this section counts; the orbit diagrams and the
+slope below do not see it.
+
+    uv run uni fixed --map response --template rewrite --knob formality \
+        --text "The meeting moved to Thursday because the room was booked." \
+        --layer 23 --grid 1:20:20 --bracket=-3:0 --step 0.05
+
+`uni fixed` answers Rung 2 off the map itself rather than off an orbit. At each value it bisects
+for the state the map carries least far, between two states it carries in opposite directions,
+and reads the map's slope there across the states `--step` either side. A fixed point gives way
+to a period-2 orbit exactly where that slope passes through -1. On the logistic map it returns
+x* = 1 - 1/r and a slope of 2 - r to the last digit, and the crossing at r = 3.
+
+The response map has one fixed point between -3 and 0 at every positive gain, and it moves from
+-0.18 at gain 1 to -1.76 at gain 20. Its slope is -0.14 at gain 1, never steeper than -0.25 up to
+gain 10, and then it falls: -0.61 at 12, -1.10 at 14, -2.72 at 20. It passes through -1 at gain
+**13.59**. On a grid of 0.02 across 13.4 to 13.8 the crossing lands at 13.60, 13.60 and 13.58 for
+steps of 0.02, 0.05 and 0.1. A four-decimal state makes the slope uncertain by 0.005, and the slope
+changes by 0.25 per unit of gain there, so mu_1 = 13.59 +- 0.02. It never passes through +1: the
+fixed point is not born or destroyed on this range, only destabilised.
+
+FLIP_SWEEP_PARAGRAPH
+
+That flip is not the first thing this loop does, though. Swept from 1.5 to 6 from two starts, the
+top of the hump (-8.5000) and zero:
+
+    uv run uni sweep --map response --template rewrite --knob formality \
+        --text "The meeting moved to Thursday because the room was booked." \
+        --layer 23 --grid 1.5:6:181 --start=-8.5000 --start=0.0000 --steps 400
+    uv run uni plot sweeps/d503da82b73fe909 --observable x --burn-in 200
+
+![orbit diagram of the response map over gain 1.5 to 6](figures/d503da82b73fe909-x-burn200-orbit.png)
+
+The fixed point runs straight through the picture, stable throughout. Beside it, from gain 2.875,
+there is a second attractor: a period-2 orbit through the top of the hump, which appears already
+12 wide, between 4.8 and -7.0, rather than growing out of anything. At gain 2.85 the orbit from the
+top still falls onto the fixed point, and at 2.875 it does not. Its birth is therefore not a flip of
+the fixed point, whose slope at that gain is -0.24. The start decides which attractor an orbit
+reaches: from zero, every orbit on this range ends at the fixed point.
+
+That second attractor then does exactly what a unimodal map's cascade does. It doubles to period
+4 between gains 3.85 and 3.9, where each point has split in two by 0.95, and to period 8 between
+4.375 and 4.425, split by 0.36. Just below each doubling the orbit settles slowly, so 200 steps
+leave splits of a few thousandths that are not yet the cycle's own. By about 4.55 it no longer
+repeats within 200 steps, and between 5.05 and 5.075 it vanishes: from there on, the orbit from
+the top falls onto the fixed point too. Measuring those doublings to more than a grid step, and
+their ratios against 4.669, is Rung 3 (`universality-rung3-sbn`). It needs a period read at a
+resolution rather than exactly, for the flicker described above.
+
+This is Rung 2 met: the fixed point is found, its slope is measured across the gain, and it gives
+way at mu_1 = 13.59 +- 0.02, with the orbits splitting where the slope says they must. What this
+loop adds to PROJECT.md is a coexisting attractor with its own cascade, reached from the top of the
+hump long before the fixed point flips. In one dimension that is the only kind of "different
+bifurcation first" there can be.
 
 ## Running on the experiment host
 
