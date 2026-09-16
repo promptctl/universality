@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+import math
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Protocol
@@ -14,6 +15,7 @@ if TYPE_CHECKING:  # a family reads its own checkpoint; everything else here is 
     from uni.loop import Map
     from uni.model import Model, ResidualAdd
     from uni.pinned import Pinned
+    from uni.steer import Steer
 
 
 class MapError(ConfigError):
@@ -277,3 +279,140 @@ class Logistic:
         # repr, which is the shortest text that reads back as exactly this float. The detector
         # compares the states themselves, so two spellings of one number would be two states.
         return repr(self.r * x * (1 - x))
+
+
+# The decimals a response state is written to. The model's answer is float32, and a push rounds to
+# float32 on its way into the stream, so a push held to every bit of a float64 wanders among
+# neighbours a millionth apart that the model cannot tell from one another: measured at gains 1 to
+# 12, a settled orbit's states spread over 2e-7 to 7e-6, which the detector reads as a cycle of
+# three, or six, or as a real period doubled. Four decimals is fourteen times the widest of those,
+# and fine enough for a cascade: the smallest gap between the points of a period-64 orbit, shrunk
+# by Feigenbaum's alpha squared at each doubling from the period-2 orbit's 13, is still 0.001.
+RESPONSE_DECIMALS = 4
+
+
+def response_text(push: float) -> str:
+    """A push as the one text the response map writes for it. Rounded before it is written, so -0.00001 is 0.0000 and not -0.0000."""
+    return f"{round(push, RESPONSE_DECIMALS) + 0.0:.{RESPONSE_DECIMALS}f}"
+
+
+def response_state(state: str) -> float:
+    """The push a response state names, refused unless it is written as the map writes one.
+
+    One function for the map and the observable, as `logistic_state` is: the detector compares the
+    state's text and the plot reads its number, so a second spelling of a push would be one point
+    to the plot and two states to the verdict. [LAW:one-source-of-truth]
+    """
+    try:
+        push = float(state)
+    except ValueError as error:
+        raise MapError(f"a response state is a push written to {RESPONSE_DECIMALS} decimals, got {state!r}") from error
+    if not math.isfinite(push) or response_text(push) != state:
+        written = response_text(push) if math.isfinite(push) else f"a number to {RESPONSE_DECIMALS} decimals"
+        raise MapError(f"a response state is a push written to {RESPONSE_DECIMALS} decimals: write {written}, not {state!r}")
+    return push
+
+
+def response_spec(pinned: Pinned, template: Template, text: str, steer: Mapping[str, Any], layer: int) -> dict[str, Any]:
+    """What a response map is, in the one form a trajectory and a sweep manifest both record. The gain is the value, recorded beside it."""
+    return {
+        "kind": "response",
+        "template": {"name": template.name, "text": template.text},
+        "pinned": asdict(pinned),
+        "text": text,
+        "knob": steer,
+        "layer": layer,
+        "decimals": RESPONSE_DECIMALS,
+    }
+
+
+@dataclass(frozen=True)
+class ResponseFamily:
+    """The push-response loop with its gain still to come: everything `uni response` reads a curve with, fixed.
+
+    The prompt is rendered once from `text`, and the state is not text but the push. Held as the
+    pinned configuration rather than a loaded model, for the reason `ModelFamily` gives.
+    """
+
+    pinned: Pinned
+    template: Template
+    text: str
+    steer: Steer
+    layer: int
+
+    @property
+    def spec(self) -> dict[str, Any]:
+        return response_spec(self.pinned, self.template, self.text, self.steer.spec, self.layer)
+
+    @cached_property
+    def model(self) -> Model:
+        from uni.model import Model
+
+        return Model(self.pinned)
+
+    @property
+    def prompt(self) -> str:
+        return self.template.render(self.text)
+
+    def holds(self, states: Sequence[str]) -> None:
+        # [LAW:single-enforcer] a start is a push the response reads, so it is refused by what
+        # refuses a push: the spelling, and then the reading's own rounding bound.
+        from uni.response import admit
+
+        for state in states:
+            admit(self.model, self.steer, response_state(state), self.layer)
+
+    def at(self, value: float) -> Map:
+        from uni.response import admit
+
+        # What the whole family reads with - the layer, the prompt's length - is refused here, at
+        # no push at all, so a sweep that can never read a cell is refused before its first one.
+        admit(self.model, self.steer, 0.0, self.layer)
+        self.model.fits(self.model.encode(self.prompt), "the prompt's tokens")
+        return ResponseMap(self, value)
+
+
+@dataclass(frozen=True)
+class ResponseMap:
+    """x -> gain * r(x) / |v|^2: the model's answer to a push, turned back into the push that would read as it, times the gain.
+
+    Divided by the squared length because a push of x reads back as x |v|^2 along the direction, so
+    r / |v|^2 is the answer in the units of the push; the gain is then the one number that says how
+    much of the answer is fed back, which is PROJECT.md's feedback gain made literal. At gain 1 the
+    next push is exactly the push the answer amounts to.
+    """
+
+    family: ResponseFamily
+    gain: float
+
+    @property
+    def value(self) -> float:
+        return self.gain
+
+    @property
+    def spec(self) -> dict[str, Any]:
+        return self.family.spec
+
+    def step(self, state: str) -> str:
+        from uni.response import response
+
+        family = self.family
+        answer = response(family.model, family.prompt, family.steer, response_state(state), family.layer)
+        return response_text(self.gain * answer / family.steer.direction.squared_length)
+
+
+@dataclass(frozen=True)
+class Numbers:
+    """How a map whose states are numbers reads a state as its number, and writes a number as the state it would be."""
+
+    read: Callable[[str], float]
+    write: Callable[[float], str]
+
+
+# The kinds of map whose states are numbers, and each one's own spelling of them. What reads an
+# orbit for its numbers and what asks a map where it holds still both look the kind up here, so a
+# third numeric map is one entry and not a branch in each of them. [LAW:one-source-of-truth]
+NUMBERS: Mapping[str, Numbers] = {
+    "logistic": Numbers(logistic_state, repr),
+    "response": Numbers(response_state, response_text),
+}

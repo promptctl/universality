@@ -75,6 +75,11 @@ class Direction:
     def sha256(self) -> str:
         return hashlib.sha256(self.encode()).hexdigest()
 
+    @property
+    def squared_length(self) -> float:
+        """What a push of 1 along this direction reads back as, along it: the unit a reading is a push in."""
+        return math.fsum(value * value for value in self.vector)
+
     def project(self, residual: torch.Tensor) -> float:
         """How far a residual stream reaches along this direction. The direction owns its own geometry."""
         # Both sides at float32, the precision the vector is stored and committed at: a checkpoint

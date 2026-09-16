@@ -13,7 +13,7 @@ from functools import cached_property
 from typing import Protocol
 
 from uni.loop import Trajectory
-from uni.maps import logistic_state
+from uni.maps import NUMBERS
 from uni.model import Model, ResidualAdd
 from uni.parse import ConfigError, field, nullable
 from uni.pinned import Pinned, load_pinned
@@ -92,12 +92,14 @@ class Value:
     orbit the fixture - its plot is a shape that is either the published one or visibly not.
     """
 
+    number: Callable[[str], float]  # the map's own reading of its state, which refuses a state it could not have written
+
     @property
     def name(self) -> str:
         return "x"
 
     def read(self, step: Step) -> float:
-        return logistic_state(step.state)
+        return self.number(step.state)
 
 
 @dataclass(frozen=True)
@@ -222,15 +224,15 @@ def model_observables(trajectory: Trajectory, weights: Weights) -> tuple[Observa
 
 
 def numeric_observables(trajectory: Trajectory, weights: Weights) -> tuple[Observable, ...]:
-    """What an orbit of numbers can be read for: the numbers, and no checkpoint to read them."""
-    return (Value(),)
+    """What an orbit of numbers can be read for: the numbers, in the map's own spelling, and no checkpoint to read them."""
+    return (Value(NUMBERS[trajectory.map["kind"]].read),)
 
 
 # What each kind of map's states can be read for, past the length every state has. A map that is
 # not in here is one this build cannot read, which is a thing to say rather than to answer around.
 KINDS: Mapping[str, Callable[[Trajectory, Weights], tuple[Observable, ...]]] = {
     "model": model_observables,
-    "logistic": numeric_observables,
+    **{kind: numeric_observables for kind in NUMBERS},
 }
 
 

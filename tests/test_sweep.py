@@ -171,11 +171,11 @@ def test_a_grid_the_command_cannot_read_is_reported_rather_than_raised(capsys, t
     assert "uni: a grid is FROM:TO:COUNT" in capsys.readouterr().err
 
 
-def test_the_flags_of_the_model_map_are_refused_by_a_logistic_sweep(capsys, tmp_path, monkeypatch):
+def test_a_flag_of_another_map_is_refused_by_a_logistic_sweep(capsys, tmp_path, monkeypatch):
     monkeypatch.setattr("uni.cli.SWEEPS", tmp_path)
     argv = ["sweep", "--map", "logistic", "--grid", "3.2:3.2:1", "--start", "0.5", "--steps", "5", "--knob", "formality"]
     assert command(argv) == EXIT_CONFIG
-    assert "--knob describes the model map" in capsys.readouterr().err
+    assert "--knob does not describe the logistic map" in capsys.readouterr().err
 
 
 def test_a_grid_with_no_knob_to_turn_is_refused_before_the_checkpoint(capsys, tmp_path, monkeypatch):
