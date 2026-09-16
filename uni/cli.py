@@ -10,6 +10,7 @@ import platform
 import signal
 import subprocess
 import sys
+import traceback
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from itertools import islice
@@ -47,6 +48,10 @@ EXIT_IO = os.EX_IOERR
 # purpose. 128 + the signal, which is what a shell reports for a producer killed by this same
 # event - so `PIPESTATUS[0]` says the same thing whether Python handled it or died of it.
 EXIT_PIPE = 128 + signal.SIGPIPE
+# A bug here: an exception nothing in this program answers for, reported with its traceback. Its
+# own code rather than the interpreter's 1, which is EXIT_DIVERGED, so a crash partway through a
+# run cannot read as the determinism gate's verdict. sysexits' name for it, as with the others.
+EXIT_BUG = os.EX_SOFTWARE
 
 # --remote is parsed here, once, and never reaches a subcommand: what is left over is
 # exactly what the host runs. [LAW:one-source-of-truth]
@@ -387,26 +392,17 @@ def run_sweep(args: argparse.Namespace) -> int:
         # is what names the cell, and rounded to six figures it names a different orbit in a
         # different file.
         #
-        # Before the count and not after it, which is the order that keeps the promise this block
-        # is for: `uni sweep ... | head` closes stdout, so printing the count first would raise
-        # BrokenPipeError out of the finally, replace whatever ended the run, and take the
-        # refusals with it - a pipe closing would be the one ending that silenced them.
-        # Suppressed rather than let out, because a `finally` that raises replaces whatever ended
-        # the run: with stdout closed, the SweepError above would reach the user as a traceback
-        # instead of as `uni: ...` and EXIT_CONFIG, and no handler further out can recover an
-        # exception this block has already destroyed. Saying how far a run got to nobody is not a
-        # failure of the run. (That a closed pipe is a traceback at all is universality-errors-k9u
-        # and belongs to every command here; this is only the one ending it would swallow.)
-        #
-        # OSError and not BrokenPipeError, because the question this block has to answer is
-        # whether the stream can still carry a message, and OSError is what Python calls a stream
-        # that cannot: `| head` is the one that happens, but a full disk under `> file` and a
-        # detached terminal lose the report the same way and must not cost the run its message
-        # either. It is only ever the report that is dropped - `pending` reads a directory through
+        # Nothing here may raise, because a `finally` that raises replaces whatever ended the run:
+        # with stdout closed by `uni sweep ... | head`, the SweepError above would reach the user as
+        # a traceback instead of as `uni: ...` and EXIT_CONFIG, and no handler further out can
+        # recover an exception this block has already destroyed. `say` already answers for a
+        # stream that cannot carry its message; the count is suppressed on the same terms - OSError
+        # and not BrokenPipeError, because a full disk under `> file` loses a report the way `| head`
+        # does. It is only ever the report that is dropped - `pending` reads a directory through
         # `Path.exists`, which answers rather than raises.
+        for failure in failures:
+            say(f"value {failure.cell.value!r} from {failure.cell.start!r} has no orbit: {failure.reason}")
         with contextlib.suppress(OSError):
-            for failure in failures:
-                print(f"uni: value {failure.cell.value!r} from {failure.cell.start!r} has no orbit: {failure.reason}", file=sys.stderr)
             print(described(sweep, pending(sweep, home)), flush=True)
     return EXIT_INCOMPLETE if failures else 0
 
@@ -625,7 +621,7 @@ def main(argv: Sequence[str], env: Mapping[str, str], cwd: Path) -> int:
     [LAW:single-enforcer] the one place a failure becomes an exit code, so these three are the
     three answers this program has. They are three rather than one because what a reader does
     about them differs: change what you asked for, fix the machine, or nothing at all. Anything
-    else reaching here is a bug, and a bug is still a traceback.
+    else reaching here is a bug, and raises on to `entry`, which gives it a code of its own.
     """
     try:
         code = run(argv, env, cwd)
@@ -653,6 +649,14 @@ def main(argv: Sequence[str], env: Mapping[str, str], cwd: Path) -> int:
 def entry() -> None:
     try:
         sys.exit(main(sys.argv[1:], os.environ, Path.cwd()))
+    except Exception:
+        # Here and not in `main`, which a test calls in-process and wants a bug raised out of. The
+        # traceback is the report, so it is printed as the interpreter would have; only the code
+        # changes. Suppressed as `say` is, because a stderr that cannot carry it costs the
+        # traceback and must not cost the code as well.
+        with contextlib.suppress(OSError):
+            traceback.print_exc()
+        sys.exit(EXIT_BUG)
     finally:
         # Python flushes both streams again on its way out, and one that cannot take what is left
         # in it prints "Exception ignored in: <_io.TextIOWrapper ...>" over whatever the user piped

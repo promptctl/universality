@@ -11,7 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from uni.cli import EXIT_CONFIG, EXIT_DIVERGED, EXIT_INCOMPLETE, EXIT_IO, EXIT_PIPE, main
+from uni.cli import EXIT_BUG, EXIT_CONFIG, EXIT_DIVERGED, EXIT_INCOMPLETE, EXIT_IO, EXIT_PIPE, main
 
 SWEEP = ["sweep", "--map", "logistic", "--grid", "3.2:3.5:4", "--start", "0.5", "--steps", "3"]
 
@@ -71,6 +71,15 @@ def test_help_nobody_is_left_to_read_still_exits_as_help(tmp_path):
     assert into_a_closed_pipe(tmp_path, "sweep", "--grd", "1", stderr=subprocess.STDOUT).returncode == 2
 
 
+def test_a_bug_here_exits_as_a_bug_and_not_as_an_answer(tmp_path):
+    # The interpreter exits 1 for an exception nothing caught, and 1 is EXIT_DIVERGED: a crash
+    # partway through a run read as the determinism gate's verdict to anything switching on it.
+    broken = "import uni.cli as cli; cli.run = lambda *_: 1 / 0; cli.entry()"
+    ran = subprocess.run([sys.executable, "-c", broken], cwd=tmp_path, capture_output=True, text=True)
+    assert ran.returncode == EXIT_BUG
+    assert "ZeroDivisionError" in ran.stderr  # still a traceback: the code changed, not the report
+
+
 class Full:
     """A stdout on a disk with no room left: it takes the text, and fails to deliver it."""
 
@@ -93,5 +102,5 @@ def test_each_way_a_run_can_end_has_its_own_code():
     # [LAW:one-source-of-truth] one number per answer, or a reader switching on the code - which is
     # what an unattended run does - cannot tell two of them apart. This is the check that would
     # have caught what this ticket is about: an uncaught OSError left the interpreter with 1.
-    codes = (0, EXIT_DIVERGED, EXIT_CONFIG, EXIT_INCOMPLETE, EXIT_IO, EXIT_PIPE)
+    codes = (0, EXIT_DIVERGED, EXIT_CONFIG, EXIT_INCOMPLETE, EXIT_IO, EXIT_PIPE, EXIT_BUG, 2)  # 2 is argparse's
     assert len(set(codes)) == len(codes)

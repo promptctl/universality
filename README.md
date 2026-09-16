@@ -28,19 +28,20 @@ about them differs.
 | `0` | it did what was asked |
 | `1` | the determinism gate ran and some case produced more than one hash |
 | `2` | the command line did not parse: a flag this program does not have, or one it needs left out or given no value |
-| `74` | the machine would not do the work: a full disk, a read-only volume, a path in the way |
+| `70` | a bug in this program: the traceback printed with it says where, and is worth reporting |
+| `74` | the machine would not do the work: a full disk, a read-only volume, a path in the way, a checkpoint it cannot fetch |
 | `78` | the command parsed, and the run it describes cannot be run: a file, a value, or a combination this program refuses |
 | `79` | a sweep ran and some cell of it has no orbit, so it came up short of its grid |
 | `141` | something downstream stopped reading, as `uni ... \| head` does — the run was told to stop, not refused |
 
 `78` and `74` are the pair worth telling apart: the first is something you asked for, the
 second is something about where you asked it. A loop running unattended can fix a `78` and
-try again, while a `74` will not fix itself and is where such a loop should stop.
+try again, while a `74` is not the command's to fix — an outage may clear, a disk will not — and
+is where such a loop should stop.
 
 With `--remote` the code is the one `uni` exited with on the host, so the table holds there
 too — unless the trip itself fails, and then the code is ssh's or rsync's: `255` from ssh, and
-rsync's own codes, one of which is `1`. Beyond those, a traceback is a bug here, and worth
-reporting as one.
+rsync's own codes, one of which is `1`.
 
 ## Determinism
 
