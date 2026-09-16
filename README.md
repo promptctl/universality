@@ -186,10 +186,12 @@ rather than run twice into one file, and so is a grid the map cannot take — ev
 to the map and to the knob before the first cell runs, because a sweep that dies two hundred cells
 in dies again on every resume.
 
-One failure those checks cannot cover: a model's states are its own replies, so they can grow
-until the rendered state leaves no room to generate, and whether step 300 still fits is knowable
-only by running to step 300. So a cell the map refuses **partway through its orbit** does not stop
-the sweep. The run says so on that cell's line, carries on to the cells after it — which are
+Two failures those checks cannot cover, both because a model's states are its own replies. A
+state can grow until the rendered state leaves no room to generate, and a reply can fail to end
+within the pinned `generation.max_new_tokens`, or within what room the context has left — which a
+map refuses, because a reply a limit cut off is not the model's reply, and names the limit. Whether step 300 does either is knowable only by running to step
+300. So a cell the map refuses **partway through its orbit** does not stop the sweep. The run says
+so on that cell's line, carries on to the cells after it — which are
 separate runs of a separate map, with nothing wrong with them — names every refused cell again at
 the end, and exits non-zero. Nothing is written for a cell with no orbit: a sweep directory holds
 trajectories and nothing else, so the cell simply stays pending and the next run tries it again,
@@ -352,9 +354,9 @@ coefficient.
 
     uv run uni sweep --remote --map model --template rewrite --knob formality \
         --grid=-6:6:25 --start "The meeting moved to Thursday because the room was booked." --steps 30
-    rsync --archive "$UNI_REMOTE_USER@$UNI_REMOTE_HOST:$UNI_REMOTE_DIR/sweeps/1a8fce648065056f/" \
-        sweeps/1a8fce648065056f/
-    uv run uni plot sweeps/1a8fce648065056f --observable along:formality --burn-in 10
+    rsync --archive "$UNI_REMOTE_USER@$UNI_REMOTE_HOST:$UNI_REMOTE_DIR/sweeps/37e340c190aad178/" \
+        sweeps/37e340c190aad178/
+    uv run uni plot sweeps/37e340c190aad178 --observable along:formality --burn-in 10
 
 The middle line is not decoration. The sweep ran on the host and its cells stay there - `sweeps/`
 is excluded from the sync, and the sync has no leg coming back - so the directory has to be
@@ -366,45 +368,51 @@ it, which is also why `figures/` is excluded from the sync rather than deleted b
 machines, because it is the hash of what the sweep is. There is no `uni fetch` doing the middle
 line for you yet; it is filed as `universality-remote-lhh`.
 
-![orbit diagram of the rewrite loop along the formality direction](figures/1a8fce648065056f-along-formality-burn10-orbit.png)
+**Only the middle of that grid is a map.** The sweep exits `79`, with 10 of its 25 cells written:
+every coefficient from -2.5 to 2.0. At -3.0 and below, and at 2.5 and above, the model's reply to
+its own rewrite does not end within the pinned 256 new tokens, and a reply the budget cut off is
+not a state of this map, so those cells are refused rather than recorded. What fills the budget
+there is not a long answer a larger budget would finish: at -3.0 it is "Cause the room was
+booked!" repeated until the budget stops it, and at +6.0 a slide into or-chains and then into
+repeating boilerplate in another language. The edge is sharp, too. The longest reply at 2.0 is 24
+tokens, and at 2.5 every one is cut.
 
-The knob works, and monotonically: where the settled state sits along the formality direction
-rises steadily from about -4 at a coefficient of -6 to about +5 at +3.5, and then stops rising.
-That is the knob doing what a knob should.
+An earlier run of this sweep kept those cuts as states, and 446 of its 750 states sat on the
+budget; its pictures showed wings that measured the ceiling. A trajectory now records that cut
+replies are refused, so that run's orbits are not taken for this map's. The 10 cells both runs
+wrote are identical, state for state.
 
-What the picture does not show is a cascade. Over most of the range each coefficient carries a
-single dot, which is an orbit that has reached a fixed point: the model rewrites a text into
-itself. The periods are measured rather than eyeballed — `uni observe` reports each one — and
-across the 25 cells they are 19 fixed points, a period 2 at -0.5, 1.0 and 1.5, a period 3 at 0.5,
-a period 4 at -6, and one orbit at +6 that had not repeated within its 31 states. The cycles
-longer than one sit around the unsteered point and at the far ends, not in a doubling sequence,
-and 0.5 apart on the knob is far too coarse a grid to call any of it a bifurcation.
+![orbit diagram of the rewrite loop along the formality direction](figures/37e340c190aad178-along-formality-burn10-orbit.png)
 
-![return map of the rewrite loop along the formality direction](figures/1a8fce648065056f-along-formality-burn10-return.png)
+The knob works. Where the settled state sits along the formality direction rises from about 1.0
+at a coefficient of -2.5 to about 4.6 at 1.5, which is the knob doing what a knob should. At 2.0,
+the last coefficient before replies stop ending, it falls back to 3.9.
 
-The return map says the same thing in one line: the points lie on the diagonal. Rung 1 of
-PROJECT.md asks whether this map has one smooth hump, because that is the shape the whole theory
-rests on. This is not that shape — it is the identity, which is what a return map of fixed points
-looks like. A hump needs states that move.
+What the picture does not show is a cascade. The periods are measured rather than eyeballed —
+`uni observe` reports each one — and across the 10 cells they are 6 fixed points, a period 2 at
+-0.5, 1.0 and 1.5, and a period 3 at 0.5. The cycles longer than one sit around the unsteered
+point, not in a doubling sequence, and 0.5 apart on the knob is far too coarse a grid to call any
+of it a bifurcation.
 
-![orbit diagram of the rewrite loop read for length](figures/1a8fce648065056f-length-burn10-orbit.png)
+![return map of the rewrite loop along the formality direction](figures/37e340c190aad178-along-formality-burn10-return.png)
 
-Read for the character length of the state instead, the same sweep shows the knob's real effect
-on this loop: near zero the fixed point is a single tidy sentence of about 60 characters, and
-steering in either direction inflates it by more than twenty times.
+The return map says the same thing: the fixed points lie on the diagonal, and each cycle is a
+handful of points mirrored across it. Rung 1 of PROJECT.md asks whether this map has one smooth
+hump, because that is the shape the whole theory rests on. This is not that shape. A hump needs
+states that move.
 
-**And that is the caveat this sweep has to carry.** The pinned `generation.max_new_tokens` is
-256, and **446 of the 750 states in this sweep are at or over that ceiling**. So over much of the
-range the map being iterated is not the rewrite loop but the rewrite loop truncated, and a fixed
-point reached by filling the budget every step is a fixed point of the ceiling as much as of the
-model. Read the middle of the picture, where the states are short, and treat the wings as
-measuring the cap. Filed as `universality-sweep-zjh`.
+![orbit diagram of the rewrite loop read for length](figures/37e340c190aad178-length-burn10-orbit.png)
+
+Read for the character length of the state instead, the sweep shows what the knob does to this
+loop on the way to the edge. The informal side settles on one short sentence of 58 characters,
+and on the formal side the settled state grows to 143 characters at 2.0, just before replies
+stop ending at all.
 
 What this sweep settles is therefore narrow and worth stating plainly: at this template, this
 direction, this start, this step count and this resolution, the rewrite loop does not period
-double. It converges. Whether a finer grid, a longer run, more starts, or a knob that does not
-drive the model into the token ceiling would show anything else is the next question, and it is
-the question Rung 1 exists to ask.
+double where it is defined, which is between -2.5 and 2.0. It converges or cycles near zero.
+Whether a finer grid inside that range, a longer run, more starts, or another knob would show
+anything else is the next question, and it is the question Rung 1 exists to ask.
 
 ## Running on the experiment host
 

@@ -2,7 +2,6 @@
 
 import dataclasses
 import statistics
-from dataclasses import asdict
 from pathlib import Path
 
 import pytest
@@ -10,6 +9,7 @@ import torch
 
 from uni.cli import main
 from uni.loop import Trajectory, write_trajectory
+from uni.maps import model_spec
 from uni.observe import (
     Length,
     Logprob,
@@ -35,9 +35,8 @@ TEXT = "The store will open late tomorrow because of the storm, so plan your tri
 
 
 def spec(template="rewrite", knob=None, kind="model", pinned=None):
-    parsed = load_templates()[template]
-    recorded = asdict(pinned or load_pinned())  # what ModelMap.spec writes, so a test file is a real one
-    return {"kind": kind, "template": {"name": parsed.name, "text": parsed.text}, "pinned": recorded, "knob": knob}
+    # What ModelMap.spec writes, so a test file is a real one; `kind` stands in for maps this build cannot read.
+    return {**model_spec(pinned or load_pinned(), load_templates()[template], knob), "kind": kind}
 
 
 @pytest.fixture(scope="module")
