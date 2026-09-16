@@ -253,11 +253,17 @@ def test_plot_is_refused_on_the_host_rather_than_drawing_where_nothing_can_reach
     assert "runs here, not on the host" in capsys.readouterr().err
 
 
-def test_every_other_command_still_travels():
-    # The refusal is one command declaring where its answer lands, not a rule about --remote.
-    from uni.cli import stays_here
+def test_the_commands_that_stay_here_are_commands_and_the_rest_travel():
+    # HERE is a set of names consulted without parsing, because parsing runs the converters and one
+    # of them imports torch. What keeps that set in step with the parser is this test, so it asks
+    # the parser for its subcommands rather than restating them: a renamed command, or a typo in
+    # HERE, is a guard that silently stops guarding, and the failure it stops guarding against is
+    # the one drawing a figure onto the host that nothing can reach.
+    from uni.cli import HERE, build_parser, stays_here
 
-    assert stays_here(["plot", "sweeps/x", "--observable", "x"])
-    assert not stays_here(["host"])
-    assert not stays_here(["sweep", "--map", "logistic", "--grid", "3:4:2", "--start", "0.2", "--steps", "5"])
-    assert not stays_here(["observe", "trajectories/x.json"])
+    # argparse offers no public way to enumerate subcommands; `choices` on the action it made for
+    # them is the nearest thing, and a test is the right place to reach for it.
+    commands = next(action for action in build_parser()._actions if action.dest == "command").choices
+    assert HERE <= set(commands), "a name in HERE that no command answers to guards nothing"
+    assert {name for name in commands if stays_here([name])} == set(HERE)
+    assert stays_here(["plot", "sweeps/x", "--observable", "x"])  # and with its arguments, as typed

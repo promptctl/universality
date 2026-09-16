@@ -498,8 +498,9 @@ def checkout_root(cwd: Path) -> Path:
 # The commands whose answer is a file in this checkout, so there is nowhere on the host to put it.
 # Named here rather than read off the parsed command, which is what this first tried: parsing runs
 # the converters, one of which reads a direction and so imports torch, and `--remote` exists
-# precisely so this machine never pays for that. A set of names costs nothing to consult, and the
-# test that every other command still travels is what keeps it in step with the parser below.
+# precisely so this machine never pays for that. A set of names costs nothing to consult, and what
+# keeps it in step with the parser below is a test that enumerates the parser's own subcommands -
+# a name in here that no command answers to is a guard that silently stops guarding.
 HERE = frozenset({"plot"})
 
 
@@ -518,8 +519,8 @@ def main(argv: Sequence[str], env: Mapping[str, str], cwd: Path) -> int:
         # [LAW:no-silent-failure] the sync has one leg and figures/ is not on it, so this would
         # draw on the host, print a path that does not exist here, and exit 0 as though it had
         # answered. The sweep is the thing that travels; the picture is drawn where it is kept.
-        print("uni: plot writes a figure into this checkout, so it runs here, not on the host; "
-              "bring the sweep home first (see the README) and plot it without --remote", file=sys.stderr)
+        print(f"uni: {rest[0]} writes a file into this checkout, so it runs here, not on the host; "
+              "bring the sweep home first (see the README) and run it without --remote", file=sys.stderr)
         return EXIT_CONFIG
     if not remote:
         args = build_parser().parse_args(rest)
