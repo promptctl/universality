@@ -64,8 +64,40 @@ count. Rerunning the same command rewrites the same file with the same bytes. Wi
 
 The templates live in [uni/templates.toml](uni/templates.toml), each holding `{state}`
 exactly once. `identity` asks for the state back unchanged, `empty` sends the state as
-the whole prompt, and `rewrite` asks for a rewrite. The start may be empty. No knob is
-applied yet, so every loop runs at value 0.
+the whole prompt, and `rewrite` asks for a rewrite. The start may be empty.
+
+## The steering knob
+
+A knob is a number turned on the loop. The first one steers the model: it adds the
+value times a fixed direction to the residual stream leaving one decoder layer, at every
+position of every step.
+
+    uv run uni loop --template rewrite --steps 20 --start "..." --knob formality --value 2
+
+`--knob` names a direction in [uni/directions](uni/directions), or `none`, the default.
+`--value` defaults to 0, and at 0 the orbit is exactly the unsteered one. Positive values
+push the rewrites toward the direction's quality and negative values push away from it.
+At layer 12, `formality` makes the rewrites clearly more formal by 2 and casual by -2. By
+4 the rewrites drift away from the text they started from, and they keep drifting: a value
+in the millions still generates, it just generates nothing worth reading. Only a value
+large enough to stop the logits being numbers at all is refused, at the step it happens,
+rather than written down as an orbit of real text. A value with no knob to turn is refused
+before the checkpoint is read, rather than recorded as if it had steered.
+
+A direction comes from a contrast, `uni/directions/<name>.toml`. A contrast is a
+template, a layer, and pairs of replies to the same text, one toward the quality and
+one away from it. Each reply is read as the model's own answer to the template, and the
+direction is the mean over pairs of the difference in the layer's residual stream,
+averaged over the reply's tokens. Derive it once:
+
+    uv run uni direction formality
+
+This writes `uni/directions/formality.json`, which holds the vector, a copy of the
+contrast that produced it, and the checkpoint it was read from, and is committed. Every
+trajectory steered by it records the direction's name, layer, and sha256, which is the
+hash of the file itself: a direction file that has been edited by hand, or derived on a
+different checkpoint than the one pinned, is refused. Re-derive when the contrast or the
+checkpoint changes.
 
 ## Running on the experiment host
 

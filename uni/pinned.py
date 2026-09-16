@@ -8,12 +8,14 @@ from dataclasses import dataclass
 from importlib.resources import files
 from typing import Any, Literal, get_args
 
+from uni.parse import ConfigError
+
 Dtype = Literal["float32", "float16", "bfloat16"]
 
 COMMIT = re.compile(r"[0-9a-f]{40}")
 
 
-class PinnedConfigError(Exception):
+class PinnedConfigError(ConfigError):
     """pinned.toml does not pin a model. The message says which field is wrong."""
 
 
@@ -23,6 +25,11 @@ class Pinned:
     revision: str  # a full commit sha on the model's hub repo
     dtype: Dtype
     max_new_tokens: int
+
+    @property
+    def checkpoint(self) -> dict[str, str]:
+        """What fixes the weights and their arithmetic, and so fixes any direction read from them."""
+        return {"model_id": self.model_id, "revision": self.revision, "dtype": self.dtype}
 
 
 def _field(raw: dict[str, Any], path: str, kind: type) -> Any:

@@ -6,10 +6,12 @@ import tomllib
 from dataclasses import dataclass
 from importlib.resources import files
 
+from uni.parse import ConfigError
+
 SLOT = "{state}"
 
 
-class TemplateError(Exception):
+class TemplateError(ConfigError):
     """templates.toml does not hold templates. The message names the file or the template."""
 
 

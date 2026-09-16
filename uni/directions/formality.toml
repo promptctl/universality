@@ -1,0 +1,45 @@
+# The formality direction: formal rewrites minus casual rewrites of the same texts.
+# Each pair is read as the model's own reply to the template; `uni direction formality` derives formality.json from this file.
+
+template = "rewrite"
+layer = 12
+
+[[pairs]]
+text = "The meeting moved to Thursday because the room was booked."
+toward = "The meeting has been rescheduled to Thursday, as the room was previously reserved."
+away = "Heads up, the meeting's on Thursday now, the room was taken."
+
+[[pairs]]
+text = "We could not ship the update this week."
+toward = "We regret to inform you that the update could not be released this week."
+away = "Yeah, the update didn't make it out this week, sorry."
+
+[[pairs]]
+text = "Thanks for sending the report so quickly."
+toward = "Thank you for providing the report so promptly; it is much appreciated."
+away = "Thanks a ton for getting the report over so fast!"
+
+[[pairs]]
+text = "The printer on the second floor is broken again."
+toward = "Please be advised that the printer on the second floor is once again out of service."
+away = "Ugh, the printer upstairs is busted again."
+
+[[pairs]]
+text = "Can you check the numbers before Friday?"
+toward = "Would you kindly review the figures prior to Friday?"
+away = "Hey, can you look over the numbers before Friday?"
+
+[[pairs]]
+text = "The park is closed for repairs until spring."
+toward = "The park will remain closed for maintenance until the spring season."
+away = "The park's shut for fixing up till spring."
+
+[[pairs]]
+text = "I think the plan needs more time."
+toward = "In my assessment, the proposal requires additional time for development."
+away = "Honestly I think the plan needs a bit more time."
+
+[[pairs]]
+text = "The train was late, so I missed the start of the show."
+toward = "Owing to the delayed arrival of the train, I was unable to attend the beginning of the performance."
+away = "Train was late so I totally missed the start of the show."

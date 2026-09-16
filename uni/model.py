@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 from collections.abc import Iterator, Sequence
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
@@ -10,13 +11,18 @@ from dataclasses import dataclass
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from uni.parse import ConfigError
 from uni.pinned import Pinned
+
+
+class ModelError(ConfigError):
+    """The pinned model cannot run what the run asks of it. The message says what it could not do."""
 
 
 def stop_ids(eos_token_id: int | list[int] | None) -> frozenset[int]:
     """The checkpoint's stop tokens, which its generation_config may give as one id or several."""
     if eos_token_id is None:
-        raise ValueError("the checkpoint's generation_config names no eos_token_id, so generation could never stop")
+        raise ModelError("the checkpoint's generation_config names no eos_token_id, so generation could never stop")
     return frozenset([eos_token_id] if isinstance(eos_token_id, int) else eos_token_id)
 
 
@@ -71,12 +77,45 @@ class Model:
         encoded = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, return_dict=True, return_tensors="pt")
         return encoded["input_ids"].to(self.device)
 
+    def encode_reply(self, prompt: str, reply: str) -> tuple[torch.Tensor, slice]:
+        """The prompt as a user turn and `reply` as the assistant's answer, and the span of the reply's own tokens."""
+
+        def chat(content: str) -> torch.Tensor:
+            turns = [{"role": "user", "content": prompt}, {"role": "assistant", "content": content}]
+            return self.tokenizer.apply_chat_template(turns, return_dict=True, return_tensors="pt")["input_ids"].to(self.device)
+
+        ids, empty, prefix = chat(reply), chat(""), self.encode(prompt)
+        # What the template puts after an empty reply is what closes every reply, such as <|im_end|>.
+        start = prefix.shape[1]
+        closing = empty[:, start:]
+        end = ids.shape[1] - closing.shape[1]
+        if end <= start:
+            raise ModelError("the reply encodes to no tokens, so it has no residual stream to read")
+        if not (torch.equal(ids[:, :start], prefix) and torch.equal(ids[:, end:], closing)):
+            raise RuntimeError("the chat template encodes a prompt or its closing differently around this reply")
+        return ids, slice(start, end)
+
+    @torch.inference_mode()
+    def reply_residual(self, prompt: str, reply: str, layer: int) -> torch.Tensor:
+        """The residual stream leaving decoder `layer`, averaged over the reply's tokens, shape (hidden_size,).
+
+        It is read where ResidualAdd writes, so a direction built from it steers the same stream.
+        """
+        ids, span = self.encode_reply(prompt, reply)
+        captured = []
+        handle = self.layers[self._layer(layer)].register_forward_hook(lambda _m, _i, hidden: captured.append(hidden))
+        try:
+            self.model(input_ids=ids, logits_to_keep=1)
+        finally:
+            handle.remove()
+        return captured[0][0, span].mean(dim=0)
+
     @torch.inference_mode()
     def generate(self, prompt: str, additions: Sequence[ResidualAdd] = ()) -> Generation:
         step_ids = self.encode(prompt)
         room = self.context_limit - step_ids.shape[1]
         if room <= 0:
-            raise ValueError(f"prompt is {step_ids.shape[1]} tokens; the context limit of {self.context_limit} leaves no room to generate")
+            raise ModelError(f"prompt is {step_ids.shape[1]} tokens; the context limit of {self.context_limit} leaves no room to generate")
         past = None
         token_ids: list[int] = []
         logprobs: list[float] = []
@@ -88,8 +127,13 @@ class Model:
                 past = out.past_key_values
                 logp = torch.log_softmax(out.logits[0, -1].float(), dim=-1)
                 token = int(torch.argmax(logp))  # the first index among ties, so ties cannot flicker
+                logprob = float(logp[token])
+                # [LAW:no-silent-failure] argmax returns an index out of NaN logits just as readily as
+                # out of real ones, so without this a collapsed forward pass is recorded as an orbit.
+                if not math.isfinite(logprob):
+                    raise ModelError(f"step {len(token_ids)} has no finite logits, so no token can be chosen; the residual additions overflow this model's arithmetic")
                 token_ids.append(token)
-                logprobs.append(float(logp[token]))
+                logprobs.append(logprob)
                 if token in self.stop_ids:
                     break
                 step_ids = torch.tensor([[token]], device=self.device)
@@ -110,9 +154,15 @@ class Model:
                 hooks.callback(handle.remove)
             yield
 
+    # Both are reachable from a hand-written contrast or a hand-edited direction file, so they are
+    # reported rather than raised: this is the earliest place that knows the model's own shape.
+    def _layer(self, layer: int) -> int:
+        if layer not in range(len(self.layers)):
+            raise ModelError(f"layer must be in 0..{len(self.layers) - 1}, got {layer}")
+        return layer
+
     def _residual_vector(self, addition: ResidualAdd) -> torch.Tensor:
-        if addition.layer not in range(len(self.layers)):
-            raise ValueError(f"layer must be in 0..{len(self.layers) - 1}, got {addition.layer}")
+        self._layer(addition.layer)
         if addition.vector.shape != (self.hidden_size,):
-            raise ValueError(f"vector must have shape ({self.hidden_size},), got {tuple(addition.vector.shape)}")
+            raise ModelError(f"vector must have shape ({self.hidden_size},), got {tuple(addition.vector.shape)}")
         return addition.vector.to(self.device, self.dtype)

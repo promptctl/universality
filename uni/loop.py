@@ -9,24 +9,26 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from uni.parse import field
+
 
 class Map(Protocol):
     """One step of an iterated map. States are text whatever the map, so every brick reads every orbit."""
 
     @property
     def spec(self) -> Mapping[str, Any]:
-        """Everything besides the value and the start that fixes the orbit, as JSON data."""
+        """Everything besides the start that fixes the orbit, as JSON data."""
         ...
 
-    def step(self, state: str, value: float) -> str: ...
+    def step(self, state: str) -> str: ...
 
 
-def orbit(map: Map, value: float, start: str) -> Iterator[str]:
+def orbit(map: Map, start: str) -> Iterator[str]:
     """The states after each step, without end; the caller takes as many as it wants."""
     # [LAW:composability] the runner knows only the Map protocol, never which map it iterates.
     state = start
     while True:
-        state = map.step(state, value)
+        state = map.step(state)
         yield state
 
 
@@ -37,7 +39,7 @@ class TrajectoryError(Exception):
 @dataclass(frozen=True)
 class Trajectory:
     map: Mapping[str, Any]
-    value: float
+    value: float  # the knob's setting, which the map bakes in; recorded so a sweep reads it without decoding the knob
     start: str
     states: tuple[str, ...]  # the state after each step, so step n is states[n - 1]
 
@@ -64,11 +66,7 @@ def write_trajectory(trajectory: Trajectory, dir: Path) -> Path:
 
 
 def _field(raw: dict[str, Any], key: str, kind: type) -> Any:
-    if key not in raw:
-        raise TrajectoryError(f"{key} is missing")
-    if type(raw[key]) is not kind:
-        raise TrajectoryError(f"{key} must be a {kind.__name__}, got {raw[key]!r}")
-    return raw[key]
+    return field(raw, key, kind, TrajectoryError)
 
 
 def read_trajectory(path: Path) -> Trajectory:
