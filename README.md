@@ -190,7 +190,8 @@ Two failures those checks cannot cover, both because a model's states are its ow
 state can grow until the rendered state leaves no room to generate, and a reply can fail to end
 within the pinned `generation.max_new_tokens` — which a map refuses, because a reply the budget cut
 off is not the model's reply. Whether step 300 does either is knowable only by running to step
-300. So a cell the map refuses **partway through its orbit** does not stop the sweep. The run says so on that cell's line, carries on to the cells after it — which are
+300. So a cell the map refuses **partway through its orbit** does not stop the sweep. The run says
+so on that cell's line, carries on to the cells after it — which are
 separate runs of a separate map, with nothing wrong with them — names every refused cell again at
 the end, and exits non-zero. Nothing is written for a cell with no orbit: a sweep directory holds
 trajectories and nothing else, so the cell simply stays pending and the next run tries it again,
