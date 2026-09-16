@@ -1,5 +1,8 @@
+from pathlib import Path
+
 import pytest
 
+from uni.cli import EXIT_CONFIG, main
 from uni.pinned import PinnedConfigError, load_pinned, parse_pinned
 
 VALID = """
@@ -38,3 +41,13 @@ def test_valid_config_becomes_a_pinned_value():
 def test_config_that_does_not_pin_is_refused(old, new, field):
     with pytest.raises(PinnedConfigError, match=field):
         parse_pinned(VALID.replace(old, new))
+
+
+def test_the_command_reports_a_bad_pin_rather_than_a_traceback(capsys, monkeypatch):
+    def refuse():
+        raise PinnedConfigError("model.dtype must be one of float32, float16, bfloat16")
+
+    # Every command reads the pin inside itself, long after argparse has had its say.
+    monkeypatch.setattr("uni.pinned.load_pinned", refuse)
+    assert main(["gen", "hi"], {}, Path.cwd()) == EXIT_CONFIG
+    assert "uni: model.dtype must be one of" in capsys.readouterr().err

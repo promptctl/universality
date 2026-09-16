@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 from collections.abc import Iterator, Sequence
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
@@ -10,13 +11,18 @@ from dataclasses import dataclass
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from uni.parse import ConfigError
 from uni.pinned import Pinned
+
+
+class ModelError(ConfigError):
+    """The pinned model cannot run what the run asks of it. The message says what it could not do."""
 
 
 def stop_ids(eos_token_id: int | list[int] | None) -> frozenset[int]:
     """The checkpoint's stop tokens, which its generation_config may give as one id or several."""
     if eos_token_id is None:
-        raise ValueError("the checkpoint's generation_config names no eos_token_id, so generation could never stop")
+        raise ModelError("the checkpoint's generation_config names no eos_token_id, so generation could never stop")
     return frozenset([eos_token_id] if isinstance(eos_token_id, int) else eos_token_id)
 
 
@@ -84,7 +90,7 @@ class Model:
         closing = empty[:, start:]
         end = ids.shape[1] - closing.shape[1]
         if end <= start:
-            raise ValueError("the reply encodes to no tokens, so it has no residual stream to read")
+            raise ModelError("the reply encodes to no tokens, so it has no residual stream to read")
         if not (torch.equal(ids[:, :start], prefix) and torch.equal(ids[:, end:], closing)):
             raise RuntimeError("the chat template encodes a prompt or its closing differently around this reply")
         return ids, slice(start, end)
@@ -109,7 +115,7 @@ class Model:
         step_ids = self.encode(prompt)
         room = self.context_limit - step_ids.shape[1]
         if room <= 0:
-            raise ValueError(f"prompt is {step_ids.shape[1]} tokens; the context limit of {self.context_limit} leaves no room to generate")
+            raise ModelError(f"prompt is {step_ids.shape[1]} tokens; the context limit of {self.context_limit} leaves no room to generate")
         past = None
         token_ids: list[int] = []
         logprobs: list[float] = []
@@ -121,8 +127,13 @@ class Model:
                 past = out.past_key_values
                 logp = torch.log_softmax(out.logits[0, -1].float(), dim=-1)
                 token = int(torch.argmax(logp))  # the first index among ties, so ties cannot flicker
+                logprob = float(logp[token])
+                # [LAW:no-silent-failure] argmax returns an index out of NaN logits just as readily as
+                # out of real ones, so without this a collapsed forward pass is recorded as an orbit.
+                if not math.isfinite(logprob):
+                    raise ModelError(f"step {len(token_ids)} has no finite logits, so no token can be chosen; the residual additions overflow this model's arithmetic")
                 token_ids.append(token)
-                logprobs.append(float(logp[token]))
+                logprobs.append(logprob)
                 if token in self.stop_ids:
                     break
                 step_ids = torch.tensor([[token]], device=self.device)
@@ -152,8 +163,4 @@ class Model:
         self._layer(addition.layer)
         if addition.vector.shape != (self.hidden_size,):
             raise ValueError(f"vector must have shape ({self.hidden_size},), got {tuple(addition.vector.shape)}")
-        vector = addition.vector.to(self.device, self.dtype)
-        # [LAW:no-silent-failure] an overflowed addition makes every logit NaN, and argmax would still pick a token.
-        if not vector.isfinite().all():
-            raise ValueError(f"vector does not fit in {self.pinned.dtype}; it holds values as large as {float(addition.vector.abs().max()):.3g}")
-        return vector
+        return addition.vector.to(self.device, self.dtype)

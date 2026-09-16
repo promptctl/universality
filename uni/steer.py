@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 import torch
 
+from uni.maps import Turned
 from uni.model import ResidualAdd
 from uni.parse import ConfigError, field
 from uni.pinned import Pinned
@@ -158,14 +159,12 @@ class Steer:
 
     direction: Direction
 
-    @property
-    def spec(self) -> dict[str, Any]:
-        return {
+    def turn(self, value: float) -> Turned:
+        contrast = self.direction.contrast
+        spec = {
             "kind": "steer",
-            "direction": self.direction.contrast.name,
-            "layer": self.direction.contrast.layer,
+            "direction": contrast.name,
+            "layer": contrast.layer,
             "sha256": self.direction.sha256,
         }
-
-    def additions(self, value: float) -> tuple[ResidualAdd, ...]:
-        return (ResidualAdd(self.direction.contrast.layer, value * torch.tensor(self.direction.vector)),)
+        return Turned(spec, (ResidualAdd(contrast.layer, value * torch.tensor(self.direction.vector)),))

@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from uni.model import ResidualAdd, stop_ids
+from uni.model import ModelError, ResidualAdd, stop_ids
 
 PROMPT = "Reply with one word: hello."
 
@@ -14,7 +14,7 @@ def test_stop_ids_accept_one_id_or_several(eos, ids):
 
 
 def test_stop_ids_refuse_a_checkpoint_that_never_stops():
-    with pytest.raises(ValueError, match="could never stop"):
+    with pytest.raises(ModelError, match="could never stop"):
         stop_ids(None)
 
 
@@ -28,7 +28,7 @@ def test_model_runs_on_metal(model):
 
 
 def test_prompt_that_fills_the_context_is_refused_before_generating(model):
-    with pytest.raises(ValueError, match="leaves no room to generate"):
+    with pytest.raises(ModelError, match="leaves no room to generate"):
         model.generate("hello" + " hello" * model.context_limit)
 
 

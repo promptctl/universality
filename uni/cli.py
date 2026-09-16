@@ -155,11 +155,14 @@ def run_loop(args: argparse.Namespace) -> int:
     from uni.model import Model
     from uni.pinned import load_pinned
 
-    map = ModelMap(Model(load_pinned()), args.template, args.knob)
+    # [LAW:parse-dont-validate] the knob takes its value here, before a checkpoint is downloaded:
+    # past this line a map exists, and a map exists only at a value its knob accepted.
+    knob = args.knob.turn(args.value)
+    map = ModelMap(Model(load_pinned()), args.template, knob)
     print(f"{'step':>4}  state")
     print(f"{0:>4}  {args.start!r}")
     states = []
-    for step, state in enumerate(islice(orbit(map, args.value, args.start), args.steps), start=1):
+    for step, state in enumerate(islice(orbit(map, args.start), args.steps), start=1):
         print(f"{step:>4}  {state!r}", flush=True)  # repr, so each state is one line and an empty one shows
         states.append(state)
     path = write_trajectory(Trajectory(map.spec, args.value, args.start, tuple(states)), TRAJECTORIES)
@@ -212,7 +215,7 @@ def main(argv: Sequence[str], env: Mapping[str, str], cwd: Path) -> int:
         args = build_parser().parse_args(rest)
         try:
             return args.run(args)
-        except ValueError as error:  # every refused input, from the knob's value to an oversized prompt
+        except ConfigError as error:  # [LAW:single-enforcer] the one type the CLI reports; a bug here is a traceback
             print(f"uni: {error}", file=sys.stderr)
             return EXIT_CONFIG
     try:

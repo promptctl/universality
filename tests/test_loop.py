@@ -10,14 +10,16 @@ from uni.loop import Trajectory, TrajectoryError, orbit, read_trajectory, write_
 
 @dataclass(frozen=True)
 class Append:
+    value: float = 1.5
     spec: dict = field(default_factory=lambda: {"kind": "append"})
 
-    def step(self, state: str, value: float) -> str:
-        return state + str(value)
+    def step(self, state: str) -> str:
+        return state + str(self.value)
 
 
 def trajectory(start="a", steps=3, value=1.5):
-    return Trajectory(Append().spec, value, start, tuple(islice(orbit(Append(), value, start), steps)))
+    map = Append(value)
+    return Trajectory(map.spec, value, start, tuple(islice(orbit(map, start), steps)))
 
 
 def test_orbit_feeds_each_state_back_with_the_value():

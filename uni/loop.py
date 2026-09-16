@@ -17,18 +17,18 @@ class Map(Protocol):
 
     @property
     def spec(self) -> Mapping[str, Any]:
-        """Everything besides the value and the start that fixes the orbit, as JSON data."""
+        """Everything besides the start that fixes the orbit, as JSON data."""
         ...
 
-    def step(self, state: str, value: float) -> str: ...
+    def step(self, state: str) -> str: ...
 
 
-def orbit(map: Map, value: float, start: str) -> Iterator[str]:
+def orbit(map: Map, start: str) -> Iterator[str]:
     """The states after each step, without end; the caller takes as many as it wants."""
     # [LAW:composability] the runner knows only the Map protocol, never which map it iterates.
     state = start
     while True:
-        state = map.step(state, value)
+        state = map.step(state)
         yield state
 
 
@@ -39,7 +39,7 @@ class TrajectoryError(Exception):
 @dataclass(frozen=True)
 class Trajectory:
     map: Mapping[str, Any]
-    value: float
+    value: float  # the knob's setting, which the map bakes in; recorded so a sweep reads it without decoding the knob
     start: str
     states: tuple[str, ...]  # the state after each step, so step n is states[n - 1]
 

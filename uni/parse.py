@@ -1,4 +1,4 @@
-"""What every file parser here shares: one field check, and one error for a file that does not describe the run."""
+"""What every parser here shares: one field check, and the one error the CLI reports rather than raises."""
 
 from __future__ import annotations
 
@@ -7,7 +7,11 @@ from typing import Any
 
 
 class ConfigError(Exception):
-    """A file that should describe the run does not. The message names the file and the field."""
+    """The run as described cannot be run, whether it was described by a file or by a flag.
+
+    This is the CLI's error contract: `uni` prints the message and exits EX_CONFIG. Anything
+    else reaching it is a bug here, and a bug reaches the user as a traceback.
+    """
 
 
 def field(raw: Mapping[str, Any], key: str, kind: type, error: type[Exception]) -> Any:

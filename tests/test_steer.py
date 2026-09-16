@@ -11,7 +11,8 @@ import torch
 from uni import steer
 from uni.cli import EXIT_CONFIG, build_parser, main
 from uni.loop import orbit
-from uni.maps import ModelMap, NoKnob
+from uni.maps import KnobError, ModelMap, NoKnob
+from uni.model import ModelError
 from uni.pinned import load_pinned
 from uni.steer import Steer, SteerError, derive, load_contrast, read_direction
 from uni.template import load_templates
@@ -72,7 +73,7 @@ def test_a_direction_from_another_model_is_refused():
 
 
 def test_a_reply_that_encodes_to_nothing_is_refused(model):
-    with pytest.raises(ValueError, match="encodes to no tokens"):
+    with pytest.raises(ModelError, match="encodes to no tokens"):
         model.reply_residual("hi", "", 12)
 
 
@@ -91,7 +92,8 @@ def test_a_value_that_is_not_finite_is_refused(capsys, value):
 
 def test_the_trajectory_names_the_exact_direction_file(formality):
     file = (steer.DIRECTIONS / "formality.json").read_bytes()
-    assert Steer(formality).spec == {"kind": "steer", "direction": "formality", "layer": 12, "sha256": hashlib.sha256(file).hexdigest()}
+    spec = Steer(formality).turn(2.0).spec
+    assert spec == {"kind": "steer", "direction": "formality", "layer": 12, "sha256": hashlib.sha256(file).hexdigest()}
 
 
 def test_the_direction_is_what_its_pairs_produce(model, formality):
@@ -101,8 +103,8 @@ def test_the_direction_is_what_its_pairs_produce(model, formality):
 
 
 def rewrites(model, knob, value, steps=1):
-    map = ModelMap(model, load_templates()["rewrite"], knob)
-    return tuple(islice(orbit(map, value, TEXT), steps))
+    map = ModelMap(model, load_templates()["rewrite"], knob.turn(value))
+    return tuple(islice(orbit(map, TEXT), steps))
 
 
 def test_zero_reproduces_the_unsteered_orbit(model, formality):
@@ -122,24 +124,28 @@ def test_turning_the_value_moves_the_rewrite_along_the_direction(model, formalit
     assert scores == sorted(scores), texts
 
 
-def test_a_huge_value_runs(model, formality):
-    assert len(rewrites(model, Steer(formality), 1e6)) == 1
+# Measured, not assumed: up here rsqrt of an overflowed variance zeroes the layer, so the
+# logits stay finite and the text stays real text. Only an infinite addition collapses them.
+@pytest.mark.parametrize("value", [1e6, 1e20, 1e38])
+def test_a_huge_value_still_generates(model, formality, value):
+    assert len(rewrites(model, Steer(formality), value)) == 1
 
 
-def test_a_value_that_overflows_the_dtype_is_refused(model, formality):
-    with pytest.raises(ValueError, match="does not fit in"):
+def test_a_value_that_collapses_the_forward_pass_is_refused(model, formality):
+    with pytest.raises(ModelError, match="no finite logits"):
         rewrites(model, Steer(formality), 1e300)
 
 
 def test_a_value_with_no_knob_to_turn_is_refused():
-    with pytest.raises(ValueError, match="no knob to turn"):
-        NoKnob().additions(2.0)
+    with pytest.raises(KnobError, match="no knob to turn"):
+        NoKnob().turn(2.0)
 
 
-def test_the_command_reports_a_refused_value_rather_than_a_traceback(capsys):
+def test_a_value_with_no_knob_is_refused_before_the_checkpoint_is_read(capsys, monkeypatch):
+    monkeypatch.setattr("uni.pinned.load_pinned", lambda: pytest.fail("the checkpoint was read before the value was refused"))
     argv = ["loop", "--template", "rewrite", "--start", "x", "--steps", "1", "--value", "2"]
     assert main(argv, {}, Path.cwd()) == EXIT_CONFIG
-    assert "no knob to turn" in capsys.readouterr().err
+    assert "uni: there is no knob to turn" in capsys.readouterr().err
 
 
 def test_an_unknown_direction_is_refused_with_the_known_ones(capsys):

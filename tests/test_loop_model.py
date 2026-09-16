@@ -19,8 +19,8 @@ def templates():
 
 
 def trajectory(model, template, start, steps):
-    map = ModelMap(model, template, NoKnob())
-    return Trajectory(map.spec, 0.0, start, tuple(islice(orbit(map, 0.0, start), steps)))
+    map = ModelMap(model, template, NoKnob().turn(0.0))
+    return Trajectory(map.spec, 0.0, start, tuple(islice(orbit(map, start), steps)))
 
 
 def test_identity_template_repeats_the_start(model, templates):

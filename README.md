@@ -78,9 +78,11 @@ position of every step.
 `--value` defaults to 0, and at 0 the orbit is exactly the unsteered one. Positive values
 push the rewrites toward the direction's quality and negative values push away from it.
 At layer 12, `formality` makes the rewrites clearly more formal by 2 and casual by -2. By
-4 the rewrites drift away from the text they started from. A value too large to fit the
-model's dtype is refused rather than run into a garbage orbit, and a value with no knob to
-turn is refused rather than recorded as if it had steered.
+4 the rewrites drift away from the text they started from, and they keep drifting: a value
+in the millions still generates, it just generates nothing worth reading. Only a value
+large enough to stop the logits being numbers at all is refused, at the step it happens,
+rather than written down as an orbit of real text. A value with no knob to turn is refused
+before the checkpoint is read, rather than recorded as if it had steered.
 
 A direction comes from a contrast, `uni/directions/<name>.toml`. A contrast is a
 template, a layer, and pairs of replies to the same text, one toward the quality and
