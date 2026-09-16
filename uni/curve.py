@@ -41,7 +41,10 @@ def write_curves(described: Mapping[str, Any], values: Sequence[float], curves: 
     device, and the same command on another reads a curve that differs in its last bits. Named by
     its inputs, that curve would overwrite the one a committed result was fitted to. [LAW:one-source-of-truth]
     """
-    body = {"described": dict(described), "squared_length": squared_length, "values": list(values), "layers": {str(layer): list(readings) for layer, readings in curves.items()}}
+    # Rising, whatever order the grid ran in: a curve is the readings as a function of the push, and
+    # `read_curve` takes the ends of that order as the range a fit to it speaks for.
+    order = sorted(range(len(values)), key=values.__getitem__)
+    body = {"described": dict(described), "squared_length": squared_length, "values": [values[i] for i in order], "layers": {str(layer): [readings[i] for i in order] for layer, readings in curves.items()}}
     data = json.dumps(body, sort_keys=True).encode()
     return write_whole(directory / f"{hashlib.sha256(data).hexdigest()[:16]}.json", data)
 
@@ -71,6 +74,8 @@ def read_curve(path: Path, layer: int) -> Curve:
             raise CurveError(f"every {name} in {path} must be a finite number")
     # Rising, because a fit reads the ends as the range it says anything about, and a push it was
     # not fitted across is one it knows nothing of.
+    if not values:
+        raise CurveError(f"{path} holds no pushes, and a curve is read at one at least")
     if not all(before < after for before, after in zip(values, values[1:])):
         raise CurveError(f"the pushes in {path} must rise")
     if not squared_length > 0:

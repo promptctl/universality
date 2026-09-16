@@ -145,6 +145,7 @@ def curve_file(tmp_path, **changes):
     [
         ({"layers": {"23": [0.0, 1.0, 0.0]}}, "holds the curve at layer 23, not at 7"),
         ({"layers": {"7": [0.0, 1.0]}}, "one reading at layer 7 for each of its 3 pushes"),
+        ({"values": [], "layers": {"7": []}}, "holds no pushes"),
         ({"values": [0.0, 1.0, 0.5]}, "the pushes in .* must rise"),
         ({"values": [0.0, 0.5, 1]}, "every push in .* must be a finite number"),
         ({"layers": {"7": [0.0, None, 0.0]}}, "every reading in .* must be a finite number"),
@@ -155,6 +156,12 @@ def curve_file(tmp_path, **changes):
 def test_a_curve_file_that_is_not_a_curve_is_refused(tmp_path, changes, message):
     with pytest.raises(CurveError, match=message):
         read_curve(curve_file(tmp_path, **changes), 7)
+
+
+def test_a_curve_read_on_a_falling_grid_is_written_rising(tmp_path):
+    # `uni response --grid 1:-1:3` reads the pushes in that order; the file holds them as a curve.
+    path = write_curves({}, (1.0, 0.0, -1.0), {7: (0.25, 0.5, 0.75), 9: (1.0, 2.0, 3.0)}, 2.5, tmp_path)
+    assert (read_curve(path, 7).values, read_curve(path, 7).readings, read_curve(path, 9).readings) == ((-1.0, 0.0, 1.0), (0.75, 0.5, 0.25), (3.0, 2.0, 1.0))
 
 
 def test_a_curve_file_that_is_not_there_or_not_json_is_refused(tmp_path):
