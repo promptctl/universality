@@ -21,3 +21,10 @@ def field(raw: Mapping[str, Any], key: str, kind: type, error: type[Exception]) 
     if type(raw[key]) is not kind:
         raise error(f"{key} must be a {kind.__name__}, got {raw[key]!r}")
     return raw[key]
+
+
+def nullable(raw: Mapping[str, Any], key: str, kind: type, error: type[Exception]) -> Any:
+    """The field, which must be there and may be null: absent is a file that lost it, null is a recorded nothing."""
+    if key in raw and raw[key] is None:
+        return None
+    return field(raw, key, kind, error)

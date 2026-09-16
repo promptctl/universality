@@ -53,6 +53,12 @@ def test_different_inputs_name_different_files(change):
     assert trajectory(**change).name != trajectory().name
 
 
+def test_a_path_that_is_not_there_is_refused_rather_than_raised(tmp_path):
+    # The path is typed by hand on the command line, so a typo is a run that cannot run, not a bug here.
+    with pytest.raises(TrajectoryError, match="cannot be read: No such file"):
+        read_trajectory(tmp_path / "nope.json")
+
+
 @pytest.mark.parametrize(
     "text, message",
     [

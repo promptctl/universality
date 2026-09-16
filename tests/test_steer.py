@@ -77,6 +77,19 @@ def test_a_reply_that_encodes_to_nothing_is_refused(model):
         model.reply_residual("hi", "", 12)
 
 
+def test_a_prompt_and_reply_that_cannot_be_held_together_are_refused(model):
+    # A reply the model could write against a nearly full context cannot then be scored beside it.
+    with pytest.raises(ModelError, match="context limit"):
+        model.encode_reply("hi " * model.context_limit, "hello")
+
+
+def test_a_reply_scored_under_a_collapsing_value_is_refused(model, formality):
+    # The value is a field of the trajectory file, so the observables meet one the run never did.
+    additions = Steer(formality).turn(1e300).additions
+    with pytest.raises(ModelError, match="no finite log-probability"):
+        model.reply_logprob(formality.contrast.template.render(TEXT), "Something.", additions)
+
+
 def test_the_reply_span_is_the_reply_alone(model):
     ids, span = model.encode_reply("hi", "Hello there.")
     assert model.tokenizer.decode(ids[0, span]) == "Hello there."
@@ -94,6 +107,13 @@ def test_the_trajectory_names_the_exact_direction_file(formality):
     file = (steer.DIRECTIONS / "formality.json").read_bytes()
     spec = Steer(formality).turn(2.0).spec
     assert spec == {"kind": "steer", "direction": "formality", "layer": 12, "sha256": hashlib.sha256(file).hexdigest()}
+
+
+def test_the_projection_is_taken_at_the_precision_the_vector_is_kept_at(formality):
+    # A checkpoint pinned at float16 would otherwise round the vector before the dot product,
+    # and the reading is printed to six decimals the rounding would own.
+    coarse = dataclasses.replace(formality, vector=(1.0001,) * 8)
+    assert coarse.project(torch.ones(8, dtype=torch.float16)) == pytest.approx(8.0008, rel=1e-6)
 
 
 def test_the_direction_is_what_its_pairs_produce(model, formality):

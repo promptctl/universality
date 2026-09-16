@@ -99,6 +99,52 @@ hash of the file itself: a direction file that has been edited by hand, or deriv
 different checkpoint than the one pinned, is refused. Re-derive when the contrast or the
 checkpoint changes.
 
+## Observables and the period
+
+A trajectory is read back from its file rather than re-run, so an observable thought of today
+can be asked of an orbit recorded months ago:
+
+    uv run uni observe trajectories/<name>.json
+
+It prints the period first, which is read off the states alone and needs no model, and then one
+row per step: a number for the state, then each observable. The state numbers count distinct
+states in the order they first appeared, so a period-2 orbit reads `1 2 1 2` straight down the
+column. Step 0 is the start, which was given rather than stepped into, so its row carries a
+number and no readings.
+
+The observables are the character length of the state, the mean log-probability the model gives
+the state it wrote (mean, not total, so it is not length under another name), and, for a run that
+was steered, how far the state sits along the direction that steered it. The log-probability is
+read with the knob at the setting the run recorded: the same model turned elsewhere is another
+model, and scores the state differently. The projection is read with the knob off, because it is
+read at the layer the knob writes to, and reading through the knob would add the same vector at
+every step — a constant that says nothing about the state. An orbit written on a checkpoint other
+than the one pinned now is refused, as is a direction that has changed since it steered the run:
+every reading is in the units of the weights it was taken under.
+
+The period is exact rather than estimated. The orbit of a deterministic map is exact about this: if a state comes back,
+the state after it is the same state as last time, and so is every state after that, forever.
+So one repeat fixes both numbers at once, and no window width or count of confirming cycles
+enters into it. That the model's map is deterministic is what `uni determinism` establishes.
+
+There are three things the detector can say, and only one of them carries a number:
+
+- `period P, entered at step N` — the orbit came back and kept coming back for the rest of
+  the data. Step 0 is the start, as `uni loop` prints it, so `N` also says how long the
+  transient was.
+- `no period: N steps examined and no state repeated, so any period is at least N` — nothing
+  came back. At least, not longer: showing a period of P takes P + 1 states, so a window of N
+  that shows no repeat leaves a period of exactly N standing. The detector will not guess which.
+- `the state at step N came back P steps later, but step M is not the state P steps before it`
+  — the orbit came back and then left the cycle, naming the step that broke it. That cannot
+  happen to a map that is a function of its state, so it is reported as its own answer rather
+  than filed as "no period", and it means `uni determinism` should be run before anything is
+  read into the orbit.
+
+`--burn-in N` passes over the first N steps before looking, for when an early transient is
+already known and not wanted. It is rarely needed: the detector reports where the cycle began,
+which is the same fact measured rather than assumed.
+
 ## Running on the experiment host
 
 Every `uni` command accepts `--remote`. With it, this working tree, uncommitted edits

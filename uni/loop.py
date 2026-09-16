@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
-from uni.parse import field
+from uni.parse import ConfigError, field
 
 
 class Map(Protocol):
@@ -32,7 +32,7 @@ def orbit(map: Map, start: str) -> Iterator[str]:
         yield state
 
 
-class TrajectoryError(Exception):
+class TrajectoryError(ConfigError):
     """A file does not hold a trajectory. The message says which field is wrong."""
 
 
@@ -73,6 +73,8 @@ def read_trajectory(path: Path) -> Trajectory:
     # [LAW:parse-dont-validate] a file becomes a Trajectory here or not at all.
     try:
         raw = json.loads(path.read_bytes())
+    except OSError as error:  # the path is one the user typed, so a mistyped one is theirs to fix, not a bug here
+        raise TrajectoryError(f"{path} cannot be read: {error.strerror}") from error
     except json.JSONDecodeError as error:  # a run killed mid-write leaves exactly this
         raise TrajectoryError(f"{path} is not JSON: {error}") from error
     if type(raw) is not dict:
