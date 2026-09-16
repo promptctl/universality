@@ -312,11 +312,17 @@ def run_sweep(args: argparse.Namespace) -> int:
     # exploratory query would leave an empty sweep nothing can tell from an abandoned one.
     if args.status:
         return 0
-    # Every start, like every value, is offered to the map before anything is written: a start it
-    # cannot step is a sweep that dies partway and dies in the same place on every resume. Below
-    # the return above rather than beside the values, because a model family answers this with the
-    # checkpoint, and `--status` runs no cell and should load nothing.
-    family.holds(args.start)
+    # Every start with work left, like every value, is offered to the map before anything is
+    # written: a start it cannot step is a sweep that dies partway and dies in the same place on
+    # every resume. Below the return above rather than beside the values, because a model family
+    # answers this with the checkpoint, and `--status` runs no cell and should load nothing.
+    #
+    # [LAW:dataflow-not-control-flow] the starts of the cells about to run, not the ones the
+    # command line named, so a finished sweep asks about none and a family with nothing to answer
+    # loads nothing: rerunning a finished model sweep to see that it is finished would otherwise
+    # read half a billion parameters to print a number it already has - and, off Metal, would
+    # raise where it should have answered.
+    family.holds(tuple(dict.fromkeys(cell.start for cell in left)))  # each start once, in cell order
     write_sweep(sweep, SWEEPS)
     for done, cell in enumerate(left, start=1):
         map = family.at(cell.value)

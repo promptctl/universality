@@ -393,3 +393,33 @@ def test_one_value_written_two_ways_is_refused_as_the_one_cell_it_is():
     # spelling-keyed distinctness check would let through if the spellings were not settled first.
     with pytest.raises(SweepError, match="values names 3.0 twice"):
         Sweep(LOGISTIC, (3, 3.0), ("0.5",), 4)
+
+
+def test_a_sweep_with_nothing_left_asks_the_map_to_hold_no_start(tmp_path, monkeypatch):
+    # `holds` is the one question a model family answers with the checkpoint, so a rerun with no
+    # cell to run must not ask it. Rerunning the finished command is how this project sees that a
+    # sweep is done, and reading half a billion parameters to reprint a number already in hand is
+    # the wrong price for that - off Metal it is not a slow answer but a raise where the answer
+    # should have been.
+    asked = []
+
+    class Watchful:
+        """A family that records what it was asked to hold, the way a model family loads for it."""
+
+        @property
+        def spec(self):
+            return dict(LOGISTIC)
+
+        def holds(self, states):
+            asked.append(tuple(states))
+
+        def at(self, value):
+            return Logistic(value)
+
+    monkeypatch.setattr("uni.cli.SWEEPS", tmp_path)
+    monkeypatch.setitem(main.__globals__["MAPS"], "watchful", Kind(lambda args, values: Watchful(), logistic_value))
+    argv = ["sweep", "--map", "watchful", "--grid", "3.2:3.5:4", "--start", "0.5", "--steps", "6"]
+    assert command(argv) == 0
+    assert asked == [("0.5",)]
+    assert command(argv) == 0
+    assert asked == [("0.5",), ()]  # nothing left, so nothing asked
