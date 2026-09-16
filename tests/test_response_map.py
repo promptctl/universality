@@ -1,5 +1,6 @@
 """The response map: the model's answer to a push, fed back as the next push, times a gain."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -91,7 +92,8 @@ def test_a_start_spelled_to_other_decimals_than_the_run_writes_is_refused(capsys
     assert "written to 6 decimals: write -8.500000, not '-8.5000'" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("decimals", [0, -1, 4.0, "4", None])
-def test_a_recorded_decimals_that_spells_no_push_is_refused(decimals):
-    with pytest.raises(MapError, match="decimals are a positive whole number"):
-        NUMBERS["response"]({"decimals": decimals})
+@pytest.mark.parametrize("spec, recorded", [({"decimals": 0}, "0"), ({"decimals": -1}, "-1"), ({"decimals": 4.0}, "4.0"), ({"decimals": "4"}, "'4'"), ({"decimals": None}, "None"), ({}, "none")])
+def test_a_recorded_decimals_that_spells_no_push_is_refused(spec, recorded):
+    # A file is read as well as a family, and a file can be missing the field outright.
+    with pytest.raises(MapError, match=f"decimals are a positive whole number, and this one records {re.escape(recorded)}$"):
+        NUMBERS["response"](spec)

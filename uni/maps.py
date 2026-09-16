@@ -413,11 +413,12 @@ class Numbers:
 
 def response_numbers(spec: Mapping[str, Any]) -> Numbers:
     """A response map's spelling of its pushes, to the decimals its spec records."""
-    decimals = spec["decimals"]
+    decimals = spec.get("decimals")
     # [LAW:parse-dont-validate] read off a file as often as off a family, and a decimals that is
-    # not a positive whole number spells no push at all.
+    # missing, or not a positive whole number, spells no push at all.
     if type(decimals) is not int or decimals < 1:
-        raise MapError(f"a response map's decimals are a positive whole number, got {decimals!r}")
+        recorded = repr(decimals) if "decimals" in spec else "none"
+        raise MapError(f"a response map's decimals are a positive whole number, and this one records {recorded}")
     return Numbers(partial(response_state, decimals=decimals), partial(response_text, decimals=decimals))
 
 
