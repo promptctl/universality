@@ -7,7 +7,7 @@ from itertools import islice
 import pytest
 
 from uni.loop import Trajectory, orbit, read_trajectory
-from uni.maps import ModelFamily, ModelMap, NoKnob, Turned
+from uni.maps import MapError, ModelFamily, ModelMap, NoKnob, Turned, model_spec
 from uni.model import ModelError, ResidualAdd
 from uni.template import load_templates
 
@@ -36,6 +36,24 @@ def test_rewrite_twice_encodes_the_same_bytes(model, templates):
 
 def test_empty_template_and_empty_start_make_a_trajectory(model, templates):
     assert len(trajectory(model, templates["empty"], "", 2).states) == 2
+
+
+def test_a_reply_the_budget_cut_off_is_not_a_state(model, templates):
+    # universality-sweep-zjh: a steered sweep's wings filled the token budget every step, and those
+    # cuts were recorded as the model's states. Four tokens of room makes the cut certain.
+    from uni.determinism import context_limit_prompt
+
+    map = ModelMap(model, templates["empty"], NoKnob().turn(0.0))
+    with pytest.raises(MapError, match="did not end within 4 tokens"):
+        map.step(context_limit_prompt(model, 4))
+
+
+def test_an_orbit_recorded_while_cuts_were_kept_is_not_named_as_one_of_this_map(model, templates):
+    # Sweeps resume by name, so an old orbit holding the budget's cuts as states would otherwise
+    # count as a finished cell of a map that refuses them.
+    spec = model_spec(model.pinned, templates["rewrite"], None)
+    kept = {key: value for key, value in spec.items() if key != "truncated"}
+    assert Trajectory(kept, 0.0, "hi", ("a",)).name != Trajectory(spec, 0.0, "hi", ("a",)).name
 
 
 def test_the_trajectory_records_the_template_and_pinned_config(model, templates):

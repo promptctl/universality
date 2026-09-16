@@ -50,6 +50,7 @@ class Generation:
     token_ids: tuple[int, ...]
     tokens: tuple[str, ...]  # each id decoded alone, for display
     logprobs: tuple[float, ...]  # log-probability of each generated token when it was chosen
+    stopped: bool  # the model ended the reply with a stop token, rather than the budget ending it
 
     @property
     def sha256(self) -> str:
@@ -181,6 +182,9 @@ class Model:
             token_ids=tuple(token_ids),
             tokens=tuple(self.tokenizer.decode([token]) for token in token_ids),
             logprobs=tuple(logprobs),
+            # Decided by the token that ended the loop, which is never absent: the budget is at
+            # least one token, because the pin is positive and `room` refuses none.
+            stopped=token_ids[-1] in self.stop_ids,
         )
 
     @contextmanager

@@ -138,7 +138,9 @@ def test_turning_the_value_moves_the_rewrite_along_the_direction(model, formalit
     def along(text):
         return float(model.reply_residual(contrast.template.render(TEXT), text, contrast.layer) @ direction)
 
-    texts = [rewrites(model, Steer(formality), value)[0] for value in (-2.0, 0.0, 2.0)]
+    # Inside the range where a rewrite of TEXT ends by itself: at 2.0 it runs to the token budget,
+    # which the map refuses rather than records. [universality-sweep-zjh]
+    texts = [rewrites(model, Steer(formality), value)[0] for value in (-1.5, 0.0, 1.5)]
     assert len(set(texts)) == 3
     scores = [along(text) for text in texts]
     assert scores == sorted(scores), texts
@@ -146,9 +148,12 @@ def test_turning_the_value_moves_the_rewrite_along_the_direction(model, formalit
 
 # Measured, not assumed: up here rsqrt of an overflowed variance zeroes the layer, so the
 # logits stay finite and the text stays real text. Only an infinite addition collapses them.
+# Asked of the model and not of a map, because what is claimed is that the forward pass survives:
+# the reply it writes up here never ends, and a map refuses that as a state.
 @pytest.mark.parametrize("value", [1e6, 1e20, 1e38])
 def test_a_huge_value_still_generates(model, formality, value):
-    assert len(rewrites(model, Steer(formality), value)) == 1
+    prompt = load_templates()["rewrite"].render(TEXT)
+    assert model.generate(prompt, Steer(formality).turn(value).additions).text
 
 
 def test_a_value_that_collapses_the_forward_pass_is_refused(model, formality):

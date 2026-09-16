@@ -39,6 +39,14 @@ def test_generation_carries_one_logprob_per_token(model, baseline):
     assert baseline.token_ids[-1] in model.stop_ids
 
 
+def test_a_generation_says_whether_the_model_ended_it_or_the_budget_did(model, baseline):
+    from uni.determinism import context_limit_prompt
+
+    assert baseline.stopped
+    cut = model.generate(context_limit_prompt(model, 4))
+    assert (len(cut.token_ids), cut.stopped) == (4, False)
+
+
 def test_zero_vector_on_the_residual_stream_changes_nothing(model, baseline):
     zero = ResidualAdd(layer=len(model.layers) // 2, vector=torch.zeros(model.hidden_size))
     assert model.generate(PROMPT, [zero]) == baseline

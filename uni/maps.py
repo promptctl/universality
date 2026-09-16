@@ -105,6 +105,10 @@ def model_spec(pinned: Pinned, template: Template, knob: Mapping[str, Any] | Non
         "template": {"name": template.name, "text": template.text},
         "pinned": asdict(pinned),
         "knob": knob,
+        # What becomes of a reply the token budget cut off, recorded because it is part of what the
+        # map is: orbits written before it was refused hold those cuts as states, and without this
+        # they would be named, and resumed, as orbits of this map. [LAW:one-source-of-truth]
+        "truncated": "refused",
     }
 
 
@@ -128,7 +132,14 @@ class ModelMap:
 
     def step(self, state: str) -> str:
         # [LAW:dataflow-not-control-flow] every step adds the same additions; the unturned knob's are empty.
-        return self.model.generate(self.template.render(state), self.knob.additions).text
+        generation = self.model.generate(self.template.render(state), self.knob.additions)
+        # The next state is the model's reply, and a reply the budget cut off is not one: it is the
+        # budget's cut of a reply whose end was never generated, and an orbit of those is an orbit
+        # of the cap. Steered far enough, the model repeats itself where no budget would end it, so
+        # the step is refused rather than recorded - in a sweep, a refused cell. [LAW:no-silent-failure]
+        if not generation.stopped:
+            raise MapError(f"the reply did not end within {len(generation.token_ids)} tokens, so it is the budget's cut of a state rather than one")
+        return generation.text
 
 
 @dataclass(frozen=True)
