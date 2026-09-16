@@ -217,36 +217,30 @@ def run_cell(family: Family, cell: Cell, steps: int) -> Trajectory | Failed:
     runs of a separate map and there is nothing wrong with them, and a sweep that stopped here
     would stop at the same cell on every resume, leaving them unreachable for good.
 
-    How far the orbit got is what tells that failure from one that is about no cell in particular,
-    and the distinction is the orbit's own rather than a count of how often it has happened. A
-    direction whose layer is not in the checkpoint, a vector of the wrong length: those refuse the
-    first step of every cell, so nothing ever comes out, and returning them would print the one
-    message a thousand times against a sweep that can never write a file. An orbit that produced
-    states and then stopped outgrew something during its own run - which is exactly the failure
-    this is for, and which the start cannot be checked for up front, because `holds` has already
-    said the start itself fits. [LAW:types-are-the-program]
+    Two refusals are not of that kind and are raised rather than returned, because neither is
+    about this cell. `family.at` is outside the try below: what a map is made out of - a steering
+    direction's layer, the length of its vector - is fixed by the family and not by the value, so
+    a family that cannot make a map at a value it was already offered cannot make one at any of
+    them, and stopping at the first cell beats saying so once per cell for a sweep that can never
+    write a file. And a map that describes itself differently than it did when the sweep named its
+    cells writes files no run of this sweep will ever look for.
 
-    Two refusals are never this cell's either, and are raised for the same reason. A family that
-    cannot make a map at a value it was offered before the run began cannot make one at any of
-    them; and a map that describes itself differently than it did when the sweep named its cells
-    writes files no run of this sweep will ever look for.
+    How far the orbit got is deliberately not the test. It is tempting - a direction that fits no
+    cell refuses the first step of every one of them - but it is a proxy for the distinction
+    rather than the distinction itself: residual additions large enough to overflow the model's
+    arithmetic also refuse the first step, and that is a property of the value this cell runs at.
+    Read as "about no cell in particular" it would rebuild, at one end of a steering grid, exactly
+    the wall this function exists to remove. [LAW:parse-dont-validate] what is about the whole
+    sweep is refused where the whole sweep is made, and what is left here is about the cell.
     """
-    # Outside the try below, because a family refusing a value it already accepted is not this
-    # cell failing - it is the check before the first cell and the map disagreeing about the grid.
     map = family.at(cell.value)
-    states: list[str] = []
     try:
-        # Collected as they land rather than in one `tuple(...)`, so that when the map stops the
-        # run still holds what came out of it, which is what decides the answer below.
-        for state in islice(orbit(map, cell.start), steps):
-            states.append(state)
+        states = tuple(islice(orbit(map, cell.start), steps))
     except ConfigError as error:
-        if not states:
-            raise
         return Failed(cell, str(error))
     # The map's own description and its own value, the way `uni loop` records them, so what the
     # file says the orbit ran at is what it ran at. [LAW:one-source-of-truth]
-    trajectory = Trajectory(map.spec, map.value, cell.start, tuple(states))
+    trajectory = Trajectory(map.spec, map.value, cell.start, states)
     # [LAW:no-silent-failure] the sweep named this cell's file before running it, and resumption
     # is that name coming true. A map that came back set to something other than what it was asked
     # for writes a file this sweep cannot find - and then every rerun runs the cell again, for

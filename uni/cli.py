@@ -28,6 +28,12 @@ if TYPE_CHECKING:
 
 EXIT_CONFIG = os.EX_CONFIG  # distinct from argparse's 2 and from anything rsync or ssh returns
 EXIT_DIVERGED = 1  # the determinism gate ran and some case produced more than one hash
+# The sweep ran and some cell of it has no orbit: a different answer from EXIT_CONFIG, which says
+# the run as described cannot be run, because here it was run and most of it is on disk. One past
+# the end of the sysexits table EXIT_CONFIG comes from, so it is no more rsync's or ssh's than
+# that one is. [LAW:no-silent-failure] the distinction the determinism gate already draws with
+# EXIT_DIVERGED: the command worked, and what it found is the bad news.
+EXIT_INCOMPLETE = 79
 
 # --remote is parsed here, once, and never reaches a subcommand: what is left over is
 # exactly what the host runs. [LAW:one-source-of-truth]
@@ -347,18 +353,20 @@ def run_sweep(args: argparse.Namespace) -> int:
                     assert_never(outcome)
             print(f"{done:>5}/{len(left)}  value {cell.value:<12.6g} {note}", flush=True)  # a --remote run streams through a pipe
     finally:
-        # Flushed like the lines above it: stdout is a pipe under `--remote` and stderr is not, so
-        # without this the refusals below overtake the count they are counted in.
-        print(described(sweep, pending(sweep, home)), flush=True)
         # Said twice on purpose: inline, where a person watching sees which cell it was, and again
-        # here, where it survives a thousand lines of scrollback. The count above is already honest
-        # - a cell with no orbit is a cell left to run - but it does not say that running is what
-        # failed. The value is written as the shortest text that reads back as itself, the rule
-        # `logistic_state` holds a state to: it is what names the cell, and rounded to six figures
-        # it names a different orbit in a different file.
+        # here, where it survives a thousand lines of scrollback. The value is written as the
+        # shortest text that reads back as itself, the rule `logistic_state` holds a state to: it
+        # is what names the cell, and rounded to six figures it names a different orbit in a
+        # different file.
+        #
+        # Before the count and not after it, which is the order that keeps the promise this block
+        # is for: `uni sweep ... | head` closes stdout, so printing the count first would raise
+        # BrokenPipeError out of the finally, replace whatever ended the run, and take the
+        # refusals with it - a pipe closing would be the one ending that silenced them.
         for failure in failures:
             print(f"uni: value {failure.cell.value!r} from {failure.cell.start!r} has no orbit: {failure.reason}", file=sys.stderr)
-    return EXIT_CONFIG if failures else 0  # a run that did less than it was asked does not exit 0
+        print(described(sweep, pending(sweep, home)), flush=True)
+    return EXIT_INCOMPLETE if failures else 0
 
 
 FIGURES = Path("figures")  # committed, unlike trajectories and sweeps: a figure is what a person looks at

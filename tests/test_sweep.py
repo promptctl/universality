@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from uni.cli import EXIT_CONFIG, Kind, logistic_value, main
+from uni.cli import EXIT_CONFIG, EXIT_INCOMPLETE, Kind, logistic_value, main
 from uni.loop import read_trajectory, trajectory_name
 from uni.maps import LOGISTIC, Logistic, MapError
 from uni.sweep import MANIFEST, Failed, Sweep, SweepError, grid, pending, read_sweep, run_cell, write_sweep
@@ -491,7 +491,10 @@ def test_a_cell_the_map_cannot_run_leaves_the_cells_after_it_to_run(capsys, tmp_
     # exist to prevent: no amount of rerunning gets past this one.
     values = grid("3.2:3.5:4")
     argv = four_cells(tmp_path, monkeypatch, Assorted({values[1]: outgrows(3)}))
-    assert command(argv) == EXIT_CONFIG  # a run that did less than it was asked does not exit 0
+    # A run that did less than it was asked does not exit 0 - and does not say what a mistyped
+    # --grid says either, because this sweep ran and most of it is on disk.
+    assert command(argv) == EXIT_INCOMPLETE
+    assert EXIT_INCOMPLETE != EXIT_CONFIG
     printed = capsys.readouterr()
     (home,) = tmp_path.iterdir()
     assert len(cells(home)) == 3
@@ -513,7 +516,7 @@ def test_a_cell_with_no_orbit_leaves_nothing_behind_in_the_sweep_directory(tmp_p
     # rsync that brings one home - would have to learn to tell from the real thing.
     values = grid("3.2:3.5:4")
     argv = four_cells(tmp_path, monkeypatch, Assorted({values[1]: outgrows(3)}))
-    assert command(argv) == EXIT_CONFIG
+    assert command(argv) == EXIT_INCOMPLETE
     (home,) = tmp_path.iterdir()
     assert sorted(p.name for p in home.iterdir()) == sorted([MANIFEST, *cells(home)])
     assert {read_trajectory(home / name).value for name in cells(home)} == {3.2, values[2], 3.5}
@@ -525,7 +528,7 @@ def test_a_cell_that_could_not_run_is_run_again_by_the_next_run(tmp_path, monkey
     # failed would be a cell marked done by a run that did not do it, and nothing would go back.
     values = grid("3.2:3.5:4")
     argv = four_cells(tmp_path, monkeypatch, Assorted({values[1]: outgrows(3)}))
-    assert command(argv) == EXIT_CONFIG
+    assert command(argv) == EXIT_INCOMPLETE
     (home,) = tmp_path.iterdir()
     assert len(cells(home)) == 3
     monkeypatch.setitem(main.__globals__["MAPS"], "assorted", Kind(lambda args, vals: Assorted(), logistic_value))
@@ -534,18 +537,34 @@ def test_a_cell_that_could_not_run_is_run_again_by_the_next_run(tmp_path, monkey
     assert read_trajectory(home / trajectory_name(LOGISTIC, values[1], "0.5", 6)).value == values[1]
 
 
-def test_a_cell_that_produced_no_state_at_all_stops_the_sweep(capsys, tmp_path, monkeypatch):
-    # The other half of the rule, and the one that keeps going-on from becoming going-on-forever.
-    # A direction whose layer is not in the checkpoint, or a vector of the wrong length, refuses
-    # the first step of every cell: nothing ever comes out, no file can ever be written, and
-    # carrying on would print the one message once per cell against a sweep that cannot progress.
-    # An orbit that produced states and then stopped outgrew something during its own run; an
-    # orbit that produced none never began, and that is not about the cell.
-    argv = four_cells(tmp_path, monkeypatch, Assorted({value: outgrows(0) for value in grid("3.2:3.5:4")}))
+def test_a_cell_refused_at_its_very_first_step_is_still_that_cell_being_refused(tmp_path, monkeypatch):
+    # How far the orbit got is not the test, however tempting: residual additions large enough to
+    # overflow the model's arithmetic refuse the first token of the cell they are too large in,
+    # which is a property of that cell's value. Read as "this is about no cell in particular" it
+    # would rebuild, at one end of a steering grid, the very wall this feature removes.
+    values = grid("3.2:3.5:4")
+    argv = four_cells(tmp_path, monkeypatch, Assorted({values[1]: outgrows(0)}))
+    assert command(argv) == EXIT_INCOMPLETE
+    (home,) = tmp_path.iterdir()
+    assert len(cells(home)) == 3
+    assert trajectory_name(LOGISTIC, values[1], "0.5", 6) not in cells(home)
+
+
+def unmakeable(value):
+    """A value the family cannot make a map at, the way a direction that fits no checkpoint is."""
+    raise MapError("layer must be in 0..23, got 40")
+
+
+def test_a_family_that_cannot_make_the_map_stops_the_sweep(capsys, tmp_path, monkeypatch):
+    # What a map is made out of is the family's, not the value's: a steering direction's layer and
+    # the length of its vector are the same in every cell. So a family that cannot make a map at a
+    # value it was already offered cannot make one at any of them, and the run stops at the first
+    # cell rather than saying so once per cell for a sweep that can never write a file.
+    argv = four_cells(tmp_path, monkeypatch, Assorted({value: unmakeable for value in grid("3.2:3.5:4")}))
     assert command(argv) == EXIT_CONFIG
     printed = capsys.readouterr()
     assert "2/4" not in printed.out  # it stopped at the first cell rather than refusing all four
-    assert "uni: prompt is 32760 tokens" in printed.err
+    assert "uni: layer must be in 0..23, got 40" in printed.err
     assert "has no orbit" not in printed.err  # not dressed up as one cell's failure, because it is not
     (home,) = tmp_path.iterdir()
     assert cells(home) == []
@@ -570,9 +589,10 @@ def test_a_map_that_refuses_a_cell_is_answered_with_a_value_and_not_an_exception
     # differ in kind, and no caller has to read a message to tell one from the other.
     values = grid("3.2:3.5:4")
     cell = next(one for one in Sweep(LOGISTIC, values, ("0.5",), 6).cells if one.value == values[1])
-    outcome = run_cell(Assorted({values[1]: outgrows(3)}), cell, 6)
-    assert outcome == Failed(cell, "prompt is 32760 tokens; the context limit of 32768 leaves no room to generate")
-    with pytest.raises(MapError, match="no room to generate"):
-        run_cell(Assorted({values[1]: outgrows(0)}), cell, 6)
+    refused = Failed(cell, "prompt is 32760 tokens; the context limit of 32768 leaves no room to generate")
+    assert run_cell(Assorted({values[1]: outgrows(3)}), cell, 6) == refused
+    assert run_cell(Assorted({values[1]: outgrows(0)}), cell, 6) == refused  # however early it came
+    with pytest.raises(MapError, match="layer must be in"):
+        run_cell(Assorted({values[1]: unmakeable}), cell, 6)
     with pytest.raises(SweepError, match="does not describe itself the same way twice"):
         run_cell(Assorted({values[1]: drifting}), cell, 6)

@@ -188,7 +188,7 @@ class Model:
         # [LAW:dataflow-not-control-flow] no additions is no hooks; the decoding loop never asks.
         with ExitStack() as hooks:
             for addition in additions:
-                vector = self._residual_vector(addition)
+                vector = self.residual_vector(addition)
                 handle = self.layers[addition.layer].register_forward_hook(lambda _m, _i, hidden, v=vector: hidden + v)
                 hooks.callback(handle.remove)
             yield
@@ -200,7 +200,14 @@ class Model:
             raise ModelError(f"layer must be in 0..{len(self.layers) - 1}, got {layer}")
         return layer
 
-    def _residual_vector(self, addition: ResidualAdd) -> torch.Tensor:
+    def residual_vector(self, addition: ResidualAdd) -> torch.Tensor:
+        """What this addition adds, on this model's device in its dtype, refused unless it fits.
+
+        Public because a map family asks it before it makes a map, not only because the decoding
+        loop needs the tensor: what an addition adds to is fixed by the direction rather than by
+        the knob's setting, so a layer this checkpoint does not have is wrong in every cell of a
+        sweep, and that is worth knowing at the first one. [LAW:parse-dont-validate]
+        """
         self._layer(addition.layer)
         if addition.vector.shape != (self.hidden_size,):
             raise ModelError(f"vector must have shape ({self.hidden_size},), got {tuple(addition.vector.shape)}")
