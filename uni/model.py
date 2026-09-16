@@ -81,11 +81,12 @@ class Model:
         ids, empty, prefix = chat(reply), chat(""), self.encode(prompt)
         # What the template puts after an empty reply is what closes every reply, such as <|im_end|>.
         start = prefix.shape[1]
-        end = ids.shape[1] - (empty.shape[1] - start)
-        if not (torch.equal(ids[:, :start], prefix) and torch.equal(ids[:, end:], empty[:, start:])):
-            raise RuntimeError("the chat template encodes a prompt or its closing differently around this reply")
+        closing = empty[:, start:]
+        end = ids.shape[1] - closing.shape[1]
         if end <= start:
             raise ValueError("the reply encodes to no tokens, so it has no residual stream to read")
+        if not (torch.equal(ids[:, :start], prefix) and torch.equal(ids[:, end:], closing)):
+            raise RuntimeError("the chat template encodes a prompt or its closing differently around this reply")
         return ids, slice(start, end)
 
     @torch.inference_mode()
@@ -151,4 +152,8 @@ class Model:
         self._layer(addition.layer)
         if addition.vector.shape != (self.hidden_size,):
             raise ValueError(f"vector must have shape ({self.hidden_size},), got {tuple(addition.vector.shape)}")
-        return addition.vector.to(self.device, self.dtype)
+        vector = addition.vector.to(self.device, self.dtype)
+        # [LAW:no-silent-failure] an overflowed addition makes every logit NaN, and argmax would still pick a token.
+        if not vector.isfinite().all():
+            raise ValueError(f"vector does not fit in {self.pinned.dtype}; it holds values as large as {float(addition.vector.abs().max()):.3g}")
+        return vector

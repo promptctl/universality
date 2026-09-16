@@ -1,4 +1,9 @@
 {
+  "checkpoint": {
+    "dtype": "float32",
+    "model_id": "Qwen/Qwen2.5-0.5B-Instruct",
+    "revision": "7ae557604adf67be50417f59c2c2f167def9a775"
+  },
   "layer": 12,
   "name": "formality",
   "pairs": [
@@ -43,12 +48,6 @@
       "toward": "Owing to the delayed arrival of the train, I was unable to attend the beginning of the performance."
     }
   ],
-  "pinned": {
-    "dtype": "float32",
-    "max_new_tokens": 256,
-    "model_id": "Qwen/Qwen2.5-0.5B-Instruct",
-    "revision": "7ae557604adf67be50417f59c2c2f167def9a775"
-  },
   "template": {
     "name": "rewrite",
     "text": "Rewrite the following text.\n\n{state}"

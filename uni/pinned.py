@@ -24,6 +24,11 @@ class Pinned:
     dtype: Dtype
     max_new_tokens: int
 
+    @property
+    def checkpoint(self) -> dict[str, str]:
+        """What fixes the weights and their arithmetic, and so fixes any direction read from them."""
+        return {"model_id": self.model_id, "revision": self.revision, "dtype": self.dtype}
+
 
 def _field(raw: dict[str, Any], path: str, kind: type) -> Any:
     table, key = path.split(".")

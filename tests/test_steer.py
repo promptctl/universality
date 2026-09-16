@@ -3,12 +3,13 @@
 import dataclasses
 import hashlib
 from itertools import islice
+from pathlib import Path
 
 import pytest
 import torch
 
 from uni import steer
-from uni.cli import build_parser
+from uni.cli import EXIT_CONFIG, build_parser, main
 from uni.loop import orbit
 from uni.maps import ModelMap, NoKnob
 from uni.pinned import load_pinned
@@ -25,6 +26,19 @@ def formality():
 
 def test_the_committed_direction_was_derived_from_the_committed_contrast(formality):
     assert formality.contrast == load_contrast("formality")
+
+
+def test_a_direction_file_that_was_edited_is_refused(tmp_path, monkeypatch):
+    edited = (steer.DIRECTIONS / "formality.json").read_bytes().replace(b"\n  ", b"\n ")
+    monkeypatch.setattr(steer, "DIRECTIONS", tmp_path)
+    (tmp_path / "formality.json").write_bytes(edited)
+    with pytest.raises(SteerError, match="re-derive it rather than editing it"):
+        read_direction("formality", load_pinned())
+
+
+def test_a_longer_generation_limit_leaves_a_direction_fresh(formality):
+    longer = dataclasses.replace(load_pinned(), max_new_tokens=load_pinned().max_new_tokens * 2)
+    assert read_direction("formality", longer) == formality
 
 
 def test_a_direction_from_another_model_is_refused():
@@ -86,6 +100,17 @@ def test_turning_the_value_moves_the_rewrite_along_the_direction(model, formalit
 
 def test_a_huge_value_runs(model, formality):
     assert len(rewrites(model, Steer(formality), 1e6)) == 1
+
+
+def test_a_value_that_overflows_the_dtype_is_refused(model, formality):
+    with pytest.raises(ValueError, match="does not fit in"):
+        rewrites(model, Steer(formality), 1e300)
+
+
+def test_a_value_with_nothing_to_turn_is_refused(capsys):
+    argv = ["loop", "--template", "rewrite", "--start", "x", "--steps", "1", "--value", "2"]
+    assert main(argv, {}, Path.cwd()) == EXIT_CONFIG
+    assert "nothing to turn" in capsys.readouterr().err
 
 
 def test_an_unknown_direction_is_refused_with_the_known_ones(capsys):

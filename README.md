@@ -78,7 +78,9 @@ position of every step.
 `--value` defaults to 0, and at 0 the orbit is exactly the unsteered one. Positive values
 push the rewrites toward the direction's quality and negative values push away from it.
 At layer 12, `formality` makes the rewrites clearly more formal by 2 and casual by -2. By
-4 the rewrites drift away from the text they started from. Any value runs without error, however large.
+4 the rewrites drift away from the text they started from. A value too large to fit the
+model's dtype is refused rather than run into a garbage orbit, and a value with no knob to
+turn is refused rather than recorded as if it had steered.
 
 A direction comes from a contrast, `uni/directions/<name>.toml`. A contrast is a
 template, a layer, and pairs of replies to the same text, one toward the quality and
@@ -89,10 +91,11 @@ averaged over the reply's tokens. Derive it once:
     uv run uni direction formality
 
 This writes `uni/directions/formality.json`, which holds the vector, a copy of the
-contrast that produced it, and the pinned model it was read from, and is committed. Every
-trajectory steered by it records the direction's name, layer, and sha256. A direction
-derived on a different model than the one pinned is refused. Re-derive when the contrast
-or the model changes.
+contrast that produced it, and the checkpoint it was read from, and is committed. Every
+trajectory steered by it records the direction's name, layer, and sha256, which is the
+hash of the file itself: a direction file that has been edited by hand, or derived on a
+different checkpoint than the one pinned, is refused. Re-derive when the contrast or the
+checkpoint changes.
 
 ## Running on the experiment host
 

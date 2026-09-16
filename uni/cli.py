@@ -100,6 +100,8 @@ def run_determinism(args: argparse.Namespace) -> int:
 
 
 TRAJECTORIES = Path("trajectories")  # under the directory uni runs in; the --remote sync excludes it, so the host keeps its own
+
+
 def knob(name: str) -> Knob:
     # Imported here: a steering knob holds torch tensors, and only `uni loop` pays for loading torch.
     from uni.maps import NoKnob
@@ -147,6 +149,10 @@ def template(name: str) -> Template:
 
 def run_loop(args: argparse.Namespace) -> int:
     """Print the start and every state as it lands, then write the trajectory file."""
+    if args.knob.spec is None and args.value:
+        # [LAW:no-silent-failure] a recorded value nothing applied reads back as a steering run that did nothing.
+        print(f"uni: --value {args.value} has nothing to turn; pass --knob, or leave --value at 0", file=sys.stderr)
+        return EXIT_CONFIG
     from uni.loop import Trajectory, orbit, write_trajectory
     from uni.maps import ModelMap
     from uni.model import Model
