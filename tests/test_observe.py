@@ -17,6 +17,7 @@ from uni.observe import (
     Projection,
     Step,
     Value,
+    Weights,
     identities,
     observables,
     readings,
@@ -60,16 +61,16 @@ def test_the_template_comes_back_off_the_trajectory():
     assert template_of(Trajectory(spec(), 0.0, "a", ())) == load_templates()["rewrite"]
 
 
-def test_a_trajectory_from_another_kind_of_map_has_no_model_observables():
+def test_a_trajectory_from_another_kind_of_map_has_no_model_observables(weights):
     # And costs no checkpoint to find that out: what an orbit can be read for is decided by the
     # kind its file records, before anything that needs weights is built.
-    assert observables(Trajectory({"kind": "logistic"}, 0.0, "a", ())) == (Length(), Value())
+    assert observables(Trajectory({"kind": "logistic"}, 0.0, "a", ()), Weights()) == (Length(), Value())
 
 
 def test_an_orbit_of_a_kind_this_build_cannot_read_is_refused():
     # Answering with the length alone would read as a full reading of a file nothing here knows.
     with pytest.raises(ObserveError, match="'henon' orbit is not one this build can read"):
-        observables(Trajectory({"kind": "henon"}, 0.0, "a", ()))
+        observables(Trajectory({"kind": "henon"}, 0.0, "a", ()), Weights())
 
 
 def test_a_trajectory_that_recorded_no_template_is_refused():
@@ -88,7 +89,7 @@ def test_an_orbit_written_on_another_checkpoint_is_refused():
         written_by(Trajectory(spec(pinned=other), 0.0, "a", ()), load_pinned())
 
 
-def test_a_longer_generation_limit_leaves_an_orbit_readable():
+def test_a_longer_generation_limit_leaves_an_orbit_readable(weights):
     # The limit bounds how long a state may be; it is not part of what the weights score it as.
     longer = dataclasses.replace(load_pinned(), max_new_tokens=load_pinned().max_new_tokens * 2)
     assert written_by(Trajectory(spec(pinned=longer), 0.0, "a", ()), load_pinned()) == load_pinned()
@@ -132,26 +133,26 @@ def test_length_counts_the_characters_of_the_state():
     assert Length().read(Step(1, "anything", "hello")) == 5.0
 
 
-def test_the_logprob_is_the_one_the_model_reported_as_it_generated(model):
+def test_the_logprob_is_the_one_the_model_reported_as_it_generated(weights, model):
     template = load_templates()["rewrite"]
     generation = model.generate(template.render(TEXT))
     assert generation.token_ids[-1] in model.stop_ids  # so dropping the last logprob drops the stop token
-    reading = Logprob(model, template, ()).read(Step(1, TEXT, generation.text))
+    reading = Logprob(weights, template, ()).read(Step(1, TEXT, generation.text))
     # Close, not equal: generation scores each token behind a growing cache and this scores them
     # in one pass, which the README already records as a sixth-decimal difference.
     assert reading == pytest.approx(statistics.fmean(generation.logprobs[:-1]), abs=1e-4)
 
 
-def test_an_observable_is_periodic_when_the_orbit_is(model):
+def test_an_observable_is_periodic_when_the_orbit_is(weights, model):
     # At a fixed point every step re-sends the same prompt for the same reply, so every reading
     # after the onset is the same number. A sweep locates a bifurcation by watching that fact
     # break, so an observable carrying anything from one call to the next would ruin it.
     trajectory = Trajectory(spec("identity"), 0.0, "hello", ("hello",) * 4)
-    numbers = [Logprob(model, load_templates()["identity"], ()).read(step) for step in steps(trajectory)]
+    numbers = [Logprob(weights, load_templates()["identity"], ()).read(step) for step in steps(trajectory)]
     assert len(set(numbers)) == 1
 
 
-def test_a_steered_reply_is_scored_by_the_model_the_knob_turned(model, formality):
+def test_a_steered_reply_is_scored_by_the_model_the_knob_turned(weights, model, formality):
     # The knob is part of the map: read without it, the number belongs to a model that did not
     # write this reply, and it is a plausible number either way.
     template = load_templates()["rewrite"]
@@ -161,26 +162,26 @@ def test_a_steered_reply_is_scored_by_the_model_the_knob_turned(model, formality
     # unsteered case above there is no stop token's log-probability to leave out.
     reported = generation.logprobs[:-1] if generation.token_ids[-1] in model.stop_ids else generation.logprobs
     step = Step(1, TEXT, generation.text)
-    reading = Logprob(model, template, turned.additions).read(step)
+    reading = Logprob(weights, template, turned.additions).read(step)
     assert reading == pytest.approx(statistics.fmean(reported), abs=1e-4)
-    assert reading != Logprob(model, template, ()).read(step)
+    assert reading != Logprob(weights, template, ()).read(step)
 
 
-def test_a_state_that_cannot_be_read_says_which_step_it_is_at(model):
+def test_a_state_that_cannot_be_read_says_which_step_it_is_at(weights, model):
     # An empty state encodes to no tokens, and a half-printed table needs an address.
     step = Step(2, "hello", "")
     with pytest.raises(ObserveError, match="step 2: the reply encodes to no tokens"):
-        readings((Logprob(model, load_templates()["identity"], ()),), step)
+        readings((Logprob(weights, load_templates()["identity"], ()),), step)
 
 
-def test_the_projection_separates_the_contrast_the_direction_was_built_from(model, formality):
+def test_the_projection_separates_the_contrast_the_direction_was_built_from(weights, model, formality):
     pair = formality.contrast.pairs[0]
-    projection = Projection(model, formality.contrast.template, formality)
+    projection = Projection(weights, formality.contrast.template, formality)
     assert projection.read(Step(1, pair.text, pair.toward)) > projection.read(Step(1, pair.text, pair.away))
 
 
-def test_the_projection_names_the_direction_it_reads_along(model, formality):
-    assert Projection(model, formality.contrast.template, formality).name == "along:formality"
+def test_the_projection_names_the_direction_it_reads_along(weights, model, formality):
+    assert Projection(weights, formality.contrast.template, formality).name == "along:formality"
 
 
 def test_the_command_reads_a_trajectory_back(tmp_path, capsys):

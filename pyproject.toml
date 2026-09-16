@@ -5,6 +5,7 @@ description = "Feigenbaum universality in LLM feedback loops"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "matplotlib>=3.9",
     "python-dotenv>=1.0",
     "torch>=2.14.0",
     "transformers>=5.17.0",

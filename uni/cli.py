@@ -346,6 +346,58 @@ def run_sweep(args: argparse.Namespace) -> int:
     return 0
 
 
+FIGURES = Path("figures")  # committed, unlike trajectories and sweeps: a figure is what a person looks at
+
+
+class PlotError(ConfigError):
+    """A sweep cannot be drawn. The message says what is not there to draw."""
+
+
+def run_plot(args: argparse.Namespace) -> int:
+    """Draw a persisted sweep's two pictures, and say where each one went."""
+    from uni.draw import scatter
+    from uni.figure import orbit_diagram, read, return_map
+    from uni.sweep import MANIFEST, read_sweep
+
+    # The manifest is read from the directory rather than described again on the command line: the
+    # directory is named by the hash of those bytes, so the two cannot disagree about which sweep
+    # this is. [LAW:one-source-of-truth]
+    sweep = read_sweep(args.sweep / MANIFEST)
+    series = read(sweep, args.sweep, args.observable, args.burn_in)
+    total = len(sweep.values) * len(sweep.starts)
+    pictures = {"return": return_map(series, args.observable), "orbit": orbit_diagram(series, args.observable)}
+    # [LAW:no-silent-failure] an empty picture is a file that looks like an answer, so it is the
+    # pictures that are checked and not the readings behind them: the return map needs two
+    # readings out of one cell where the orbit diagram needs one, so a burn-in leaving exactly one
+    # step draws a full orbit diagram beside a blank return map. Both are made before either is
+    # written, so a sweep that can only answer for one of them leaves neither behind.
+    bare = [kind for kind, picture in pictures.items() if not picture.points]
+    if bare:
+        raise PlotError(
+            f"nothing to draw the {' and '.join(bare)} map of: {len(series)} of "
+            f"{total} cells are on disk, and --burn-in {args.burn_in} "
+            f"leaves {sum(len(one.numbers) for one in series)} readings across them - a return map "
+            "needs two from one cell, an orbit diagram one"
+        )
+    for kind, picture in pictures.items():
+        # Named by the sweep and what was read off it, so two sweeps and two observables are four
+        # files rather than one overwritten four times. The burn-in is in it because it is the
+        # third thing that fixes what the picture shows, and this repo names a file by what fixes
+        # it: without it, plotting the reference cascade again without `--burn-in` would replace
+        # the committed figure with a transient-laden one under the name the README links to.
+        # The name comes from the manifest and not
+        # from the directory it was found in: they agree for a sweep this program wrote, and when
+        # they do not - a copied directory, a renamed one - it is the sweep that says which
+        # picture this is. [LAW:one-source-of-truth]
+        stem = f"{sweep.name}-{args.observable.replace(':', '-')}-burn{args.burn_in}-{kind}"
+        drawn = scatter(picture, args.out / f"{stem}.png")
+        # [LAW:no-silent-failure] the count on the refusal below says how much of the sweep is
+        # there, and the success line said nothing - so a picture of twelve cells out of six
+        # hundred looked exactly like a picture of all of them, under the same name.
+        print(f"{drawn}  {len(picture.points)} points from {len(series)} of {total} cells", flush=True)
+    return 0
+
+
 def verdict(period: Period) -> str:
     """What the detector saw, in a sentence. The one branch is the domain's own three answers."""
     match period:
@@ -368,7 +420,7 @@ def verdict(period: Period) -> str:
 def run_observe(args: argparse.Namespace) -> int:
     """Read a written trajectory back: each step's observables, and the period of its orbit."""
     from uni.loop import read_trajectory
-    from uni.observe import identities, observables, readings, steps
+    from uni.observe import Weights, identities, observables, readings, steps
     from uni.period import detect
 
     trajectory = read_trajectory(args.trajectory)
@@ -382,7 +434,7 @@ def run_observe(args: argparse.Namespace) -> int:
     # scored can take it away.
     print(verdict(detect(orbit, args.burn_in)), flush=True)  # a --remote run's stdout is a pipe, not a terminal
     print()
-    columns = observables(trajectory)
+    columns = observables(trajectory, Weights())
     print(f"{'step':>4}  {'state':>5}" + "".join(f"  {column.name:>16}" for column in columns), flush=True)
     # The start was given rather than stepped into, so no observable of a step has a reading for
     # it; its row is printed anyway, so the identity column reads as the orbit and every step the
@@ -426,6 +478,12 @@ def build_parser() -> argparse.ArgumentParser:
     observe = commands.add_parser("observe", help="read a written trajectory's observables and the period of its orbit")
     observe.add_argument("trajectory", type=Path, help="a trajectory file written by `uni loop`")
     observe.add_argument("--burn-in", type=whole, default=0, dest="burn_in", help="steps to pass over before looking for a period (default: 0)")
+    plot = commands.add_parser("plot", help="draw a persisted sweep's return map and orbit diagram")
+    plot.add_argument("sweep", type=Path, help="a sweep directory written by `uni sweep`")
+    plot.add_argument("--observable", required=True, help="the number to read off each step, as `uni observe` names its columns")
+    plot.add_argument("--burn-in", type=whole, default=0, dest="burn_in", help="steps to pass over before the orbit is taken as settled (default: 0)")
+    plot.add_argument("--out", type=Path, default=FIGURES, help=f"where to write the figures (default: {FIGURES})")
+    plot.set_defaults(run=run_plot)
     observe.set_defaults(run=run_observe)
     direction = commands.add_parser("direction", help="derive a steering direction from uni/directions/<name>.toml")
     direction.add_argument("contrast", type=contrast, help="the contrast's name")
@@ -442,8 +500,33 @@ def checkout_root(cwd: Path) -> Path:
     return Path(found.stdout.strip())
 
 
+# The commands whose answer is a file in this checkout, so there is nowhere on the host to put it.
+# Named here rather than read off the parsed command, which is what this first tried: parsing runs
+# the converters, one of which reads a direction and so imports torch, and `--remote` exists
+# precisely so this machine never pays for that. A set of names costs nothing to consult, and what
+# keeps it in step with the parser below is a test that enumerates the parser's own subcommands -
+# a name in here that no command answers to is a guard that silently stops guarding.
+HERE = frozenset({"plot"})
+
+
+def stays_here(rest: Sequence[str]) -> bool:
+    """Whether the command in `rest` is one whose answer is a file in this checkout.
+
+    Read off the front of what is left after `--remote` is taken out, which is where the
+    subcommand is: the top-level parser carries no other argument that takes a value.
+    """
+    return bool(rest) and rest[0] in HERE
+
+
 def main(argv: Sequence[str], env: Mapping[str, str], cwd: Path) -> int:
     remote, rest = split_remote(argv)
+    if remote and stays_here(rest):
+        # [LAW:no-silent-failure] the sync has one leg and figures/ is not on it, so this would
+        # draw on the host, print a path that does not exist here, and exit 0 as though it had
+        # answered. The sweep is the thing that travels; the picture is drawn where it is kept.
+        print(f"uni: {rest[0]} writes a file into this checkout, so it runs here, not on the host; "
+              "bring the sweep home first (see the README) and run it without --remote", file=sys.stderr)
+        return EXIT_CONFIG
     if not remote:
         args = build_parser().parse_args(rest)
         try:

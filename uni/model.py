@@ -28,8 +28,11 @@ def stop_ids(eos_token_id: int | list[int] | None) -> frozenset[int]:
 
 def require_metal() -> torch.device:
     # Metal is the only device: CPU is too slow for this work, and the run host has no CUDA.
+    # Reported rather than raised, because "this machine has no Metal" is a run that cannot be run
+    # as described - the CLI's own definition of what it prints as `uni: ...` rather than as a
+    # traceback. Saying so is not a fallback: there is still no device to choose. [LAW:no-silent-failure]
     if not torch.backends.mps.is_available():
-        raise RuntimeError("Metal (mps) is not available on this machine")
+        raise ModelError("Metal (mps) is not available on this machine, and it is the only device this runs on")
     return torch.device("mps")
 
 

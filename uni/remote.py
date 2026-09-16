@@ -21,17 +21,21 @@ VARIABLES = ("UNI_REMOTE_HOST", "UNI_REMOTE_USER", "UNI_REMOTE_DIR")
 REMOTE_DIR = re.compile(r"/[\w./-]+")
 
 # What git ignores stays home (rsync reads .gitignore itself; negated patterns are not
-# understood). .git is not needed to run and .env holds the host's identity. .venv, trajectories/
-# and sweeps/ are the host's own tools and results, and they are named here as plain excludes
-# rather than left to the gitignore filter: the sync runs with --delete, and what keeps the host's
-# results out of its reach should not depend on a per-directory .gitignore being found and read
-# the same way at both ends. Each machine keeps its own orbits and sweeps.
+# understood). .git is not needed to run and .env holds the host's identity. .venv, trajectories/,
+# sweeps/ and figures/ are the host's own tools and results, and they are named here as plain
+# excludes rather than left to the gitignore filter: the sync runs with --delete, and what keeps
+# the host's results out of its reach should not depend on a per-directory .gitignore being found
+# and read the same way at both ends. figures/ is the one of them that is committed, and it is
+# excluded for the same reason rather than in spite of it: nothing on the host reads a figure, and
+# under --delete a local figures/ would delete a picture the host had just spent a GPU pass
+# drawing. Each machine keeps its own orbits, sweeps and pictures.
 SYNC_FILTERS = (
     "--exclude=.git",
     "--exclude=.env",
     "--exclude=.venv",
     "--exclude=/trajectories/",
     "--exclude=/sweeps/",
+    "--exclude=/figures/",
     "--filter=:- .gitignore",
 )
 

@@ -189,13 +189,30 @@ def read_sweep(path: Path) -> Sweep:
     )
 
 
-def pending(sweep: Sweep, home: Path) -> tuple[Cell, ...]:
-    """The cells with no trajectory on disk yet.
+def written(cell: Cell, home: Path) -> bool:
+    """Whether this cell's orbit is on disk, which is the whole of what done means here.
 
-    A file is there or it is not, and `write_trajectory` renames a finished file over its name, so
-    a run killed part way through leaves no half-written cell to mistake for a done one.
+    A file is there or it is not, and `write_whole` renames a finished file over its name, so a run
+    killed part way through leaves no half-written cell to mistake for a done one. One predicate,
+    because a sweep runs what is missing and a plot draws what is there, and those two must not be
+    able to disagree about which cells those are. [LAW:one-source-of-truth]
     """
-    return tuple(cell for cell in sweep.cells if not (home / cell.name).exists())
+    return (home / cell.name).exists()
+
+
+def pending(sweep: Sweep, home: Path) -> tuple[Cell, ...]:
+    """The cells with no trajectory on disk yet: what running this sweep would do."""
+    return tuple(cell for cell in sweep.cells if not written(cell, home))
+
+
+def finished(sweep: Sweep, home: Path) -> tuple[Cell, ...]:
+    """The cells whose trajectory is on disk: what a picture of this sweep can be drawn from.
+
+    A sweep is normally incomplete while it runs, and a picture of what is there so far is worth
+    having, so this is the answer rather than a refusal. It is in sweep order, so a figure drawn
+    twice from the same directory puts its points down in the same order both times.
+    """
+    return tuple(cell for cell in sweep.cells if written(cell, home))
 
 
 def described(sweep: Sweep, cells: Sequence[Cell]) -> str:

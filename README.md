@@ -236,6 +236,118 @@ There are three things the detector can say, and only one of them carries a numb
 already known and not wanted. It is rarely needed: the detector reports where the cycle began,
 which is the same fact measured rather than assumed.
 
+## The two pictures
+
+    uv run uni plot sweeps/<name> --observable x --burn-in 200
+
+Reads a persisted sweep and writes two figures under `figures/`. Nothing about either one asks
+which map ran. The **return map** is the observable's sequence plotted against itself one step
+later, which for a map whose states are numbers is the map itself drawn. The **orbit diagram** is
+the same readings against the value they were taken at, which is the picture PROJECT.md's Rung 1
+is about: period doubling is branches splitting as the value grows.
+
+Both are the same kind of value — points with an x, a y, and a number that colours them — so
+there is one drawing function rather than two to keep in step. The return map is coloured by the
+value each orbit ran at, so a sweep of one value is one colour and a grid is a fan of them. The
+orbit diagram is one colour, because the value is already its x axis.
+
+`--burn-in N` keeps each cell from step N onward, which is where a picture wants a settled orbit
+and not the transient that got there. It means exactly what it means to `uni observe`, which
+counts the start as step 0 - so a period read off one command and a picture drawn by the other are
+about the same states. Nothing has a reading for the start, so `--burn-in 0` and `--burn-in 1`
+draw the same picture. A sweep that is still running is drawn from the cells
+that are on disk, which is the point of persisting them one at a time; a sweep with nothing on
+disk, or a burn-in that ate every step, is refused rather than written as an empty figure that
+looks like an answer.
+
+The figure files are named for what fixes the picture - the sweep, the observable, the burn-in -
+so a picture says what it is of, and drawing the same sweep another way puts a new file beside the
+old one rather than over it.
+
+### The logistic cascade
+
+![orbit diagram of the logistic map](figures/e84d01205c88ec92-x-burn200-orbit.png)
+
+    uv run uni sweep --map logistic --grid 2.5:4.0:600 --start 0.2 --start 0.7 --steps 400
+    uv run uni plot sweeps/e84d01205c88ec92 --observable x --burn-in 200
+
+This is the reference picture, and it is the textbook one. The single branch to r = 3; the first
+split exactly at 3.0; the second at about 3.449; the third at about 3.544; the branches crowding
+into the accumulation near 3.5699 and then the chaotic band; and inside the band the period-3
+window at about 3.83, with its own miniature cascade. The start is 0.2 and 0.7 rather than 0.5,
+because 0.5 is exactly the pre-image of the map's maximum: at r = 4 it lands on 1.0 and then on
+0.0, and the whole right-hand edge of the picture would be a single dot at zero.
+
+![return map of the logistic map](figures/e84d01205c88ec92-x-burn200-return.png)
+
+The return map of the same sweep is the family of parabolas, one per r, fanning up to the r = 4
+one that touches 1.0. PROJECT.md asks of Rung 1 whether the return map has one smooth hump,
+because that is the property the whole theory rests on. For this map it does, by construction —
+which is what makes the logistic map the fixture: a wrong answer here is visible as a wrong
+answer rather than as a result.
+
+### The rewrite loop over the steering coefficient
+
+The same two pictures for the map this project is actually about: the model rewriting its own
+output, with the formality direction added to the residual stream at layer 12, swept over the
+coefficient.
+
+    uv run uni sweep --remote --map model --template rewrite --knob formality \
+        --grid=-6:6:25 --start "The meeting moved to Thursday because the room was booked." --steps 30
+    rsync --archive "$UNI_REMOTE_USER@$UNI_REMOTE_HOST:$UNI_REMOTE_DIR/sweeps/1a8fce648065056f/" \
+        sweeps/1a8fce648065056f/
+    uv run uni plot sweeps/1a8fce648065056f --observable along:formality --burn-in 10
+
+The middle line is not decoration. The sweep ran on the host and its cells stay there - `sweeps/`
+is excluded from the sync, and the sync has no leg coming back - so the directory has to be
+brought home before anything here can draw it. Plotting is a local command by design: a figure
+is an output this repo commits, and drawing one on the host puts it where no commit can reach
+it, which is also why `figures/` is excluded from the sync rather than deleted by it. `uni plot
+--remote` is refused for the same reason rather than left to draw somewhere unreachable and exit
+0 - it is the one command that says where its answer lands. The sweep's name is the same on both
+machines, because it is the hash of what the sweep is. There is no `uni fetch` doing the middle
+line for you yet; it is filed as `universality-remote-lhh`.
+
+![orbit diagram of the rewrite loop along the formality direction](figures/1a8fce648065056f-along-formality-burn10-orbit.png)
+
+The knob works, and monotonically: where the settled state sits along the formality direction
+rises steadily from about -4 at a coefficient of -6 to about +5 at +3.5, and then stops rising.
+That is the knob doing what a knob should.
+
+What the picture does not show is a cascade. Over most of the range each coefficient carries a
+single dot, which is an orbit that has reached a fixed point: the model rewrites a text into
+itself. The periods are measured rather than eyeballed — `uni observe` reports each one — and
+across the 25 cells they are 19 fixed points, a period 2 at -0.5, 1.0 and 1.5, a period 3 at 0.5,
+a period 4 at -6, and one orbit at +6 that had not repeated within its 31 states. The cycles
+longer than one sit around the unsteered point and at the far ends, not in a doubling sequence,
+and 0.5 apart on the knob is far too coarse a grid to call any of it a bifurcation.
+
+![return map of the rewrite loop along the formality direction](figures/1a8fce648065056f-along-formality-burn10-return.png)
+
+The return map says the same thing in one line: the points lie on the diagonal. Rung 1 of
+PROJECT.md asks whether this map has one smooth hump, because that is the shape the whole theory
+rests on. This is not that shape — it is the identity, which is what a return map of fixed points
+looks like. A hump needs states that move.
+
+![orbit diagram of the rewrite loop read for length](figures/1a8fce648065056f-length-burn10-orbit.png)
+
+Read for the character length of the state instead, the same sweep shows the knob's real effect
+on this loop: near zero the fixed point is a single tidy sentence of about 60 characters, and
+steering in either direction inflates it by more than twenty times.
+
+**And that is the caveat this sweep has to carry.** The pinned `generation.max_new_tokens` is
+256, and **446 of the 750 states in this sweep are at or over that ceiling**. So over much of the
+range the map being iterated is not the rewrite loop but the rewrite loop truncated, and a fixed
+point reached by filling the budget every step is a fixed point of the ceiling as much as of the
+model. Read the middle of the picture, where the states are short, and treat the wings as
+measuring the cap. Filed as `universality-sweep-zjh`.
+
+What this sweep settles is therefore narrow and worth stating plainly: at this template, this
+direction, this start, this step count and this resolution, the rewrite loop does not period
+double. It converges. Whether a finer grid, a longer run, more starts, or a knob that does not
+drive the model into the token ceiling would show anything else is the next question, and it is
+the question Rung 1 exists to ask.
+
 ## Running on the experiment host
 
 Every `uni` command accepts `--remote`. With it, this working tree, uncommitted edits
