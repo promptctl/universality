@@ -41,3 +41,11 @@ def test_turns_are_where_the_slope_changes_sign_on_the_grid_as_given():
 
     assert turns((0, 1, 2, 3, 4), (0, 2, 3, 1, 5)) == (2, 3)
     assert turns((0, 1, 2), (0, 1, 2)) == ()
+    # A top two readings wide is still a top, placed where the rise ended.
+    assert turns((0, 1, 2, 3), (0, 1, 1, 0)) == (1,)
+    assert turns((0, 1, 2, 3, 4), (3, 1, 1, 1, 2)) == (1,)
+
+
+def test_a_push_that_overflows_the_model_is_refused_rather_than_read(model, formality):
+    with pytest.raises(ModelError, match="no finite projection"):
+        response(model, PROMPT, formality, 1e38, 16)
