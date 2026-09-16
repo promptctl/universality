@@ -98,6 +98,22 @@ def test_output_the_disk_could_not_take_is_not_a_success(capsys, monkeypatch):
     assert os.strerror(errno.ENOSPC) in capsys.readouterr().err
 
 
+def test_output_that_could_not_be_delivered_does_not_outrank_an_answer(monkeypatch):
+    # A sweep come up short whose count line never arrived is still a sweep come up short: a resume
+    # loop switching on 79 must see 79, not the disk's 74 or the pipe's 141.
+    monkeypatch.setattr("uni.cli.run", lambda *_: EXIT_INCOMPLETE)
+    monkeypatch.setattr(sys, "stdout", Full())
+    assert command(["host"]) == EXIT_INCOMPLETE
+
+
+def test_a_stdout_closed_before_the_run_is_output_to_nowhere(tmp_path):
+    # `uni host >&-`: Python hands such a process a stdout of None, which print tolerates and
+    # nothing else did - this left with a traceback and exit 1, which is EXIT_DIVERGED.
+    command = [sys.executable, "-c", "from uni.cli import entry; entry()", "host"]
+    ran = subprocess.run(command, cwd=tmp_path, preexec_fn=lambda: os.close(1), stderr=subprocess.PIPE, text=True)
+    assert (ran.returncode, ran.stderr) == (0, "")
+
+
 def test_each_way_a_run_can_end_has_its_own_code():
     # [LAW:one-source-of-truth] one number per answer, or a reader switching on the code - which is
     # what an unattended run does - cannot tell two of them apart. This is the check that would

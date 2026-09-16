@@ -625,10 +625,14 @@ def main(argv: Sequence[str], env: Mapping[str, str], cwd: Path) -> int:
     """
     try:
         code = run(argv, env, cwd)
-        # The last of the output is written here rather than left to interpreter exit, which
-        # answers a failure to deliver it with exit 120 and a message nobody asked for. Here it
-        # is a write like every other, so a full disk under `> file` is EXIT_IO.
-        sys.stdout.flush()
+        # The last of a successful run's output is written here rather than left to interpreter
+        # exit, which answers a failure to deliver it with exit 120. For a success the output is the
+        # answer, so output that never arrived is a full disk's EXIT_IO or a closed pipe's
+        # EXIT_PIPE. A run that already has another answer keeps it: a diverged gate or a sweep
+        # come up short outranks a report nobody received, as what ended a run outranks how far it
+        # got, and `entry` sees to what could not be delivered.
+        if code == 0:
+            sys.stdout.flush()
         return code
     except ConfigError as error:
         say(str(error))
@@ -647,6 +651,12 @@ def main(argv: Sequence[str], env: Mapping[str, str], cwd: Path) -> int:
 
 
 def entry() -> None:
+    # A stream closed before this process started (`uni host >&-`) is None to Python. print
+    # tolerates that and nothing else here does, so it becomes what the caller asked for - a
+    # stream to nowhere - once, here, and every write past this line has a stream to write to.
+    # [LAW:parse-dont-validate]
+    sys.stdout = sys.stdout or open(os.devnull, "w")
+    sys.stderr = sys.stderr or open(os.devnull, "w")
     try:
         sys.exit(main(sys.argv[1:], os.environ, Path.cwd()))
     except Exception:
