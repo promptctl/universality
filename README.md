@@ -583,7 +583,33 @@ steps of 0.02, 0.05 and 0.1. A four-decimal state makes the slope uncertain by 0
 changes by 0.25 per unit of gain there, so mu_1 = 13.59 +- 0.02. It never passes through +1: the
 fixed point is not born or destroyed on this range, only destabilised.
 
-FLIP_SWEEP_PARAGRAPH
+The orbits split where that slope says they should. Swept across it from two starts, beside the
+fixed point (-1.5000) and at the top of the hump (-8.5000):
+
+    uv run uni sweep --map response --template rewrite --knob formality \
+        --text "The meeting moved to Thursday because the room was booked." \
+        --layer 23 --grid 10:17:141 --start=-1.5000 --start=-8.5000 --steps 400
+    uv run uni plot sweeps/919bbadcb5408a3a --observable x --burn-in 200
+
+![orbit diagram of the response map over gain 10 to 17](figures/919bbadcb5408a3a-x-burn200-orbit.png)
+
+From beside the fixed point, the orbit settles on it up to gain 13.35. From 13.65 on it alternates
+between two pushes either side of where the fixed point was: -1.63 and -1.41 at gain 13.7, -1.74
+and -1.27 at 14, -1.93 and -0.91 at 15. The gap between them grows as the square root of the
+distance past the flip, which is how a period-2 orbit born in a flip grows: the gap squared is a
+straight line in the gain, 0.62 per unit with an rms of 0.006 from 13.65 to 14.5. Fitted from 13.65
+to 13.8 or to 14.0 that line reaches zero at 13.61, which drifts up to 13.63 as the fit is taken
+out to 14.5, where the next order starts to show. The slope put the flip at 13.59 +- 0.02. The
+cells at 13.4 to 13.6 hold gaps of 0.001 to 0.03, orbits still creeping toward a fixed point
+whose slope is nearly -1 after 200 steps, and gaps under 0.001 elsewhere are the flicker described
+above.
+
+Between 15.15 and 15.2 that small orbit is gone, and both starts land on a period-5 orbit 150 wide,
+from -126 to 27, each of whose five points splits in two between 16.6 and 16.8. From the top of
+the hump, below gain 11.45, the orbit mostly reaches a large orbit of its own rather than the fixed
+point: period 3, near 12, -5 and -52, doubled to period 6 by 10.6 and repeating nothing within
+200 steps by 11.1. At 13.15, 13.35 to 13.45 and 14.75 it reaches other large orbits too, which are
+the stray columns in the picture.
 
 That flip is not the first thing this loop does, though. Swept from 1.5 to 6 from two starts, the
 top of the hump (-8.5000) and zero:
