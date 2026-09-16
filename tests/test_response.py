@@ -103,6 +103,6 @@ def test_one_layer_is_drawn_with_no_key_for_the_one_shade(model, monkeypatch, tm
     monkeypatch.setattr("uni.model.Model", lambda pinned: model)
     monkeypatch.setattr("uni.draw.scatter", lambda picture, path: drawn.append(picture) or path)
     for layers in (["--layer", "23"], ["--layer", "16", "--layer", "23"]):
-        argv = ["response", "--template", "rewrite", "--knob", "formality", "--start", "a", "--grid", "0:0:1", "--out", str(tmp_path), *layers]
+        argv = ["response", "--template", "rewrite", "--knob", "formality", "--start", "a", "--grid", "0:0:1", "--out", str(tmp_path), "--curves", str(tmp_path), *layers]
         assert main(argv, {}, Path.cwd()) == 0
     assert [picture.shade_label for picture in drawn] == [None, "layer"]

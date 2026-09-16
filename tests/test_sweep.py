@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from uni.cli import EXIT_CONFIG, EXIT_INCOMPLETE, Kind, logistic_value, main
+from uni.cli import EXIT_CONFIG, EXIT_INCOMPLETE, MAPS, Kind, main
 from uni.loop import read_trajectory, trajectory_name
 from uni.maps import LOGISTIC, Logistic, MapError
 from uni.sweep import MANIFEST, Failed, Sweep, SweepError, grid, pending, read_sweep, run_cell, write_sweep
@@ -317,7 +317,7 @@ def test_a_cell_that_would_write_a_file_this_sweep_cannot_find_stops_it(capsys, 
     # never stop naming the cell and every rerun would run it again, for ever.
     monkeypatch.setattr("uni.cli.SWEEPS", tmp_path)
     everywhere = {value: drifting for value in grid("3.2:3.5:4")}
-    monkeypatch.setitem(main.__globals__["MAPS"], "drifting", Kind(lambda args, values: Assorted(everywhere), logistic_value))
+    monkeypatch.setitem(main.__globals__["MAPS"], "drifting", Kind(lambda args, values: Assorted(everywhere), MAPS["logistic"].value))
     argv = ["sweep", "--map", "drifting", "--grid", "3.2:3.5:4", "--start", "0.5", "--steps", "6"]
     assert command(argv) == EXIT_CONFIG
     printed = capsys.readouterr()
@@ -436,7 +436,7 @@ def test_a_sweep_with_nothing_left_asks_the_map_to_hold_no_start(tmp_path, monke
             return Logistic(value)
 
     monkeypatch.setattr("uni.cli.SWEEPS", tmp_path)
-    monkeypatch.setitem(main.__globals__["MAPS"], "watchful", Kind(lambda args, values: Watchful(), logistic_value))
+    monkeypatch.setitem(main.__globals__["MAPS"], "watchful", Kind(lambda args, values: Watchful(), MAPS["logistic"].value))
     argv = ["sweep", "--map", "watchful", "--grid", "3.2:3.5:4", "--start", "0.5", "--steps", "6"]
     assert command(argv) == 0
     assert asked == [("0.5",)]
@@ -480,7 +480,7 @@ def outgrows(after):
 def four_cells(tmp_path, monkeypatch, family):
     """The four-cell logistic sweep, run through a family handed in, and the command that runs it."""
     monkeypatch.setattr("uni.cli.SWEEPS", tmp_path)
-    monkeypatch.setitem(main.__globals__["MAPS"], "assorted", Kind(lambda args, values: family, logistic_value))
+    monkeypatch.setitem(main.__globals__["MAPS"], "assorted", Kind(lambda args, values: family, MAPS["logistic"].value))
     return ["sweep", "--map", "assorted", "--grid", "3.2:3.5:4", "--start", "0.5", "--steps", "6"]
 
 
@@ -536,7 +536,7 @@ def test_a_cell_that_could_not_run_is_run_again_by_the_next_run(tmp_path, monkey
     assert command(argv) == EXIT_INCOMPLETE
     (home,) = tmp_path.iterdir()
     assert len(cells(home)) == 3
-    monkeypatch.setitem(main.__globals__["MAPS"], "assorted", Kind(lambda args, vals: Assorted(), logistic_value))
+    monkeypatch.setitem(main.__globals__["MAPS"], "assorted", Kind(lambda args, vals: Assorted(), MAPS["logistic"].value))
     assert command(argv) == 0
     assert len(cells(home)) == 4
     assert read_trajectory(home / trajectory_name(LOGISTIC, values[1], "0.5", 6)).value == values[1]

@@ -15,6 +15,7 @@ if TYPE_CHECKING:  # a family reads its own checkpoint; everything else here is 
     from uni.loop import Map
     from uni.model import Model, ResidualAdd
     from uni.pinned import Pinned
+    from uni.smooth import Series
     from uni.steer import Steer
 
 
@@ -403,6 +404,77 @@ class ResponseMap:
         return response_text(self.gain * answer / family.steer.direction.squared_length, family.decimals)
 
 
+def smooth_state(state: str) -> float:
+    """The push a smooth map's state names: a float, spelled as its own shortest text, as a logistic state is."""
+    try:
+        push = float(state)
+    except ValueError as error:
+        raise MapError(f"a smooth map's state is a push, a number, got {state!r}") from error
+    if not math.isfinite(push):
+        raise MapError(f"a smooth map's state is a finite push, got {state!r}")
+    # Every bit kept, where the response map keeps four or six decimals: the series is float64 all
+    # the way through and has no roughness for the bits below that to be lost in.
+    if repr(push) != state:
+        raise MapError(f"a smooth map's state is the shortest text that reads back as its push: write {repr(push)}, not {state!r}")
+    return push
+
+
+@dataclass(frozen=True)
+class SmoothFamily:
+    """x -> gain * C(x) / |v|^2, where C is a series fitted to the response map's answers, with the gain still to come.
+
+    The response map with the model replaced by what the model's curve is, fitted smooth: the same
+    division by the squared length, so a gain here is the gain there.
+    """
+
+    curve: str  # the name of the curve fitted, which is its content
+    layer: int
+    degree: int
+    series: Series
+    squared_length: float
+
+    @property
+    def spec(self) -> dict[str, Any]:
+        # The coefficients are not recorded: they are the fit's to recompute from the curve and the
+        # degree, and a copy of them is a second account of the map free to disagree with the first.
+        return {"kind": "smooth", "curve": self.curve, "layer": self.layer, "degree": self.degree}
+
+    def admit(self, push: float) -> None:
+        """Refuse a push outside the curve's samples. [LAW:single-enforcer] a start and every step are refused by this."""
+        # [LAW:no-silent-failure] past the last push it was fitted to, a series grows as its highest
+        # power does, and an orbit that wandered there would be a cascade of that and not the model's.
+        if not self.series.low <= push <= self.series.high:
+            raise MapError(f"a push of {push!r} lies outside the curve's pushes, {self.series.low:g} to {self.series.high:g}, and a series says nothing past the readings it was fitted to")
+
+    def holds(self, states: Sequence[str]) -> None:
+        for state in states:
+            self.admit(smooth_state(state))
+
+    def at(self, value: float) -> Map:
+        return SmoothMap(self, value)
+
+
+@dataclass(frozen=True)
+class SmoothMap:
+    """x -> gain * C(x) / |v|^2 at one gain."""
+
+    family: SmoothFamily
+    gain: float
+
+    @property
+    def value(self) -> float:
+        return self.gain
+
+    @property
+    def spec(self) -> dict[str, Any]:
+        return self.family.spec
+
+    def step(self, state: str) -> str:
+        push = smooth_state(state)
+        self.family.admit(push)
+        return repr(self.gain * self.family.series.at(push) / self.family.squared_length)
+
+
 @dataclass(frozen=True)
 class Numbers:
     """How a map whose states are numbers reads a state as its number, and writes a number as the state it would be."""
@@ -428,4 +500,5 @@ def response_numbers(spec: Mapping[str, Any]) -> Numbers:
 NUMBERS: Mapping[str, Callable[[Mapping[str, Any]], Numbers]] = {
     "logistic": lambda spec: Numbers(logistic_state, repr),
     "response": response_numbers,
+    "smooth": lambda spec: Numbers(smooth_state, repr),
 }
