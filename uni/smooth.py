@@ -15,6 +15,7 @@ import json
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
+from functools import cached_property
 
 from uni.curve import Curve
 from uni.parse import ConfigError
@@ -36,6 +37,16 @@ class Series:
     def name(self) -> str:
         """The series' content, hashed, as a curve's name is: the fit's last bits can differ from one numpy build to the next, and a map is the series it runs."""
         return hashlib.sha256(json.dumps([self.low, self.high, self.coefficients]).encode()).hexdigest()[:16]
+
+    @cached_property
+    def slope(self) -> Series:
+        """The series' derivative in x, a series over the same pushes: c'_(k-1) = c'_(k+1) + 2k c_k, halved at k = 1, and 2 / (high - low) for u's stretch."""
+        derived = [0.0] * (len(self.coefficients) + 1)
+        for k in range(len(self.coefficients) - 1, 0, -1):
+            derived[k - 1] = derived[k + 1] + 2 * k * self.coefficients[k]
+        derived[0] /= 2
+        stretch = 2 / (self.high - self.low)
+        return Series(self.low, self.high, tuple(coefficient * stretch for coefficient in derived[: max(len(self.coefficients) - 1, 1)]))
 
     def at(self, x: float) -> float:
         """The series at x, by Clenshaw's recurrence: plain floats, so a state written from it is a float's own spelling."""
