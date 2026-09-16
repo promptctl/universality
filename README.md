@@ -132,8 +132,9 @@ There are three things the detector can say, and only one of them carries a numb
 - `period P, entered at step N` — the orbit came back and kept coming back for the rest of
   the data. Step 0 is the start, as `uni loop` prints it, so `N` also says how long the
   transient was.
-- `no period: N steps examined and no state repeated` — nothing came back. Any period this
-  run has is longer than what was looked at, and the detector will not guess it.
+- `no period: N steps examined and no state repeated, so any period is at least N` — nothing
+  came back. At least, not longer: showing a period of P takes P + 1 states, so a window of N
+  that shows no repeat leaves a period of exactly N standing. The detector will not guess which.
 - `the state at step N came back P steps later, but step M is not the state P steps before it`
   — the orbit came back and then left the cycle, naming the step that broke it. That cannot
   happen to a map that is a function of its state, so it is reported as its own answer rather

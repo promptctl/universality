@@ -13,7 +13,7 @@ from typing import Protocol
 
 from uni.loop import Trajectory
 from uni.model import Model, ModelError, ResidualAdd
-from uni.parse import ConfigError, field
+from uni.parse import ConfigError, field, nullable
 from uni.pinned import Pinned
 from uni.steer import Direction, Steer, read_direction
 from uni.template import Template, TemplateError, parse_template
@@ -126,9 +126,11 @@ def steering_directions(trajectory: Trajectory, pinned: Pinned) -> tuple[Directi
     """Every direction that steered this run, which is none for an unsteered one."""
     # [LAW:dataflow-not-control-flow] a collection, so a caller building observables iterates
     # rather than asking whether there is a direction at all.
-    if trajectory.map.get("knob") is None:
+    # [LAW:no-silent-failure] null is how an unsteered run is recorded; a file that has lost the
+    # field records nothing, and reading it as unsteered scores a steered orbit on a flat model.
+    knob = nullable(trajectory.map, "knob", dict, ObserveError)
+    if knob is None:
         return ()
-    knob = field(trajectory.map, "knob", dict, ObserveError)
     direction = read_direction(field(knob, "direction", str, ObserveError), pinned)
     # [LAW:no-silent-failure] projecting onto a direction that is not the one that steered the
     # run would answer the question asked, in the wrong units, and look exactly like an answer.

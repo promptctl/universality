@@ -85,6 +85,11 @@ class Model:
             return self.tokenizer.apply_chat_template(turns, return_dict=True, return_tensors="pt")["input_ids"].to(self.device)
 
         ids, empty, prefix = chat(reply), chat(""), self.encode(prompt)
+        # A reply generated against a prompt that nearly fills the context is a reply the model
+        # can write and cannot then be shown its own transcript of: the closing tokens this adds
+        # push the two past the limit together. [LAW:single-enforcer] the one place that knows.
+        if ids.shape[1] > self.context_limit:
+            raise ModelError(f"prompt and reply are {ids.shape[1]} tokens together; the context limit of {self.context_limit} cannot hold them")
         # What the template puts after an empty reply is what closes every reply, such as <|im_end|>.
         start = prefix.shape[1]
         closing = empty[:, start:]
@@ -125,7 +130,12 @@ class Model:
         with self._residual(additions):
             out = self.model(input_ids=ids, logits_to_keep=ids.shape[1] - span.start + 1)
         logp = torch.log_softmax(out.logits[0, : span.stop - span.start].float(), dim=-1)
-        return float(logp.gather(1, ids[0, span].unsqueeze(1)).mean())
+        mean = float(logp.gather(1, ids[0, span].unsqueeze(1)).mean())
+        # [LAW:no-silent-failure] as in generate, and for the same reason: printed in a column of
+        # six-decimal numbers, a nan out of overflowed additions reads as one more reading.
+        if not math.isfinite(mean):
+            raise ModelError("the reply has no finite log-probability; the residual additions overflow this model's arithmetic")
+        return mean
 
     @torch.inference_mode()
     def generate(self, prompt: str, additions: Sequence[ResidualAdd] = ()) -> Generation:

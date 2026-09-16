@@ -89,6 +89,14 @@ def test_an_unsteered_run_has_no_direction_to_project_onto():
     assert steering_directions(Trajectory(spec(), 0.0, "a", ()), load_pinned()) == ()
 
 
+def test_a_trajectory_that_has_lost_its_knob_is_not_read_as_unsteered(formality):
+    # Recorded null, an unsteered run says so. With the field gone the file says nothing, and
+    # reading that as nothing-was-turned scores a steered orbit on a model that was not turned.
+    lost = {key: value for key, value in spec().items() if key != "knob"}
+    with pytest.raises(ObserveError, match="knob is missing"):
+        steering_directions(Trajectory(lost, 0.0, "a", ()), load_pinned())
+
+
 def test_a_steered_run_hands_back_the_direction_that_steered_it(formality):
     knob = Steer(formality).turn(2.0).spec
     assert steering_directions(Trajectory(spec(knob=knob), 2.0, "a", ()), load_pinned()) == (formality,)

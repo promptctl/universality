@@ -23,7 +23,12 @@ class Cycle:
 
 @dataclass(frozen=True)
 class NoCycle:
-    """No state repeated. Every period this run could have shown is longer than what was looked at."""
+    """No state repeated, so any period is at least as long as what was looked at.
+
+    At least, and not longer: showing a period of P takes P + 1 states, the one that opens the
+    cycle and the one that closes it, so N states without a repeat leave a period of exactly N
+    standing as much as any longer one.
+    """
 
     examined: int
 

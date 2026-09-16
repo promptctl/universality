@@ -2,6 +2,7 @@
 
 import pytest
 
+from uni.cli import verdict
 from uni.period import Contradiction, Cycle, NoCycle, detect
 
 
@@ -53,6 +54,12 @@ def test_the_burn_in_is_not_searched():
 def test_a_repeat_that_straddles_the_burn_in_is_not_a_repeat():
     # 'abc' appears twice, but only the second is looked at, so nothing has come back.
     assert detect("abcabc", burn_in=3) == NoCycle(examined=3)
+
+
+def test_a_window_that_shows_no_repeat_leaves_a_period_its_own_length_standing():
+    # Showing a period of 3 takes 4 states, so these 3 rule out nothing at all: the orbit they
+    # come from has period 3 exactly. The sentence the command prints has to say "at least".
+    assert "at least 3" in verdict(detect("abcabc", burn_in=3))
 
 
 def test_a_burn_in_past_the_end_examines_nothing():

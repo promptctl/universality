@@ -185,7 +185,9 @@ def verdict(period: Period) -> str:
         case Cycle(length=length, onset=onset):
             return f"period {length}, entered at step {onset}"
         case NoCycle(examined=examined):
-            return f"no period: {examined} steps examined and no state repeated, so any period is longer than that"
+            # At least: showing a period of P takes P + 1 states, so a window of N that shows no
+            # repeat leaves a period of exactly N standing. Claiming "longer" would rule it out.
+            return f"no period: {examined} steps examined and no state repeated, so any period is at least {examined}"
         case Contradiction(onset=onset, length=length, step=step):
             return (
                 f"the state at step {onset} came back {length} steps later, but step {step} is not the state "
@@ -216,7 +218,7 @@ def run_observe(args: argparse.Namespace) -> int:
     # The period is read off the states alone, so it is printed before the checkpoint is even
     # loaded: it is the answer, the rows below are the evidence, and no step that cannot be
     # scored can take it away.
-    print(verdict(detect(orbit, args.burn_in)))
+    print(verdict(detect(orbit, args.burn_in)), flush=True)  # a --remote run's stdout is a pipe, not a terminal
     print()
     model = Model(pinned)
     observables = (
@@ -224,7 +226,7 @@ def run_observe(args: argparse.Namespace) -> int:
         Logprob(model, template, steering_additions(directions, trajectory.value)),
         *(Projection(model, template, direction) for direction in directions),
     )
-    print(f"{'step':>4}  {'state':>5}" + "".join(f"  {observable.name:>16}" for observable in observables))
+    print(f"{'step':>4}  {'state':>5}" + "".join(f"  {observable.name:>16}" for observable in observables), flush=True)
     # The start was given rather than stepped into, so no observable of a step has a reading for
     # it; its row is printed anyway, so the identity column reads as the orbit and every step the
     # verdict can name is one the table shows.
