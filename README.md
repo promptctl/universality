@@ -290,7 +290,17 @@ coefficient.
 
     uv run uni sweep --remote --map model --template rewrite --knob formality \
         --grid=-6:6:25 --start "The meeting moved to Thursday because the room was booked." --steps 30
+    rsync --archive "$UNI_REMOTE_USER@$UNI_REMOTE_HOST:$UNI_REMOTE_DIR/sweeps/1a8fce648065056f/" \
+        sweeps/1a8fce648065056f/
     uv run uni plot sweeps/1a8fce648065056f --observable along:formality --burn-in 10
+
+The middle line is not decoration. The sweep ran on the host and its cells stay there - `sweeps/`
+is excluded from the sync, and the sync has no leg coming back - so the directory has to be
+brought home before anything here can draw it. Plotting is a local command by design: a figure
+is an output this repo commits, and drawing one on the host puts it where no commit can reach
+it, which is also why `figures/` is excluded from the sync rather than deleted by it. The
+sweep's name is the same on both machines, because it is the hash of what the sweep is. There
+is no `uni fetch` doing this for you yet; it is filed as `universality-remote-lhh`.
 
 ![orbit diagram of the rewrite loop along the formality direction](figures/1a8fce648065056f-along-formality-orbit.png)
 

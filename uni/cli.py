@@ -364,15 +364,21 @@ def run_plot(args: argparse.Namespace) -> int:
     # this is. [LAW:one-source-of-truth]
     sweep = read_sweep(args.sweep / MANIFEST)
     series = read(sweep, args.sweep, args.observable, args.burn_in)
-    # [LAW:no-silent-failure] an empty picture is a file that looks like an answer. A sweep that
-    # has run nothing yet, and a manifest sitting in some other sweep's directory, both land here.
-    if not any(one.numbers for one in series):
+    pictures = {"return": return_map(series, args.observable), "orbit": orbit_diagram(series, args.observable)}
+    # [LAW:no-silent-failure] an empty picture is a file that looks like an answer, so it is the
+    # pictures that are checked and not the readings behind them: the return map needs two
+    # readings out of one cell where the orbit diagram needs one, so a burn-in leaving exactly one
+    # step draws a full orbit diagram beside a blank return map. Both are made before either is
+    # written, so a sweep that can only answer for one of them leaves neither behind.
+    bare = [kind for kind, picture in pictures.items() if not picture.points]
+    if bare:
         raise PlotError(
-            f"{args.sweep} holds no readings to draw: {len(series)} of "
-            f"{len(sweep.values) * len(sweep.starts)} cells are on disk, and --burn-in "
-            f"{args.burn_in} leaves nothing of them"
+            f"nothing to draw the {' and '.join(bare)} map of: {len(series)} of "
+            f"{len(sweep.values) * len(sweep.starts)} cells are on disk, and --burn-in {args.burn_in} "
+            f"leaves {sum(len(one.numbers) for one in series)} readings across them - a return map "
+            "needs two from one cell, an orbit diagram one"
         )
-    for kind, picture in (("return", return_map(series, args.observable)), ("orbit", orbit_diagram(series, args.observable))):
+    for kind, picture in pictures.items():
         # Named for the sweep and what was read off it, so two sweeps and two observables are four
         # files rather than one overwritten four times.
         stem = f"{args.sweep.name}-{args.observable.replace(':', '-')}-{kind}"

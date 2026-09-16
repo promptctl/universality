@@ -92,14 +92,15 @@ def test_tracked_files_carry_no_host_identity():
     assert [(path, *leak) for path, text in tracked_text().items() for leak in leaks_in(text)] == []
 
 
-def test_a_figure_is_not_read_as_text_and_does_not_invent_leaks():
-    # This repo commits PNGs, and compressed image bytes hold user-at-host shapes by the hundred.
-    # The
-    # guard must be about what it says it is about, or the first committed picture turns it off.
-    figures = [path for path in tracked_files() if path.endswith(".png")]
-    assert figures, "this test is about committed figures and there are none to check"
-    assert not any(path in tracked_text() for path in figures)
-    assert all(path in tracked_bytes() for path in figures)  # still read, still checked for values
+def test_what_the_text_scan_skips_is_exactly_the_committed_figures():
+    # Skipping is how the guard stays about what it says it is about: compressed image bytes hold
+    # user-at-host shapes by the hundred, so the first committed picture would otherwise turn it
+    # off with ninety-six leaks that are not there. But a skip nothing names is a skip nobody
+    # notices, so what got skipped is asserted rather than trusted - a new file this scan cannot
+    # read fails here until someone has looked at it. [LAW:no-silent-failure]
+    skipped = set(tracked_files()) - set(tracked_text())
+    assert skipped == {path for path in tracked_files() if path.endswith(".png")}
+    assert skipped <= set(tracked_bytes())  # and every one of them is still read for a real value
 
 
 def test_tracked_files_carry_no_value_from_the_real_env():

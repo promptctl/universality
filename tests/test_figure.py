@@ -129,13 +129,28 @@ def test_a_sweep_of_fixed_points_renders_a_line(tmp_path, monkeypatch):
 
 
 def test_a_sweep_with_nothing_settled_is_refused_rather_than_drawn_empty(tmp_path, monkeypatch, capsys):
-    # An empty figure is a file that looks like an answer. The count in the message is what tells
+    # An empty figure is a file that looks like an answer. The counts in the message are what tell
     # a burn-in that ate everything apart from a sweep that has not run yet.
     _, home = sweep(tmp_path, monkeypatch, steps=8)
     out = tmp_path / "figures"
     assert command(["plot", str(home), "--observable", "x", "--burn-in", "99", "--out", str(out)]) == EXIT_CONFIG
-    assert "holds no readings to draw" in capsys.readouterr().err
+    printed = capsys.readouterr().err
+    assert "nothing to draw the return and orbit map of" in printed
+    assert "4 of 4 cells are on disk" in printed and "leaves 0 readings" in printed
     assert not out.exists()  # and writes nothing on the way to saying so
+
+
+def test_a_burn_in_that_leaves_one_step_refuses_both_rather_than_drawing_a_blank_return_map(tmp_path, monkeypatch, capsys):
+    # The return map is the strict half: it pairs each reading with the one after it, so a cell
+    # that can show only one reading has no pair. The orbit diagram of the same sweep is fine,
+    # which is exactly how a blank figure gets written beside a good one and exits 0.
+    _, home = sweep(tmp_path, monkeypatch, steps=6)
+    out = tmp_path / "figures"
+    assert command(["plot", str(home), "--observable", "x", "--burn-in", "5", "--out", str(out)]) == EXIT_CONFIG
+    printed = capsys.readouterr().err
+    assert "nothing to draw the return map of" in printed
+    assert "a return map needs two from one cell, an orbit diagram one" in printed
+    assert not out.exists()  # neither picture is written when only one of them can be
 
 
 def test_a_directory_that_holds_no_sweep_is_refused(tmp_path, monkeypatch, capsys):
