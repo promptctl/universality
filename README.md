@@ -1075,6 +1075,11 @@ Every `uni` command accepts `--remote`. With it, this working tree, uncommitted 
 included, is mirrored to a host with rsync and the same command runs there over ssh,
 streaming its output back. Without it, the command runs here.
 
+`uni temperature` writes its curves into this checkout, so on the host the directory it wrote
+them into comes back once it succeeds, beside the curves already here: each file is named by its
+own content, so nothing here is overwritten. `uni plot` and `uni response` write figures, which do
+not come back, and are refused with `--remote`.
+
 The host is described only by three variables, read from a gitignored `.env` at the
 repo root. Copy the example and fill it in:
 

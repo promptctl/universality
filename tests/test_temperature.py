@@ -105,14 +105,6 @@ def test_a_run_writes_each_temperature_s_means_and_spreads_as_curves(model, monk
         assert (described["temperature"], described["reading"], described["start"]) == (temperature, "spread", TEXT)
 
 
-def test_temperature_is_refused_on_the_host_whose_curves_would_not_come_back(capsys):
-    from uni.cli import EXIT_CONFIG, main
-
-    argv = ["--remote", "temperature", "--template", "rewrite", "--knob", "formality", "--start", "a", "--grid", "0:0:1", "--layer", "23", "--temperature", "1"]
-    assert main(argv, {}, Path.cwd()) == EXIT_CONFIG
-    assert "temperature writes a file into this checkout, so it runs here, not on the host" in capsys.readouterr().err
-
-
 def test_a_drawn_token_s_answer_is_one_the_draw_could_give_and_the_key_fixes_which(model, formality, read):
     from uni.temperature import sampled
 

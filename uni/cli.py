@@ -22,7 +22,7 @@ from dotenv import dotenv_values
 from uni.determinism import RUNS
 from uni.parse import ConfigError
 from uni.period import Contradiction, Cycle, NoCycle, Period
-from uni.remote import RemoteConfigError, remote_target_from_env, run_remote
+from uni.remote import RemoteConfigError, remote_target_from_env, returned_dir, run_remote
 from uni.template import Template, TemplateError, load_templates
 
 if TYPE_CHECKING:
@@ -993,7 +993,15 @@ def checkout_root(cwd: Path) -> Path:
 HERE = {
     "plot": "bring the sweep home first (see the README) and run it without --remote",
     "response": "run it without --remote; the table it prints travels back, the figure and the curves it writes would not",
-    "temperature": "run it without --remote; the table it prints travels back, the curves it writes would not",
+}
+
+# The commands run on the host whose answer is files of their own naming, in a directory the command
+# is told: that directory comes back once the command succeeds. Read off the parsed command, which
+# HERE cannot be, and so only for commands whose converters import nothing heavy. A figure would not
+# come back this way: it is named by what drew it and not by its bytes, and the one here would be
+# overwritten by the host's.
+RETURNED: Mapping[str, Callable[[argparse.Namespace], Path]] = {
+    "temperature": lambda args: args.curves,
 }
 
 
@@ -1021,10 +1029,13 @@ def run(argv: Sequence[str], env: Mapping[str, str], cwd: Path) -> int:
     if not remote:
         args = build_parser().parse_args(rest)
         return args.run(args)
+    # Parsed before anything is synced or run, so a directory that could not come back is refused
+    # before an hour of the host's work is spent writing into it.
+    returned = (returned_dir(RETURNED[rest[0]](build_parser().parse_args(rest))),) if rest and rest[0] in RETURNED else ()
     tree = checkout_root(cwd)
     # The checkout's .env, under the real environment: a set variable wins over the file.
     dotenv = {k: v for k, v in dotenv_values(tree / ".env").items() if v is not None}
-    return run_remote(remote_target_from_env({**dotenv, **env}), rest, tree)
+    return run_remote(remote_target_from_env({**dotenv, **env}), rest, tree, returned)
 
 
 def say(message: str) -> None:

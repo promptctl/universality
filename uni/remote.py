@@ -21,6 +21,9 @@ VARIABLES = ("UNI_REMOTE_HOST", "UNI_REMOTE_USER", "UNI_REMOTE_DIR")
 # Plain characters only, so the path needs no quoting on either side of ssh: rsync
 # versions disagree about whether the remote shell re-splits it.
 REMOTE_DIR = re.compile(r"/[\w./-]+")
+# A directory a command writes into, named from the checkout's root: plain for the same reason, and
+# never climbing out of the checkout at either end.
+RETURNED_DIR = re.compile(r"(?!.*(?:^|/)\.\.(?:/|$))[\w.-]+(?:/[\w.-]+)*")
 
 # What git ignores stays home (rsync reads .gitignore itself; negated patterns are not
 # understood). .git is not needed to run and .env holds the host's identity. .venv, trajectories/,
@@ -100,12 +103,34 @@ def run_command(target: RemoteTarget, argv: Sequence[str]) -> list[str]:
     return ["ssh", target.ssh_target, remote]
 
 
-def run_remote(target: RemoteTarget, argv: Sequence[str], tree: Path) -> int:
-    """Sync `tree` to the host and run `uni argv` there, streaming its output here.
+def returned_dir(directory: Path) -> Path:
+    """A directory a command run on the host writes into, as one the fetch can name at both ends, or a refusal."""
+    if not RETURNED_DIR.fullmatch(str(directory)):
+        raise RemoteConfigError(
+            f"a directory the host writes into comes back into the same place in this checkout, so it is named from the checkout's root in letters, digits, '.', '_', '-' and '/', without '..'; got {str(directory)!r}"
+        )
+    return directory
 
-    Returns the exit code of the first step that fails, else the remote command's.
+
+def fetch_command(target: RemoteTarget, tree: Path, directory: Path) -> list[str]:
+    # The files come back beside the ones already here and never over them, and nothing here is
+    # deleted: what returns is named by its own content, so a name already here is those bytes.
+    return [
+        "rsync",
+        "--archive",
+        "--ignore-existing",
+        f"{target.ssh_target}:{target.dir}/{directory}/",
+        f"{tree}/{directory}/",
+    ]
+
+
+def run_remote(target: RemoteTarget, argv: Sequence[str], tree: Path, returned: Sequence[Path] = ()) -> int:
+    """Sync `tree` to the host, run `uni argv` there streaming its output here, and bring back each of the `returned` directories it wrote into.
+
+    Returns the exit code of the first step that fails, else the remote command's. A command that
+    failed brings nothing back.
     """
-    for command in (sync_command(target, tree), run_command(target, argv)):
+    for command in (sync_command(target, tree), run_command(target, argv), *(fetch_command(target, tree, directory) for directory in returned)):
         # [LAW:no-silent-failure] ssh and rsync speak for themselves on stderr; stop at the first miss.
         returncode = subprocess.run(command).returncode
         # A step killed by a signal - rsync or ssh on a Ctrl-C, say - comes back as minus the
