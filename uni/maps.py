@@ -4,14 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
+from functools import cached_property
 from typing import TYPE_CHECKING, Any, Protocol
 
 from uni.parse import ConfigError
 from uni.template import Template
 
-if TYPE_CHECKING:  # the model is handed in; building one is the caller's cost
+if TYPE_CHECKING:  # a family reads its own checkpoint; everything else here is handed what it holds
     from uni.loop import Map
     from uni.model import Model, ResidualAdd
+    from uni.pinned import Pinned
 
 
 class MapError(ConfigError):
@@ -34,17 +36,24 @@ class Turned:
 class Knob(Protocol):
     """A scalar the model can be turned by. Turning is by value, so one knob serves a whole sweep."""
 
+    @property
+    def spec(self) -> Mapping[str, Any] | None:
+        """What this knob is. Its setting does not change it, so a sweep can name it unturned."""
+        ...
+
     def turn(self, value: float) -> Turned: ...
 
 
 class NoKnob:
     """The model unturned. A value has nothing to turn here, so only zero is a truthful one."""
 
+    spec = None  # a recorded nothing, which a reader tells apart from a file that lost the field
+
     def turn(self, value: float) -> Turned:
         # [LAW:no-silent-failure] a trajectory recording a value nothing applied reads back as a steering run.
         if value:
             raise KnobError(f"there is no knob to turn, so the value must be 0, got {value}")
-        return Turned(value, None, ())
+        return Turned(value, self.spec, ())
 
 
 class Family(Protocol):
@@ -56,9 +65,34 @@ class Family(Protocol):
     cell. [LAW:composability]
     """
 
-    def at(self, value: float) -> Map:
-        """This map with its parameter set."""
+    @property
+    def spec(self) -> Mapping[str, Any]:
+        """What every map in this family is, which the parameter does not change.
+
+        Asked of the family and not of a map at some one value off the grid, because it is the
+        family's own answer: a sweep is named by this before it runs anything, and a family that
+        had to make a map to say what it is would load a checkpoint to answer `--status`.
+        [LAW:one-source-of-truth]
+        """
         ...
+
+    def at(self, value: float) -> Map:
+        """This map with its parameter set, at exactly that value: `at(v).value == v`."""
+        ...
+
+
+def model_spec(pinned: Pinned, template: Template, knob: Mapping[str, Any] | None) -> dict[str, Any]:
+    """What a model map is, in the one form a trajectory and a sweep manifest both record.
+
+    Written here and read by both a family and the maps it makes, so a sweep cannot describe one
+    map in its manifest and another in its cells. [LAW:one-source-of-truth]
+    """
+    return {
+        "kind": "model",
+        "template": {"name": template.name, "text": template.text},
+        "pinned": asdict(pinned),
+        "knob": knob,
+    }
 
 
 @dataclass(frozen=True)
@@ -77,12 +111,7 @@ class ModelMap:
 
     @property
     def spec(self) -> dict[str, Any]:
-        return {
-            "kind": "model",
-            "template": {"name": self.template.name, "text": self.template.text},
-            "pinned": asdict(self.model.pinned),
-            "knob": self.knob.spec,
-        }
+        return model_spec(self.model.pinned, self.template, self.knob.spec)
 
     def step(self, state: str) -> str:
         # [LAW:dataflow-not-control-flow] every step adds the same additions; the unturned knob's are empty.
@@ -91,11 +120,30 @@ class ModelMap:
 
 @dataclass(frozen=True)
 class ModelFamily:
-    """The pinned model under a template, with the knob described but not yet turned."""
+    """The pinned configuration under a template, with the knob described but not yet turned.
 
-    model: Model
+    It holds what the model *is* rather than a loaded one, because a family is a description and a
+    checkpoint is a resource. `uni sweep --status` names a sweep, counts the files it already has
+    and answers; half a billion parameters are no part of that question, and on a machine with no
+    Metal loading them is not a slow answer but no answer at all. The checkpoint is read by the
+    first `at`, which is the first time anything asks for a map to actually run.
+    """
+
+    pinned: Pinned
     template: Template
     knob: Knob
+
+    @property
+    def spec(self) -> dict[str, Any]:
+        return model_spec(self.pinned, self.template, self.knob.spec)
+
+    @cached_property
+    def model(self) -> Model:
+        # Held once, so a sweep of a thousand cells reads the checkpoint once and not once a cell.
+        # Imported here rather than at the top: naming a model map must not cost torch.
+        from uni.model import Model
+
+        return Model(self.pinned)
 
     def at(self, value: float) -> Map:
         return ModelMap(self.model, self.template, self.knob.turn(value))
@@ -122,8 +170,18 @@ def logistic_state(state: str) -> float:
     return x
 
 
+# r is not in here: it is the trajectory's value, which the runner reads off `value` below, in the
+# one place a steering setting is written too. Written once for the family and for the maps it
+# makes, which have to say the same thing. [LAW:one-source-of-truth]
+LOGISTIC = {"kind": "logistic"}
+
+
 class LogisticFamily:
     """x -> r x (1 - x) with r still to come. Nothing to hold: r is the whole of this map."""
+
+    @property
+    def spec(self) -> dict[str, Any]:
+        return dict(LOGISTIC)
 
     def at(self, value: float) -> Map:
         return Logistic(value)
@@ -154,9 +212,7 @@ class Logistic:
 
     @property
     def spec(self) -> dict[str, Any]:
-        # r is not in here: it is the trajectory's value, which the runner reads off `value`
-        # above, in the one place a steering setting is written too. [LAW:one-source-of-truth]
-        return {"kind": "logistic"}
+        return dict(LOGISTIC)
 
     def step(self, state: str) -> str:
         x = logistic_state(state)

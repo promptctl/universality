@@ -177,26 +177,28 @@ def model_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
     if args.template is None:
         raise MapError("the model map reads its prompt from a template; pass --template")
     prompt = template(args.template)  # a name refused here is refused before a checkpoint is read
-    # Imported here: only this map costs torch, and `uni loop --map logistic` never reaches it.
-    from uni.model import Model
-    from uni.pinned import load_pinned
-    from uni.steer import Steer, read_direction
+    from uni.pinned import load_pinned  # torch-free: pinned.toml is a file, not a model
 
     # The knob is described here and turned per value later: a sweep turns it at every point on
     # its grid, and one `uni loop` is that same turning done exactly once.
     #
     # The two knobs differ in what they need to exist, which is the whole of this branch. The one
-    # that adds nothing needs nothing, so the values it cannot take are refused before even the
-    # pinned config is read, let alone the checkpoint: `--value 2` with no `--knob` is a run that
-    # cannot run, and saying so should not cost a model load. A direction, by contrast, has to be
-    # checked against the checkpoint it will be added to.
+    # that adds nothing needs nothing, so the values it cannot take are refused before even
+    # pinned.toml is read: `--value 2` with no `--knob` is a run that cannot run, and saying so
+    # should cost nothing at all. A direction, by contrast, has to be checked against the
+    # checkpoint it will be added to, so that branch reads the pinned config first, and it is the
+    # only one that pays torch to hold a vector.
     if args.knob in (None, "none"):
         knob = turned_at(NoKnob(), values)
         pinned = load_pinned()
     else:
         pinned = load_pinned()
+        from uni.steer import Steer, read_direction
+
         knob = turned_at(Steer(read_direction(args.knob, pinned)), values)
-    return ModelFamily(Model(pinned), prompt, knob)
+    # The pinned configuration and not a loaded model: the family reads the checkpoint when it is
+    # first asked for a map to run, so describing this sweep costs nothing.
+    return ModelFamily(pinned, prompt, knob)
 
 
 def logistic_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
@@ -208,7 +210,14 @@ def logistic_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
     for flag in MODEL_ONLY:
         if getattr(args, flag) is not None:
             raise MapError(f"--{flag} describes the model map; the logistic map's one parameter is the value, which is r")
-    return LogisticFamily()
+    family = LogisticFamily()
+    # [LAW:no-silent-failure] every value on the grid is offered to the map up front, as every
+    # value is offered to the knob above. A sweep to r = 4.2 would otherwise write its manifest,
+    # grind through a hundred and seventy cells and die on the first r the map refuses - and every
+    # resume would march to the same wall again, against a total it can never reach.
+    for value in values:
+        family.at(value)
+    return family
 
 
 def model_value(given: float | None) -> float:
@@ -236,6 +245,8 @@ class Kind:
     value that `--map` carries, the way main() carries the subcommand it was handed.
     """
 
+    # A builder is handed every value the run will use, and returns a family only if it takes all
+    # of them: a grid is refused whole, before anything is written, rather than partway through.
     build: Callable[[argparse.Namespace, Sequence[float]], Family]
     value: Callable[[float | None], float]  # a single run's parameter; a sweep's come from the grid
 
@@ -286,24 +297,37 @@ def run_sweep(args: argparse.Namespace) -> int:
     # reports that as `uni: ...` with EX_CONFIG. argparse catches only its own error type, so a
     # converter raising SweepError would reach the user as a traceback, which means a bug here.
     values = grid(args.grid)
-    # Built once for the whole grid, which is the point of a family: the checkpoint behind a
-    # model sweep is loaded once and not once a cell.
+    # Built once for the whole grid, which is the point of a family: the checkpoint behind a model
+    # sweep is read once, and not until a cell is actually run.
     family = args.map.build(args, values)
-    sweep = Sweep(family.at(values[0]).spec, values, tuple(args.start), args.steps)
-    home = write_sweep(sweep, SWEEPS)
+    sweep = Sweep(family.spec, values, tuple(args.start), args.steps)
+    home = sweep.home(SWEEPS)
     left = pending(sweep, home)
     print(f"sweep {home}")
     print(described(sweep, left), flush=True)
+    # Before the manifest is written, because --status is a question: one that left a directory
+    # behind would be an answer that had changed what it just measured, and every mistyped or
+    # exploratory query would leave an empty sweep nothing can tell from an abandoned one.
     if args.status:
         return 0
+    write_sweep(sweep, SWEEPS)
     for done, cell in enumerate(left, start=1):
         map = family.at(cell.value)
-        # [LAW:no-silent-failure] the manifest describes one map, and every cell has to be that
-        # map: a description that changed with the value would name files this sweep cannot find.
-        if map.spec != sweep.map:
-            raise SweepError(f"the map at {cell.value} describes itself differently from the one this sweep recorded")
+        # The map's own description and its own value, the way `uni loop` records them, so what
+        # the file says the orbit ran at is what it ran at. [LAW:one-source-of-truth]
         states = tuple(islice(orbit(map, cell.start), args.steps))
-        write_trajectory(Trajectory(sweep.map, cell.value, cell.start, states), home)
+        trajectory = Trajectory(map.spec, map.value, cell.start, states)
+        # [LAW:no-silent-failure] the sweep named this cell's file before running it, and
+        # resumption is that name coming true. A map that described itself differently, or that
+        # came back set to something other than what it was asked for, writes a file this sweep
+        # cannot find - and then every rerun runs the cell again, for ever, against a total that
+        # never lands.
+        if trajectory.name != cell.name:
+            raise SweepError(
+                f"the cell at {cell.value} writes {trajectory.name}, not the {cell.name} this sweep is looking for: "
+                "the map does not describe itself the same way twice"
+            )
+        write_trajectory(trajectory, home)
         print(f"{done:>5}/{len(left)}  value {cell.value:<12.6g} {cell.name}", flush=True)  # a --remote run streams through a pipe
     print(described(sweep, pending(sweep, home)))
     return 0

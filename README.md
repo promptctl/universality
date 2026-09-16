@@ -156,6 +156,11 @@ asked for rather than what the arithmetic lands near — a sweep to r = 4 is a s
 the logistic map's range, and one ulp past it is a cell the map refuses. `--start` is repeated
 once per start. Everything else means what it means for `uni loop`.
 
+A sweep runs each cell exactly once, so a grid or a set of starts that names one twice is refused
+rather than run twice into one file, and so is a grid the map cannot take — every value is offered
+to the map and to the knob before the first cell runs, because a sweep that dies two hundred cells
+in dies again on every resume.
+
 The sweep writes `sweeps/<name>/`: one trajectory per cell, in the same format `uni loop` writes
 and `uni observe` reads, beside a `sweep.json` naming the map, the values, the starts, and the
 step count. The directory is a hash of exactly those, so rerunning the same command resumes the
@@ -170,8 +175,12 @@ progress kept beside the files would be a second thing to believe, free to disag
 
     uv run uni sweep --remote --map logistic --grid 2.8:4.0:200 --start 0.5 --steps 400 --status
 
-The same command with `--status` says how many cells are done and runs none of them. A sweep is
-identified by what it is, so there is no way to ask about one you cannot describe.
+The same command with `--status` says how many cells are done and runs none of them — and writes
+nothing, not even the sweep's own directory: a question that left something behind would be an
+answer that had changed what it just measured. It costs no checkpoint either, because a map family
+holds the pinned configuration rather than a loaded model and reads the checkpoint only when a
+cell is actually run. A sweep is identified by what it is, so there is no way to ask about one you
+cannot describe.
 
 Sweeps are kept where trajectories are: written on the machine that ran them, gitignored, and
 excluded from the `--remote` sync in both directions, so each machine keeps its own.

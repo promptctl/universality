@@ -167,12 +167,18 @@ class Steer:
 
     direction: Direction
 
-    def turn(self, value: float) -> Turned:
+    @property
+    def spec(self) -> dict[str, Any]:
+        # What the knob is, which turning it does not change: the value is recorded beside this,
+        # once, and a sweep names the knob in its manifest before it has turned anything.
         contrast = self.direction.contrast
-        spec = {
+        return {
             "kind": "steer",
             "direction": contrast.name,
             "layer": contrast.layer,
             "sha256": self.direction.sha256,
         }
-        return Turned(value, spec, (ResidualAdd(contrast.layer, value * torch.tensor(self.direction.vector)),))
+
+    def turn(self, value: float) -> Turned:
+        layer = self.direction.contrast.layer
+        return Turned(value, self.spec, (ResidualAdd(layer, value * torch.tensor(self.direction.vector)),))

@@ -57,3 +57,21 @@ def test_the_command_prints_every_state_and_rewrites_the_same_file(tmp_path):
     assert path.read_bytes() == written
     assert first.splitlines()[2:12] == [f"{step:>4}  'hello'" for step in range(1, 11)]
     assert read_trajectory(path).states == ("hello",) * 10
+
+
+def test_a_family_reads_the_checkpoint_once_and_not_until_a_cell_runs(monkeypatch, templates):
+    # The claim a sweep of a thousand cells rests on: one checkpoint per family, not one per cell
+    # - and none at all for a family that is only ever asked what it is, which is what `uni sweep
+    # --status` asks. Stubbed rather than loaded, because what is under test is how many times the
+    # loading happens and not what it returns.
+    from uni.maps import ModelFamily
+    from uni.pinned import load_pinned
+
+    loaded = []
+    monkeypatch.setattr("uni.model.Model", lambda pinned: loaded.append(pinned) or "the checkpoint")
+    family = ModelFamily(load_pinned(), templates["rewrite"], NoKnob())
+    assert family.spec["pinned"]["revision"] == load_pinned().revision
+    assert loaded == []  # naming the map cost nothing
+    first, second = family.at(0.0), family.at(2.0 - 2.0)
+    assert (first.model, second.model) == ("the checkpoint", "the checkpoint")
+    assert len(loaded) == 1

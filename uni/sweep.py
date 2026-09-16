@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,12 +49,23 @@ def grid(text: str) -> tuple[float, ...]:
         first, last, count = float(parts[0]), float(parts[1]), int(parts[2])
     except ValueError as error:
         raise SweepError(f"a grid is FROM:TO:COUNT, two numbers and a whole count; got {text!r}") from error
+    # Finite for the reason `--value` is (cli.finite): nan and the infinities are not JSON, so a
+    # manifest naming one is a file only Python reads back, and nan as an r or a knob setting
+    # poisons every state after it. Refused before the ends are compared, because nan equals
+    # nothing, not even itself, and would answer the comparison below with a message that
+    # contradicts what the user typed.
+    if not (math.isfinite(first) and math.isfinite(last)):
+        raise SweepError(f"a grid runs between two finite numbers, as --value is one; got {text!r}")
     if count < 1:
         raise SweepError(f"a grid has at least one value; got {count}")
-    # [LAW:no-silent-failure] one value cannot also be a range. Taking FROM and dropping TO would
-    # run a sweep the command line says is a hundred wide and the files say is one.
+    # [LAW:no-silent-failure] the two halves of one rule: a grid names one value exactly when its
+    # ends are equal. Either half alone is a typo the run would carry in silence - FROM:TO:1 is a
+    # sweep the command line says is a range and the files say is a point, and FROM:FROM:200 is
+    # two hundred cells that are all the same cell, run and overwritten one after another.
     if count == 1 and first != last:
         raise SweepError(f"a grid of one value is a single value; write {first}:{first}:1, not {text!r}")
+    if count > 1 and first == last:
+        raise SweepError(f"a grid from {first} to {last} holds one value, not {count}; write {first}:{first}:1, not {text!r}")
     if count == 1:
         return (first,)
     step = (last - first) / (count - 1)
@@ -81,6 +93,26 @@ class Sweep:
     starts: tuple[str, ...]
     steps: int
 
+    def __post_init__(self) -> None:
+        # [LAW:parse-dont-validate] past this line a sweep's cells are distinct and every one of
+        # them is a run that can be written down. A value or a start named twice is one cell named
+        # twice: both runs write one file, so the second overwrites the first for no new data, the
+        # count `described` prints is one the directory can never reach, and every resume runs the
+        # duplicate again. It is the manifest's invariant and not the grid's, because a repeated
+        # `--start` and a hand-edited manifest arrive here by different doors.
+        if not all(math.isfinite(value) for value in self.values):
+            raise SweepError(f"a sweep's values are finite numbers, and these are not: {self.values}")
+        if self.steps < 1:
+            raise SweepError(f"a sweep steps each cell at least once; got {self.steps}")
+        for what, given in (("values", self.values), ("starts", self.starts)):
+            if not given:
+                raise SweepError(f"a sweep needs at least one of {what} and this one has none")
+            seen: set[Any] = set()
+            for one in given:
+                if one in seen:
+                    raise SweepError(f"a sweep runs each cell once, and {what} names {one!r} twice")
+                seen.add(one)
+
     @property
     def name(self) -> str:
         """The directory this sweep keeps its work in, so rerunning a command resumes its own."""
@@ -91,6 +123,14 @@ class Sweep:
         # name above stable across the runs that resume it.
         fields = {"map": self.map, "values": list(self.values), "starts": list(self.starts), "steps": self.steps}
         return (json.dumps(fields, indent=2, sort_keys=True, ensure_ascii=False) + "\n").encode()
+
+    def home(self, dir: Path) -> Path:
+        """Where this sweep keeps its work, whether or not any of it has been done yet.
+
+        Asked of the sweep so that running one and asking after one look in the same place without
+        either being told where it is. [LAW:one-source-of-truth]
+        """
+        return dir / self.name
 
     @property
     def cells(self) -> Iterator[Cell]:
@@ -105,7 +145,7 @@ MANIFEST = "sweep.json"
 
 def write_sweep(sweep: Sweep, dir: Path) -> Path:
     """The sweep's own directory, with the manifest in it. Rewriting it writes the same bytes."""
-    home = dir / sweep.name
+    home = sweep.home(dir)
     home.mkdir(parents=True, exist_ok=True)
     path, written = home / MANIFEST, sweep.encode()
     # Left alone when it already says this, so resuming a finished sweep touches nothing at all.

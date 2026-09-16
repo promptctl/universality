@@ -6,13 +6,16 @@ check what a rerun does about them.
 """
 
 import json
+import subprocess
+import sys
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from uni.cli import EXIT_CONFIG, main
+from uni.cli import EXIT_CONFIG, Kind, logistic_value, main
 from uni.loop import read_trajectory, trajectory_name
+from uni.maps import LOGISTIC, Logistic
 from uni.sweep import MANIFEST, Sweep, SweepError, grid, pending, read_sweep, write_sweep
 
 LOGISTIC = {"kind": "logistic"}
@@ -218,3 +221,112 @@ def test_pending_is_every_cell_with_no_trajectory_on_disk(tmp_path):
     assert len(pending(original, home)) == 2
     (home / next(iter(original.cells)).name).write_text("{}")
     assert len(pending(original, home)) == 1
+
+
+def test_a_status_query_leaves_nothing_behind(tmp_path, monkeypatch, capsys):
+    # A question that created a directory would be an answer that changed what it had just
+    # measured: every mistyped or exploratory query would leave an empty sweep behind, and nothing
+    # afterwards could tell one of those from a sweep that was started and abandoned.
+    monkeypatch.setattr("uni.cli.SWEEPS", tmp_path)
+    argv = ["sweep", "--map", "logistic", "--grid", "3.2:3.5:4", "--start", "0.5", "--steps", "6", "--status"]
+    assert command(argv) == 0
+    assert "0 of 4 cells done, 4 to run" in capsys.readouterr().out
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_naming_a_model_sweep_costs_neither_torch_nor_a_checkpoint(tmp_path):
+    # `--status` says how many cells are done. A family holds the pinned configuration rather than
+    # a loaded model, so answering that reads pinned.toml and the directory and nothing else - and
+    # on a machine with no Metal, `Model.__init__` would not have been a slow answer but a
+    # RuntimeError traceback, which is to say no answer at all.
+    argv = ["sweep", "--template", "rewrite", "--grid", "0:0:1", "--start", "x", "--steps", "1", "--status"]
+    code = f"import sys; from pathlib import Path; from uni.cli import main;\nprint(main({argv!r}, {{}}, Path.cwd()), 'torch' in sys.modules)"
+    run = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True, cwd=tmp_path)
+    assert run.stdout.split()[-2:] == ["0", "False"]
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_start_given_twice_is_refused(capsys, tmp_path, monkeypatch):
+    # One value and one start are one cell and one file. Run twice, the second run overwrites the
+    # first for no new data, and the total printed is one the directory can never hold.
+    monkeypatch.setattr("uni.cli.SWEEPS", tmp_path)
+    argv = ["sweep", "--map", "logistic", "--grid", "3.2:3.5:4", "--steps", "6", "--start", "0.5", "--start", "0.5"]
+    assert command(argv) == EXIT_CONFIG
+    assert "starts names '0.5' twice" in capsys.readouterr().err
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("text", ["3.5:3.5:5", "3.5:3.5:200"])
+def test_a_grid_that_names_one_value_many_times_is_refused(text):
+    # The mirror of the rule below it: a grid names one value exactly when its ends are equal.
+    # Accepted, this is N runs of one cell, each overwriting the last.
+    with pytest.raises(SweepError, match="holds one value, not"):
+        grid(text)
+
+
+@pytest.mark.parametrize("text", ["nan:4:3", "0:1e999:2", "-1e999:1:2", "nan:nan:1"])
+def test_a_grid_whose_ends_are_not_numbers_is_refused(text):
+    # `--value` goes through `finite` for this reason and a grid is the same quantity: nan and the
+    # infinities are not JSON, so a manifest naming one is a file only Python reads back. nan is
+    # refused before the ends are compared, or `nan:nan:1` - whose ends are equal in every sense
+    # but ==  - would be answered "write nan:nan:1, not 'nan:nan:1'".
+    # (Spelled 1e999 rather than as a word: the run host's name is a short common word, and
+    # tests/test_no_identity.py fails on any tracked file that carries one.)
+    with pytest.raises(SweepError, match="between two finite numbers"):
+        grid(text)
+
+
+def test_a_grid_the_map_refuses_is_refused_whole_and_before_anything_is_written(capsys, tmp_path, monkeypatch):
+    # Every value is offered to the map up front, as every value is offered to the knob. Otherwise
+    # this writes its manifest, runs the cells below r = 4, and dies on the first one above it -
+    # and every resume marches to the same wall again, against a total it can never reach.
+    monkeypatch.setattr("uni.cli.SWEEPS", tmp_path)
+    argv = ["sweep", "--map", "logistic", "--grid", "3.9:4.2:5", "--start", "0.5", "--steps", "6"]
+    assert command(argv) == EXIT_CONFIG
+    assert "r must be in 0..4" in capsys.readouterr().err
+    assert list(tmp_path.iterdir()) == []
+
+
+class Drifting:
+    """A family whose maps are not at the value they were asked for."""
+
+    @property
+    def spec(self):
+        return dict(LOGISTIC)
+
+    def at(self, value):
+        return Logistic(value / 2)
+
+
+def test_a_cell_that_would_write_a_file_this_sweep_cannot_find_stops_it(capsys, tmp_path, monkeypatch):
+    # The sweep names each cell's file before running it, and resumption is that name coming true.
+    # A map at a value other than the one asked for writes somewhere else, so `pending` would
+    # never stop naming the cell and every rerun would run it again, for ever.
+    monkeypatch.setattr("uni.cli.SWEEPS", tmp_path)
+    monkeypatch.setitem(main.__globals__["MAPS"], "drifting", Kind(lambda args, values: Drifting(), logistic_value))
+    argv = ["sweep", "--map", "drifting", "--grid", "3.2:3.5:4", "--start", "0.5", "--steps", "6"]
+    assert command(argv) == EXIT_CONFIG
+    assert "does not describe itself the same way twice" in capsys.readouterr().err
+    (home,) = tmp_path.iterdir()
+    assert cells(home) == []  # it stopped at the first cell rather than filling the directory
+
+
+@pytest.mark.parametrize(
+    "raw, message",
+    [
+        ('{"map": {}, "values": [3.2, 3.2], "starts": ["a"], "steps": 2}', "values names 3.2 twice"),
+        ('{"map": {}, "values": [3.2], "starts": ["a", "a"], "steps": 2}', "starts names 'a' twice"),
+        ('{"map": {}, "values": [Infinity], "starts": ["a"], "steps": 2}', "values are finite numbers"),
+        ('{"map": {}, "values": [], "starts": ["a"], "steps": 2}', "at least one of values"),
+        ('{"map": {}, "values": [3.2], "starts": [], "steps": 2}', "at least one of starts"),
+        ('{"map": {}, "values": [3.2], "starts": ["a"], "steps": 0}', "steps each cell at least once"),
+    ],
+)
+def test_a_manifest_that_does_not_describe_a_sweep_is_refused(tmp_path, raw, message):
+    # The invariant belongs to the sweep and not to the grid: a repeated `--start` and a
+    # hand-edited manifest arrive at it by different doors, and `Infinity` is a value only
+    # Python's own reader would hand back.
+    path = tmp_path / MANIFEST
+    path.write_text(raw)
+    with pytest.raises(SweepError, match=message):
+        read_sweep(path)
