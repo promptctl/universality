@@ -88,10 +88,11 @@ averaged over the reply's tokens. Derive it once:
 
     uv run uni direction formality
 
-This writes `uni/directions/formality.json`, which holds the vector and a copy of the
-contrast that produced it, and is committed. Every trajectory steered by it records the
-direction's name, layer, and sha256. Re-derive only when the contrast or the model
-changes.
+This writes `uni/directions/formality.json`, which holds the vector, a copy of the
+contrast that produced it, and the pinned model it was read from, and is committed. Every
+trajectory steered by it records the direction's name, layer, and sha256. A direction
+derived on a different model than the one pinned is refused. Re-derive when the contrast
+or the model changes.
 
 ## Running on the experiment host
 

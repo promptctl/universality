@@ -71,14 +71,22 @@ class Model:
         encoded = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, return_dict=True, return_tensors="pt")
         return encoded["input_ids"].to(self.device)
 
-    def encode_reply(self, prompt: str, reply: str) -> tuple[torch.Tensor, int]:
-        """The prompt as a user turn and `reply` as the assistant's answer, and the index where the reply begins."""
-        chat = [{"role": "user", "content": prompt}, {"role": "assistant", "content": reply}]
-        ids = self.tokenizer.apply_chat_template(chat, return_dict=True, return_tensors="pt")["input_ids"].to(self.device)
-        prefix = self.encode(prompt)
-        if not torch.equal(ids[:, : prefix.shape[1]], prefix):
-            raise RuntimeError("the chat template encodes a prompt differently once a reply follows it")
-        return ids, prefix.shape[1]
+    def encode_reply(self, prompt: str, reply: str) -> tuple[torch.Tensor, slice]:
+        """The prompt as a user turn and `reply` as the assistant's answer, and the span of the reply's own tokens."""
+
+        def chat(content: str) -> torch.Tensor:
+            turns = [{"role": "user", "content": prompt}, {"role": "assistant", "content": content}]
+            return self.tokenizer.apply_chat_template(turns, return_dict=True, return_tensors="pt")["input_ids"].to(self.device)
+
+        ids, empty, prefix = chat(reply), chat(""), self.encode(prompt)
+        # What the template puts after an empty reply is what closes every reply, such as <|im_end|>.
+        start = prefix.shape[1]
+        end = ids.shape[1] - (empty.shape[1] - start)
+        if not (torch.equal(ids[:, :start], prefix) and torch.equal(ids[:, end:], empty[:, start:])):
+            raise RuntimeError("the chat template encodes a prompt or its closing differently around this reply")
+        if end <= start:
+            raise ValueError("the reply encodes to no tokens, so it has no residual stream to read")
+        return ids, slice(start, end)
 
     @torch.inference_mode()
     def reply_residual(self, prompt: str, reply: str, layer: int) -> torch.Tensor:
@@ -86,14 +94,14 @@ class Model:
 
         It is read where ResidualAdd writes, so a direction built from it steers the same stream.
         """
-        ids, start = self.encode_reply(prompt, reply)
+        ids, span = self.encode_reply(prompt, reply)
         captured = []
         handle = self.layers[self._layer(layer)].register_forward_hook(lambda _m, _i, hidden: captured.append(hidden))
         try:
             self.model(input_ids=ids, logits_to_keep=1)
         finally:
             handle.remove()
-        return captured[0][0, start:].mean(dim=0)
+        return captured[0][0, span].mean(dim=0)
 
     @torch.inference_mode()
     def generate(self, prompt: str, additions: Sequence[ResidualAdd] = ()) -> Generation:

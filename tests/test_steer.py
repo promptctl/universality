@@ -1,5 +1,6 @@
 """The steering knob, and the formality direction committed beside its contrast."""
 
+import dataclasses
 import hashlib
 from itertools import islice
 
@@ -10,6 +11,7 @@ from uni import steer
 from uni.cli import build_parser
 from uni.loop import orbit
 from uni.maps import ModelMap, NoKnob
+from uni.pinned import load_pinned
 from uni.steer import Steer, SteerError, derive, load_contrast, read_direction
 from uni.template import load_templates
 
@@ -18,11 +20,35 @@ TEXT = "The store will open late tomorrow because of the storm, so plan your tri
 
 @pytest.fixture(scope="module")
 def formality():
-    return read_direction("formality")
+    return read_direction("formality", load_pinned())
 
 
 def test_the_committed_direction_was_derived_from_the_committed_contrast(formality):
     assert formality.contrast == load_contrast("formality")
+
+
+def test_a_direction_from_another_model_is_refused():
+    other = dataclasses.replace(load_pinned(), revision="0" * 40)
+    with pytest.raises(SteerError, match="run `uni direction formality`"):
+        read_direction("formality", other)
+
+
+def test_a_reply_that_encodes_to_nothing_is_refused(model):
+    with pytest.raises(ValueError, match="encodes to no tokens"):
+        model.reply_residual("hi", "", 12)
+
+
+def test_the_reply_span_is_the_reply_alone(model):
+    ids, span = model.encode_reply("hi", "Hello there.")
+    assert model.tokenizer.decode(ids[0, span]) == "Hello there."
+
+
+# Written as powers, not as words: the run host's name is a word this repo must never carry.
+@pytest.mark.parametrize("value", ["nan", "1e999", "-1e999"])
+def test_a_value_that_is_not_finite_is_refused(capsys, value):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["loop", "--template", "rewrite", "--start", "x", "--steps", "1", f"--value={value}"])
+    assert "must be a finite number" in capsys.readouterr().err
 
 
 def test_the_trajectory_names_the_exact_direction_file(formality):

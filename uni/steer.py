@@ -3,8 +3,8 @@
 A contrast (uni/directions/<name>.toml) is a template, a layer, and pairs of replies to the same text,
 one toward a quality and one away from it. The direction is the mean, over pairs, of the difference
 between the residual stream averaged over each reply. It is derived once by `uni direction <name>` and
-kept beside its contrast as <name>.json, with the contrast copied in, so a trajectory can name exactly
-what steered it.
+kept beside its contrast as <name>.json, with the contrast and the pinned model copied in, so a
+trajectory can name exactly what steered it and a changed model cannot be steered by a stale direction.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ import torch
 
 from uni.model import ResidualAdd
 from uni.parse import field
+from uni.pinned import Pinned
 from uni.template import Template, TemplateError, load_templates, parse_template
 
 if TYPE_CHECKING:
@@ -51,12 +52,14 @@ class Contrast:
 @dataclass(frozen=True)
 class Direction:
     contrast: Contrast
+    pinned: Pinned  # the model whose residual stream it was read from, and the only one it steers
     vector: tuple[float, ...]  # float32 values, which JSON carries exactly
 
     def encode(self) -> bytes:
         contrast = self.contrast
         fields = {
             "name": contrast.name,
+            "pinned": asdict(self.pinned),
             "template": {"name": contrast.template.name, "text": contrast.template.text},
             "layer": contrast.layer,
             "pairs": [asdict(pair) for pair in contrast.pairs],
@@ -105,8 +108,11 @@ def load_contrast(name: str) -> Contrast:
     return _contrast(name, raw, templates[template])
 
 
-def read_direction(name: str) -> Direction:
+def read_direction(name: str, pinned: Pinned) -> Direction:
+    """The direction named `name`, refused unless it was derived on the `pinned` model."""
     raw = _read(DIRECTIONS / f"{name}.json", json.loads)
+    if raw.get("pinned") != asdict(pinned):
+        raise SteerError(f"{name}.json was derived on {raw.get('pinned')}, not the pinned model; run `uni direction {name}`")
     template = field(raw, "template", dict, SteerError)
     try:
         parsed = parse_template(field(template, "name", str, SteerError), field(template, "text", str, SteerError))
@@ -115,7 +121,7 @@ def read_direction(name: str) -> Direction:
     vector = field(raw, "vector", list, SteerError)
     if not all(type(value) is float for value in vector):
         raise SteerError(f"{name}: vector must hold only floats")
-    return Direction(_contrast(name, raw, parsed), tuple(vector))
+    return Direction(_contrast(name, raw, parsed), pinned, tuple(vector))
 
 
 def derive(model: Model, contrast: Contrast) -> Direction:
@@ -123,7 +129,7 @@ def derive(model: Model, contrast: Contrast) -> Direction:
         return model.reply_residual(contrast.template.render(pair.text), text, contrast.layer)
 
     differences = torch.stack([reply(pair, pair.toward) - reply(pair, pair.away) for pair in contrast.pairs])
-    return Direction(contrast, tuple(differences.mean(dim=0).tolist()))
+    return Direction(contrast, model.pinned, tuple(differences.mean(dim=0).tolist()))
 
 
 def write_direction(direction: Direction) -> Path:

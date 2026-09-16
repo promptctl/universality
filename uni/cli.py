@@ -70,6 +70,13 @@ def positive(text: str) -> int:
     return value
 
 
+def finite(text: str) -> float:
+    value = float(text)
+    if not math.isfinite(value):  # nan poisons every hidden state and is not JSON
+        raise argparse.ArgumentTypeError(f"must be a finite number, got {text}")
+    return value
+
+
 def run_determinism(args: argparse.Namespace) -> int:
     """Generate each gate case `runs` times and print every hash; exit 1 on any mismatch."""
     from uni.determinism import cases, hashes
@@ -96,12 +103,13 @@ TRAJECTORIES = Path("trajectories")  # under the directory uni runs in; the --re
 def knob(name: str) -> Knob:
     # Imported here: a steering knob holds torch tensors, and only `uni loop` pays for loading torch.
     from uni.maps import NoKnob
+    from uni.pinned import load_pinned
     from uni.steer import Steer, SteerError, read_direction
 
     if name == "none":
         return NoKnob()
     try:
-        return Steer(read_direction(name))
+        return Steer(read_direction(name, load_pinned()))
     except SteerError as error:
         raise argparse.ArgumentTypeError(str(error)) from error
 
@@ -178,7 +186,7 @@ def build_parser() -> argparse.ArgumentParser:
     loop.add_argument("--start", required=True, help="the first state; may be empty; write --start=TEXT when it begins with '-'")
     loop.add_argument("--steps", type=positive, required=True, help="how many times to step the map")
     loop.add_argument("--knob", type=knob, default="none", help="a direction in uni/directions to steer along, or none (default)")
-    loop.add_argument("--value", type=float, default=0.0, help="the knob's value (default: 0)")
+    loop.add_argument("--value", type=finite, default=0.0, help="the knob's value (default: 0)")
     loop.set_defaults(run=run_loop)
     direction = commands.add_parser("direction", help="derive a steering direction from uni/directions/<name>.toml")
     direction.add_argument("contrast", type=contrast, help="the contrast's name")
