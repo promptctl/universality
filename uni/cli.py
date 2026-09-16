@@ -325,32 +325,40 @@ def run_sweep(args: argparse.Namespace) -> int:
     family.holds(tuple(dict.fromkeys(cell.start for cell in left)))  # each start once, in cell order
     write_sweep(sweep, SWEEPS)
     failures: list[Failed] = []
-    for done, cell in enumerate(left, start=1):
-        # [LAW:dataflow-not-control-flow] one line per cell whatever came of it, so the progress a
-        # person watches scroll past has one shape: the value it ran at, and either the file it
-        # wrote or what stopped it. The two arms are what running a cell can come to, as
-        # `verdict`'s three are what the detector can see.
-        outcome = run_cell(family, cell, sweep.steps)
-        match outcome:
-            case Trajectory() as trajectory:
-                write_trajectory(trajectory, home)
-                note = trajectory.name
-            case Failed() as failure:
-                failures.append(failure)
-                note = f"cannot run: {failure.reason}"
-            case _:  # a third outcome would otherwise leave the line below printing a stale note
-                assert_never(outcome)
-        print(f"{done:>5}/{len(left)}  value {cell.value:<12.6g} {note}", flush=True)  # a --remote run streams through a pipe
-    # Flushed like the lines above it: stdout is a pipe under `--remote` and stderr is not, so
-    # without this the refusals below overtake the count they are counted in.
-    print(described(sweep, pending(sweep, home)), flush=True)
-    # [LAW:no-silent-failure] said twice on purpose: inline, where a person watching sees which
-    # cell it was, and again at the end, where it survives a thousand lines of scrollback. The
-    # count above is already honest - a cell with no orbit is a cell left to run - but it does not
-    # say that running is what failed, and a run that did less than it was asked does not exit 0.
-    for failure in failures:
-        print(f"uni: value {failure.cell.value:.6g} from {failure.cell.start!r} has no orbit: {failure.reason}", file=sys.stderr)
-    return EXIT_CONFIG if failures else 0
+    # [LAW:no-silent-failure] the count and the refusals are printed however the run ends, because
+    # they are about what it did rather than about how it stopped. Without this a cell refused at
+    # 3 and a map that misnames its file at 4 would end with only the second said out loud, and
+    # the first would survive as one line in the scrollback of a sweep that prints thousands.
+    try:
+        for done, cell in enumerate(left, start=1):
+            # [LAW:dataflow-not-control-flow] one line per cell whatever came of it, so the
+            # progress a person watches scroll past has one shape: the value it ran at, and either
+            # the file it wrote or what stopped it. The two arms are what running a cell can come
+            # to, as `verdict`'s three are what the detector can see.
+            outcome = run_cell(family, cell, sweep.steps)
+            match outcome:
+                case Trajectory() as trajectory:
+                    write_trajectory(trajectory, home)
+                    note = trajectory.name
+                case Failed() as failure:
+                    failures.append(failure)
+                    note = f"cannot run: {failure.reason}"
+                case _:  # a third outcome would otherwise leave the line below printing a stale note
+                    assert_never(outcome)
+            print(f"{done:>5}/{len(left)}  value {cell.value:<12.6g} {note}", flush=True)  # a --remote run streams through a pipe
+    finally:
+        # Flushed like the lines above it: stdout is a pipe under `--remote` and stderr is not, so
+        # without this the refusals below overtake the count they are counted in.
+        print(described(sweep, pending(sweep, home)), flush=True)
+        # Said twice on purpose: inline, where a person watching sees which cell it was, and again
+        # here, where it survives a thousand lines of scrollback. The count above is already honest
+        # - a cell with no orbit is a cell left to run - but it does not say that running is what
+        # failed. The value is written as the shortest text that reads back as itself, the rule
+        # `logistic_state` holds a state to: it is what names the cell, and rounded to six figures
+        # it names a different orbit in a different file.
+        for failure in failures:
+            print(f"uni: value {failure.cell.value!r} from {failure.cell.start!r} has no orbit: {failure.reason}", file=sys.stderr)
+    return EXIT_CONFIG if failures else 0  # a run that did less than it was asked does not exit 0
 
 
 FIGURES = Path("figures")  # committed, unlike trajectories and sweeps: a figure is what a person looks at

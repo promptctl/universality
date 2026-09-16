@@ -163,13 +163,20 @@ in dies again on every resume.
 
 One failure those checks cannot cover: a model's states are its own replies, so they can grow
 until the rendered state leaves no room to generate, and whether step 300 still fits is knowable
-only by running to step 300. So a cell the map refuses partway through its orbit does not stop the
-sweep. The run says so on that cell's line, carries on to the cells after it — which are separate
-runs of a separate map, with nothing wrong with them — names every refused cell again at the end,
-and exits non-zero. Nothing is written for a cell with no orbit: a sweep directory holds
+only by running to step 300. So a cell the map refuses **partway through its orbit** does not stop
+the sweep. The run says so on that cell's line, carries on to the cells after it — which are
+separate runs of a separate map, with nothing wrong with them — names every refused cell again at
+the end, and exits non-zero. Nothing is written for a cell with no orbit: a sweep directory holds
 trajectories and nothing else, so the cell simply stays pending and the next run tries it again,
 which is what you want the moment whatever refused it is fixed. Were the failure recorded instead,
 the cell would be marked done by a run that did not do it, and nothing would ever go back for it.
+
+How far the orbit got is what makes that a statement about the cell rather than about the sweep. A
+cell that is refused **before it produces a single state** — a steering direction whose layer is
+not in the checkpoint, a vector of the wrong length — would be refused that way in every cell, so
+that one stops the run where it stands, as does a map that comes back set to a value other than
+the one it was asked for. Carrying on there would print one message per cell against a sweep that
+can never write a file.
 
 The sweep writes `sweeps/<name>/`: one trajectory per cell, in the same format `uni loop` writes
 and `uni observe` reads, beside a `sweep.json` naming the map, the values, the starts, and the
