@@ -38,13 +38,21 @@ def test_empty_template_and_empty_start_make_a_trajectory(model, templates):
     assert len(trajectory(model, templates["empty"], "", 2).states) == 2
 
 
-def test_a_reply_the_budget_cut_off_is_not_a_state(model, templates):
+def test_a_reply_the_budget_cut_off_is_not_a_state(budgeted, templates):
     # universality-sweep-zjh: a steered sweep's wings filled the token budget every step, and those
-    # cuts were recorded as the model's states. Four tokens of room makes the cut certain.
+    # cuts were recorded as the model's states. A one-token budget makes the cut certain.
+    map = ModelMap(budgeted(1), templates["rewrite"], NoKnob().turn(0.0))
+    with pytest.raises(MapError, match="within the pinned generation.max_new_tokens of 1,"):
+        map.step(PARAGRAPH)
+
+
+def test_a_reply_the_context_cut_off_is_refused_without_blaming_the_budget(model, templates):
+    # A state grown until the context has a few tokens left is cut by the context, and the refusal
+    # says so: raising the budget, which a budget cut asks for, would change nothing here.
     from uni.determinism import context_limit_prompt
 
     map = ModelMap(model, templates["empty"], NoKnob().turn(0.0))
-    with pytest.raises(MapError, match="did not end within 4 tokens"):
+    with pytest.raises(MapError, match="within the 4 tokens the context limit leaves after this prompt,"):
         map.step(context_limit_prompt(model, 4))
 
 

@@ -7,6 +7,7 @@ import math
 from collections.abc import Iterator, Sequence
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
+from typing import Literal
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -44,13 +45,20 @@ class ResidualAdd:
     vector: torch.Tensor  # shape (hidden_size,)
 
 
+# What ended a reply: the model, with a stop token, or one of the two limits on how long it may run -
+# the pinned budget, or the room the context has left after the prompt. The two limits are told
+# apart because they are fixed in different places: one by the pin, the other by how long the state
+# has grown. [LAW:types-are-the-program]
+Ending = Literal["stop", "budget", "context"]
+
+
 @dataclass(frozen=True)
 class Generation:
     text: str
     token_ids: tuple[int, ...]
     tokens: tuple[str, ...]  # each id decoded alone, for display
     logprobs: tuple[float, ...]  # log-probability of each generated token when it was chosen
-    stopped: bool  # the model ended the reply with a stop token, rather than the budget ending it
+    ended: Ending
 
     @property
     def sha256(self) -> str:
@@ -159,8 +167,9 @@ class Model:
         past = None
         token_ids: list[int] = []
         logprobs: list[float] = []
+        limit = min(self.pinned.max_new_tokens, room)
         with self._residual(additions):
-            for _ in range(min(self.pinned.max_new_tokens, room)):
+            for _ in range(limit):
                 # Logits for the last position only: all positions of a full-context prompt is
                 # more than one Metal kernel can encode, and only the last one picks a token.
                 out = self.model(input_ids=step_ids, past_key_values=past, use_cache=True, logits_to_keep=1)
@@ -182,9 +191,11 @@ class Model:
             token_ids=tuple(token_ids),
             tokens=tuple(self.tokenizer.decode([token]) for token in token_ids),
             logprobs=tuple(logprobs),
-            # Decided by the token that ended the loop, which is never absent: the budget is at
-            # least one token, because the pin is positive and `room` refuses none.
-            stopped=token_ids[-1] in self.stop_ids,
+            # Decided by the token that ended the loop, which is never absent: the limit is at least
+            # one token, because the pin is positive and `room` refuses none. When the context
+            # leaves no more room than the pin allows, it is the context that ended the reply, since
+            # a larger budget would have ended it just the same.
+            ended="stop" if token_ids[-1] in self.stop_ids else "budget" if limit < room else "context",
         )
 
     @contextmanager

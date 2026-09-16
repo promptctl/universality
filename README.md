@@ -188,8 +188,8 @@ in dies again on every resume.
 
 Two failures those checks cannot cover, both because a model's states are its own replies. A
 state can grow until the rendered state leaves no room to generate, and a reply can fail to end
-within the pinned `generation.max_new_tokens` — which a map refuses, because a reply the budget cut
-off is not the model's reply. Whether step 300 does either is knowable only by running to step
+within the pinned `generation.max_new_tokens`, or within what room the context has left — which a
+map refuses, because a reply a limit cut off is not the model's reply, and names the limit. Whether step 300 does either is knowable only by running to step
 300. So a cell the map refuses **partway through its orbit** does not stop the sweep. The run says
 so on that cell's line, carries on to the cells after it — which are
 separate runs of a separate map, with nothing wrong with them — names every refused cell again at
