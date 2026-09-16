@@ -43,7 +43,27 @@ def test_the_logistic_map_fitted_as_a_curve_has_the_logistic_cascade(logistic, c
     assert [float(line.split()[1]) for line in printed[1:6]] == pytest.approx([3.23606797749979, 3.4985616993277, 3.55464086276882, 3.56666737985627, 3.56924353163711], abs=2e-9)
     assert [float(line.split(": ")[1].split()[0]) for line in printed[6:9]] == pytest.approx([4.6808, 4.6630, 4.6684], abs=1e-4)
     assert [float(line.split(": ")[1].split()[0]) for line in printed[9:13]] == pytest.approx([-2.6547, -2.5318, -2.5087, -2.5041], abs=1e-4)
-    assert [float(line.split(": ")[1].split()[0]) for line in printed[13:]] == pytest.approx([6.8839697, 6.660634, 6.627796, 6.620746], abs=1e-5)
+    assert [float(line.split(": ")[1].split()[0]) for line in printed[18:]] == pytest.approx([6.8839697, 6.660634, 6.627796, 6.620746], abs=1e-5)
+
+
+def test_noise_read_in_the_answer_is_carried_to_each_return_at_the_gain_s_share_of_it(logistic, tmp_path, capsys):
+    # A spread of 0.25 in an answer of the logistic curve is 0.25 r / 2.5 in the push: noise of a
+    # size that does not depend on the push, so what reaches the return is that times the noise gain.
+    spreads = write_curves({"reading": "spread"}, PUSHES, {7: [0.25] * len(PUSHES)}, SQUARED_LENGTH, tmp_path)
+    argv = ["cascade", *flags(logistic), "--critical", "0.5", "--period", "2", "--noise", str(spreads)] + [flag for grid in GRIDS[:3] for flag in ("--grid", grid)]
+    assert command(argv) == 0
+    header, *rows = capsys.readouterr().out.splitlines()[:4]
+    assert header.split()[-2:] == ["noise", "error"]
+    gains = [float(row.split()[1]) for row in rows]
+    assert [float(row.split()[6]) for row in rows] == pytest.approx([r * 0.25 / SQUARED_LENGTH * gain for r, gain in zip(gains, (2.23606797749979, 5.798306550714591, 15.25389979049446))], rel=1e-6)
+
+
+def test_a_curve_is_read_between_its_pushes_on_the_line_through_the_two_either_side():
+    curve = Curve("line", 7, (0.0, 1.0, 3.0), (2.0, 4.0, 0.0), 1.0)
+    assert [curve.at(x) for x in (0.0, 0.25, 1.0, 2.0, 3.0)] == [2.0, 2.5, 4.0, 2.0, 0.0]
+    with pytest.raises(CurveError, match="a push of 3.5 lies outside curve line's pushes, 0 to 3"):
+        curve.at(3.5)
+    assert Curve("point", 7, (1.0,), (5.0,), 1.0).at(1.0) == 5.0
 
 
 def test_the_slope_is_numpy_s_derivative_of_the_series():

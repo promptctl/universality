@@ -111,6 +111,13 @@ def finite(text: str) -> float:
     return value
 
 
+def above_zero(text: str) -> float:
+    value = finite(text)
+    if value <= 0:
+        raise argparse.ArgumentTypeError(f"must be above zero, got {text}")
+    return value
+
+
 def run_determinism(args: argparse.Namespace) -> int:
     """Generate each gate case `runs` times and print every hash; exit 1 on any mismatch."""
     from uni.determinism import cases, hashes
@@ -570,6 +577,45 @@ def run_response(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_temperature(args: argparse.Namespace) -> int:
+    """Print the answer to each push with the token after the prompt drawn at each temperature, and write each temperature's means and spreads as curves."""
+    from dataclasses import asdict
+
+    from uni.curve import write_curves
+    from uni.model import Model
+    from uni.pinned import load_pinned
+    from uni.response import admit
+    from uni.steer import Steer, read_direction
+    from uni.sweep import grid
+    from uni.temperature import drawn
+
+    values = grid(args.grid)
+    prompt = template(args.template)
+    pinned = load_pinned()
+    steer = Steer(read_direction(args.knob, pinned))
+    model = Model(pinned)
+    # Every push refused before the first forward pass, as `uni response` refuses them: each costs
+    # a pass over the whole vocabulary, and a refusal an hour in is an hour lost.
+    for value in values:
+        admit(model, steer, value, args.layer)
+    print(f"{'value':>10}  {'no token':>10}" + "".join(f"  {f'mean at {t:g}':>12}  {f'spread at {t:g}':>14}" for t in args.temperature), flush=True)
+    rows = []
+    for value in values:
+        rows.append(drawn(model, prompt.render(args.start), steer, value, args.layer, args.temperature))
+        print(f"{value:>10.4g}  {rows[-1].response:>10.4f}" + "".join(f"  {draw.mean:>12.4f}  {draw.spread:>14.4e}" for draw in rows[-1].draws), flush=True)
+    described = {"pinned": asdict(pinned), "template": prompt.text, "start": args.start, "knob": steer.spec}
+    for index, temperature in enumerate(args.temperature):
+        # [LAW:one-source-of-truth] a curve of means and one of spreads, in the one format every curve
+        # is kept in, each saying what its readings are: the smooth map fits the one, and a cascade
+        # carries the other as the noise at each push.
+        written = {
+            reading: write_curves({**described, "temperature": temperature, "reading": reading}, values, {args.layer: [getattr(row.draws[index], reading) for row in rows]}, steer.direction.squared_length, args.curves)
+            for reading in ("mean", "spread")
+        }
+        print(f"at temperature {temperature:g}: means in {written['mean']}, spreads in {written['spread']}")
+    return 0
+
+
 def run_smooth(args: argparse.Namespace) -> int:
     """Print how far a curve's readings lie from the series of each degree fitted to them, beside their own jitter."""
     from uni.curve import read_curve
@@ -637,18 +683,30 @@ def run_fixed(args: argparse.Namespace) -> int:
 
 def run_cascade(args: argparse.Namespace) -> int:
     """Print the superstable value on each grid, one period doubled per grid, and the ratios of their spacings."""
-    from uni.cascade import amplification, evaluated, growths, nearest, quotients, ratios, returns, superstable
+    from uni.cascade import CascadeError, amplification, evaluated, growths, nearest, quotients, ratios, reaches, returns, superstable, unit
+    from uni.curve import read_curve
     from uni.fit import crossing
-    from uni.loop import Sloped
+    from uni.loop import Answering, Sloped
     from uni.sweep import grid
 
     grids = tuple(grid(text) for text in args.grid)
     family = args.map.build(args, tuple(value for values in grids for value in values))
     numbers = numbers_of(family, "cascade")
     family.holds((args.critical,))
+    first = family.at(grids[0][0])
     # Noise is carried along a cycle by the map's slopes, which only a map that knows them exactly has.
-    sloped = isinstance(family.at(grids[0][0]), Sloped)
-    print(f"{'period':>6}  {'superstable value':>18}  {'error':>8}  {'scatter':>8}  {'nearest point':>15}  {'error':>8}" + (f"  {'noise gain':>15}  {'error':>8}" if sloped else ""), flush=True)
+    sloped = isinstance(first, Sloped)
+    # [LAW:dataflow-not-control-flow] noise of size one unless a curve of spreads says otherwise; the
+    # same carrying either way, and the columns say which it was.
+    if args.noise is not None and not (sloped and isinstance(first, Answering)):
+        raise CascadeError("--noise is a spread in the answer a map turns into its next push, carried by the map's slopes; the smooth map has both, and this one does not")
+    spreads = None if args.noise is None else read_curve(args.noise, args.layer)
+
+    def noise_at(map: Answering) -> Callable[[float], float]:
+        return unit if spreads is None else lambda push: map.push(spreads.at(push))
+
+    carried = "noise gain" if spreads is None else "noise"
+    print(f"{'period':>6}  {'superstable value':>18}  {'error':>8}  {'scatter':>8}  {'nearest point':>15}  {'error':>8}" + (f"  {carried:>15}  {'error':>8}" if sloped else ""), flush=True)
     periods = tuple(args.period * 2**doubling for doubling in range(len(grids)))
     found, distances, noises = [], {}, {}
     for period, values in zip(periods, grids):
@@ -662,7 +720,7 @@ def run_cascade(args: argparse.Namespace) -> int:
             distances[period] = nearest(values, returned, period, found[-1])
             row += f"  {distances[period].value:>15.8e}  {distances[period].estimate.error:>8.1e}"
             if sloped:
-                noises[period] = evaluated(values, [amplification(map, numbers, args.critical, period) for map in maps], found[-1])
+                noises[period] = evaluated(values, [amplification(map, numbers, args.critical, period, noise_at(map)) for map in maps], found[-1])
                 row += f"  {noises[period].value:>15.8e}  {noises[period].estimate.error:>8.1e}"
         print(row, flush=True)
     for index, ratio in enumerate(ratios(found)):
@@ -671,7 +729,10 @@ def run_cascade(args: argparse.Namespace) -> int:
         print(f"spacing ratio over periods {', '.join(map(str, periods[index : index + 3]))}: {ratio.value:.7f} +- {ratio.error:.1e}")
     for (period, _), quotient in zip(distances.items(), quotients(tuple(distance.estimate for distance in distances.values()))):
         print(f"nearest-point ratio over periods {period}, {2 * period}: {quotient.value:.7f} +- {quotient.error:.1e}")
-    for period, growth in zip(noises, growths(tuple(noises.values()), tuple(distances[period] for period in noises))):
+    reached = reaches(tuple(noises.values()), tuple(distances[period] for period in noises))
+    for period, reach in zip(noises, reached):
+        print(f"{carried} over nearest distance at period {period}: {reach.value:.7e} +- {reach.error:.1e}")
+    for period, growth in zip(noises, growths(reached)):
         print(f"noise growth over periods {period}, {2 * period}: {growth.value:.7f} +- {growth.error:.1e}")
     return 0
 
@@ -793,6 +854,7 @@ def build_parser() -> argparse.ArgumentParser:
     cascade.add_argument("--critical", required=True, help="the state at the map's top, spelled as the map writes it; write --critical=STATE when it begins with '-'")
     cascade.add_argument("--period", type=positive, required=True, help="the period whose superstable value the first grid holds; each later grid holds twice the one before")
     cascade.add_argument("--grid", action="append", required=True, help="values around one superstable value, as FROM:TO:COUNT with TO included; repeat it for each period, in order")
+    cascade.add_argument("--noise", type=Path, help="a curve of spreads `uni temperature` wrote along the map's own direction: the noise the answer is read with at each push, carried to each return in place of noise of size one")
     cascade.set_defaults(run=run_cascade)
     critical = commands.add_parser("critical", parents=[MAP_FLAGS], help="find where a map of numbers is highest or lowest on a grid of states, at one value")
     critical.add_argument("--map", type=map_named, required=True, help=f"the map to read: {', '.join(MAPS)}; its states must be numbers")
@@ -808,6 +870,15 @@ def build_parser() -> argparse.ArgumentParser:
     answer.add_argument("--out", type=Path, default=FIGURES, help=f"where to write the figure (default: {FIGURES})")
     answer.add_argument("--curves", type=Path, default=CURVES, help=f"where to write the curves, for `uni smooth` and the smooth map to read (default: {CURVES})")
     answer.set_defaults(run=run_response)
+    heated = commands.add_parser("temperature", help="read the answer to each push with the token after the prompt drawn at each temperature: its mean and spread over every token")
+    heated.add_argument("--template", required=True, help="the template the start is rendered into, named in uni/templates.toml")
+    heated.add_argument("--knob", required=True, help="the direction in uni/directions to push along")
+    heated.add_argument("--start", required=True, help="the text the prompt is made from; write --start=TEXT when it begins with '-'")
+    heated.add_argument("--grid", required=True, help="the pushes, as FROM:TO:COUNT with TO included; write --grid=FROM:TO:COUNT when FROM is negative")
+    heated.add_argument("--layer", type=whole, required=True, help="the layer to read the answer at")
+    heated.add_argument("--temperature", type=above_zero, action="append", required=True, help="a temperature to draw the token at; repeat it for each one")
+    heated.add_argument("--curves", type=Path, default=CURVES, help=f"where to write the curves of means and spreads (default: {CURVES})")
+    heated.set_defaults(run=run_temperature)
     smoothed = commands.add_parser("smooth", help="fit a series of each degree to a curve `uni response` wrote, and print how closely each fits beside the curve's own jitter")
     smoothed.add_argument("--curve", type=Path, required=True, help="a curve file `uni response` wrote")
     smoothed.add_argument("--layer", type=whole, required=True, help="the layer in it to fit")
@@ -838,6 +909,7 @@ def checkout_root(cwd: Path) -> Path:
 HERE = {
     "plot": "bring the sweep home first (see the README) and run it without --remote",
     "response": "run it without --remote; the table it prints travels back, the figure and the curves it writes would not",
+    "temperature": "run it without --remote; the table it prints travels back, the curves it writes would not",
 }
 
 

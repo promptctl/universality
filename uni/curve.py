@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from bisect import bisect_right
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,6 +33,18 @@ class Curve:
     values: tuple[float, ...]  # the pushes, rising
     readings: tuple[float, ...]
     squared_length: float
+
+    def at(self, push: float) -> float:
+        """The reading at `push`, on the straight line between the readings either side of it, refused outside the pushes read."""
+        # [LAW:no-silent-failure] a curve says nothing past the pushes it was read at, as a series fitted to it does not.
+        if not self.values[0] <= push <= self.values[-1]:
+            raise CurveError(f"a push of {push!r} lies outside curve {self.name}'s pushes, {self.values[0]:g} to {self.values[-1]:g}")
+        right = min(bisect_right(self.values, push), len(self.values) - 1)  # the first push past this one, or the last
+        if right == 0:  # a curve of one push, read at it
+            return self.readings[0]
+        before, after = self.values[right - 1], self.values[right]
+        share = (push - before) / (after - before)
+        return self.readings[right - 1] + share * (self.readings[right] - self.readings[right - 1])
 
 
 def write_curves(described: Mapping[str, Any], values: Sequence[float], curves: Mapping[int, Sequence[float]], squared_length: float, directory: Path) -> Path:

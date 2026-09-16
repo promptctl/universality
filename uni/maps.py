@@ -399,12 +399,15 @@ class ResponseMap:
     def spec(self) -> dict[str, Any]:
         return self.family.spec
 
+    def push(self, answer: float) -> float:
+        return self.gain * answer / self.family.steer.direction.squared_length
+
     def step(self, state: str) -> str:
         from uni.response import response
 
         family = self.family
         answer = response(family.model, family.prompt, family.steer, response_state(state, family.decimals), family.layer)
-        return response_text(self.gain * answer / family.steer.direction.squared_length, family.decimals)
+        return response_text(self.push(answer), family.decimals)
 
 
 def smooth_state(state: str) -> float:
@@ -474,13 +477,16 @@ class SmoothMap:
     def spec(self) -> dict[str, Any]:
         return self.family.spec
 
+    def push(self, answer: float) -> float:
+        return self.gain * answer / self.family.squared_length
+
     def slope(self, x: float) -> float:
-        return self.gain * self.family.series.slope.at(x) / self.family.squared_length
+        return self.push(self.family.series.slope.at(x))
 
     def step(self, state: str) -> str:
         push = smooth_state(state)
         self.family.admit(push)
-        return repr(self.gain * self.family.series.at(push) / self.family.squared_length)
+        return repr(self.push(self.family.series.at(push)))
 
 
 @dataclass(frozen=True)
