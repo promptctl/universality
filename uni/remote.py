@@ -23,7 +23,17 @@ REMOTE_DIR = re.compile(r"/[\w./-]+")
 # What git ignores stays home (rsync reads .gitignore itself; negated patterns are not
 # understood). .git is not needed to run, .env holds the host's identity, and .venv and
 # trajectories/ are the host's own: a plain exclude also shields them from --delete, the filter does not.
-SYNC_FILTERS = ("--exclude=.git", "--exclude=.env", "--exclude=.venv", "--exclude=/trajectories/", "--filter=:- .gitignore")
+# A plain --exclude and not the gitignore filter: the sync runs with --delete, which the filter
+# does not hold back, so a gitignored results directory would be deleted off the host it was
+# written on. Each machine keeps its own orbits and sweeps.
+SYNC_FILTERS = (
+    "--exclude=.git",
+    "--exclude=.env",
+    "--exclude=.venv",
+    "--exclude=/trajectories/",
+    "--exclude=/sweeps/",
+    "--filter=:- .gitignore",
+)
 
 
 class RemoteConfigError(Exception):

@@ -10,6 +10,7 @@ from uni.parse import ConfigError
 from uni.template import Template
 
 if TYPE_CHECKING:  # the model is handed in; building one is the caller's cost
+    from uni.loop import Map
     from uni.model import Model, ResidualAdd
 
 
@@ -46,6 +47,20 @@ class NoKnob:
         return Turned(value, None, ())
 
 
+class Family(Protocol):
+    """A map with everything fixed but its parameter: what a sweep turns, and what one run turns once.
+
+    The knob interface already says a setting is per call rather than per run; this says the same
+    thing one level up, about the whole map. A sweep holds one family and asks it for a map at
+    each value on the grid, so the checkpoint behind a model sweep is loaded once and not once a
+    cell. [LAW:composability]
+    """
+
+    def at(self, value: float) -> Map:
+        """This map with its parameter set."""
+        ...
+
+
 @dataclass(frozen=True)
 class ModelMap:
     """The pinned model under a template and a turned knob: the next state is the model's reply to the rendered state."""
@@ -74,6 +89,18 @@ class ModelMap:
         return self.model.generate(self.template.render(state), self.knob.additions).text
 
 
+@dataclass(frozen=True)
+class ModelFamily:
+    """The pinned model under a template, with the knob described but not yet turned."""
+
+    model: Model
+    template: Template
+    knob: Knob
+
+    def at(self, value: float) -> Map:
+        return ModelMap(self.model, self.template, self.knob.turn(value))
+
+
 def logistic_state(state: str) -> float:
     """The number a logistic state names, refused unless it is one the map holds.
 
@@ -93,6 +120,13 @@ def logistic_state(state: str) -> float:
     if repr(x) != state:
         raise MapError(f"a logistic state is the shortest text that reads back as its number: write {repr(x)}, not {state!r}")
     return x
+
+
+class LogisticFamily:
+    """x -> r x (1 - x) with r still to come. Nothing to hold: r is the whole of this map."""
+
+    def at(self, value: float) -> Map:
+        return Logistic(value)
 
 
 @dataclass(frozen=True)

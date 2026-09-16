@@ -9,6 +9,7 @@ import platform
 import subprocess
 import sys
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from itertools import islice
 from pathlib import Path
 from typing import TYPE_CHECKING, assert_never
@@ -22,7 +23,7 @@ from uni.remote import RemoteConfigError, remote_target_from_env, run_remote
 from uni.template import Template, TemplateError, load_templates
 
 if TYPE_CHECKING:
-    from uni.loop import Map
+    from uni.maps import Family, Knob
     from uni.steer import Contrast
 
 EXIT_CONFIG = os.EX_CONFIG  # distinct from argparse's 2 and from anything rsync or ssh returns
@@ -140,6 +141,17 @@ def template(name: str) -> Template:
     return templates[name]
 
 
+def turned_at(knob: Knob, values: Sequence[float]) -> Knob:
+    """`knob`, refused unless it takes every value it is about to be asked for.
+
+    Checked by the same call that will later turn it for real, so there is no second rule about
+    which values are allowed, free to drift from the one that matters. [LAW:one-source-of-truth]
+    """
+    for value in values:
+        knob.turn(value)
+    return knob
+
+
 # The flags that describe the model's map and no other one. Declared here rather than on `uni
 # loop` directly so the set has a single spelling: every other map's builder refuses whatever
 # this parser holds, so a flag added to it is refused by them without anything else being
@@ -151,14 +163,14 @@ MODEL_FLAGS.add_argument("--knob", help="a direction in uni/directions for the m
 MODEL_ONLY = tuple(vars(MODEL_FLAGS.parse_args([])))  # the flags above, under the names args carries them by
 
 
-def model_map(args: argparse.Namespace) -> Map:
+def model_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
     """The pinned model reading its prompt from a template, turned by the knob.
 
     [LAW:single-enforcer] every flag describing this map is read here, and only here. argparse
     cannot know which flags belong to the --map it was handed, so a converter on one of them
     would read a direction file, and load torch to hold it, for a run about to be refused.
     """
-    from uni.maps import MapError, ModelMap, NoKnob  # torch-free, so a refusal below costs nothing
+    from uni.maps import MapError, ModelFamily, NoKnob  # torch-free, so a refusal below costs nothing
 
     # [LAW:types-are-the-program] exception: argparse can require a flag for neither --map or for
     # both, so the map that reads a template is the one that refuses a run without it.
@@ -170,47 +182,72 @@ def model_map(args: argparse.Namespace) -> Map:
     from uni.pinned import load_pinned
     from uni.steer import Steer, read_direction
 
-    # [LAW:parse-dont-validate] the knob takes its value here, before a checkpoint is read: past
-    # this line a map exists, and a map exists only at a value its knob accepted. Left off, the
-    # setting the run records is 0, which is the value at which a knob adds nothing.
-    value = 0.0 if args.value is None else args.value
-    # The two knobs differ in what they need to exist, which is the whole of this branch: the one
-    # that adds nothing needs nothing, so it can refuse a value before the config is even read,
-    # while a direction has to be checked against the checkpoint it will be added to.
+    # The knob is described here and turned per value later: a sweep turns it at every point on
+    # its grid, and one `uni loop` is that same turning done exactly once.
+    #
+    # The two knobs differ in what they need to exist, which is the whole of this branch. The one
+    # that adds nothing needs nothing, so the values it cannot take are refused before even the
+    # pinned config is read, let alone the checkpoint: `--value 2` with no `--knob` is a run that
+    # cannot run, and saying so should not cost a model load. A direction, by contrast, has to be
+    # checked against the checkpoint it will be added to.
     if args.knob in (None, "none"):
-        knob = NoKnob().turn(value)
+        knob = turned_at(NoKnob(), values)
         pinned = load_pinned()
     else:
         pinned = load_pinned()
-        knob = Steer(read_direction(args.knob, pinned)).turn(value)
-    return ModelMap(Model(pinned), prompt, knob)
+        knob = turned_at(Steer(read_direction(args.knob, pinned)), values)
+    return ModelFamily(Model(pinned), prompt, knob)
 
 
-def logistic_map(args: argparse.Namespace) -> Map:
+def logistic_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
     """x -> r x (1 - x), where the value is r. Pure arithmetic: this map never loads a checkpoint."""
-    from uni.maps import Logistic, MapError
+    from uni.maps import LogisticFamily, MapError
 
     # [LAW:no-silent-failure] these describe the model's map. Carried over from an earlier command
     # and dropped without a word, they would read back as settings this run had honoured.
     for flag in MODEL_ONLY:
         if getattr(args, flag) is not None:
-            raise MapError(f"--{flag} describes the model map; the logistic map's one parameter is --value, which is r")
-    # r has no default worth having. 0 is a legal r, so a forgotten --value would not fail: it
-    # would run the map that sends everything to zero and be answered `period 1` - a period claim,
-    # which is this project's whole output, made about a parameter nobody chose.
-    if args.value is None:
+            raise MapError(f"--{flag} describes the model map; the logistic map's one parameter is the value, which is r")
+    return LogisticFamily()
+
+
+def model_value(given: float | None) -> float:
+    """Unturned is a setting like any other, and the one a run that named no value means: at 0 a
+    knob adds nothing, so the orbit is exactly the unsteered one."""
+    return 0.0 if given is None else given
+
+
+def logistic_value(given: float | None) -> float:
+    """r has no default worth having. 0 is a legal r, so a forgotten --value would not fail: it
+    would run the map that sends every state to zero and be answered `period 1` - a period claim,
+    which is this project's whole output, about a parameter nobody chose."""
+    from uni.maps import MapError
+
+    if given is None:
         raise MapError("the logistic map's parameter is r; pass --value")
-    return Logistic(args.value)
+    return given
 
 
-MAPS = {"model": model_map, "logistic": logistic_map}
+@dataclass(frozen=True)
+class Kind:
+    """One map as the command line knows it: how to build it, and what a missing --value means to it.
+
+    Both halves vary by map and neither is the runner's business, so they travel together as one
+    value that `--map` carries, the way main() carries the subcommand it was handed.
+    """
+
+    build: Callable[[argparse.Namespace, Sequence[float]], Family]
+    value: Callable[[float | None], float]  # a single run's parameter; a sweep's come from the grid
 
 
-def map_named(name: str) -> Callable[[argparse.Namespace], Map]:
-    """The map to iterate, as the function that builds it from the rest of the flags.
+MAPS = {"model": Kind(model_map, model_value), "logistic": Kind(logistic_map, logistic_value)}
 
-    A value and not a branch: `uni loop` calls what it was handed, the way main() calls the
-    subcommand it was handed, so nothing in the runner knows there is more than one map.
+
+def map_named(name: str) -> Kind:
+    """The map to iterate, as the pair of functions that make one from the rest of the flags.
+
+    A value and not a branch, so nothing in the runner, the sweep or the detector knows there is
+    more than one map.
     """
     if name not in MAPS:
         raise argparse.ArgumentTypeError(f"no map {name!r}; the maps are {', '.join(MAPS)}")
@@ -221,7 +258,10 @@ def run_loop(args: argparse.Namespace) -> int:
     """Print the start and every state as it lands, then write the trajectory file."""
     from uni.loop import Trajectory, orbit, write_trajectory
 
-    map = args.map(args)
+    # [LAW:parse-dont-validate] the value is settled and the map built at it before a state is
+    # stepped: past this line a map exists, and a map exists only at a value it accepted.
+    value = args.map.value(args.value)
+    map = args.map.build(args, (value,)).at(value)
     print(f"{'step':>4}  state")
     print(f"{0:>4}  {args.start!r}")
     states = []
@@ -231,6 +271,41 @@ def run_loop(args: argparse.Namespace) -> int:
     path = write_trajectory(Trajectory(map.spec, map.value, args.start, tuple(states)), TRAJECTORIES)
     print()
     print(f"trajectory {path}")
+    return 0
+
+
+SWEEPS = Path("sweeps")  # under the directory uni runs in; the --remote sync excludes it, so the host keeps its own
+
+
+def run_sweep(args: argparse.Namespace) -> int:
+    """Run every cell the sweep has not already written, and say how far it got."""
+    from uni.loop import Trajectory, orbit, write_trajectory
+    from uni.sweep import Sweep, SweepError, described, grid, pending, write_sweep
+
+    # Read here and not by argparse: a grid that is not one is the user's typo, and this repo
+    # reports that as `uni: ...` with EX_CONFIG. argparse catches only its own error type, so a
+    # converter raising SweepError would reach the user as a traceback, which means a bug here.
+    values = grid(args.grid)
+    # Built once for the whole grid, which is the point of a family: the checkpoint behind a
+    # model sweep is loaded once and not once a cell.
+    family = args.map.build(args, values)
+    sweep = Sweep(family.at(values[0]).spec, values, tuple(args.start), args.steps)
+    home = write_sweep(sweep, SWEEPS)
+    left = pending(sweep, home)
+    print(f"sweep {home}")
+    print(described(sweep, left), flush=True)
+    if args.status:
+        return 0
+    for done, cell in enumerate(left, start=1):
+        map = family.at(cell.value)
+        # [LAW:no-silent-failure] the manifest describes one map, and every cell has to be that
+        # map: a description that changed with the value would name files this sweep cannot find.
+        if map.spec != sweep.map:
+            raise SweepError(f"the map at {cell.value} describes itself differently from the one this sweep recorded")
+        states = tuple(islice(orbit(map, cell.start), args.steps))
+        write_trajectory(Trajectory(sweep.map, cell.value, cell.start, states), home)
+        print(f"{done:>5}/{len(left)}  value {cell.value:<12.6g} {cell.name}", flush=True)  # a --remote run streams through a pipe
+    print(described(sweep, pending(sweep, home)))
     return 0
 
 
@@ -304,6 +379,13 @@ def build_parser() -> argparse.ArgumentParser:
     loop.add_argument("--steps", type=positive, required=True, help="how many times to step the map")
     loop.add_argument("--value", type=finite, help="the map's parameter: the knob's setting (default: 0), or r, which has no default")
     loop.set_defaults(run=run_loop)
+    sweep = commands.add_parser("sweep", parents=[MODEL_FLAGS], help="run a map at every value on a grid, from every start, and keep the orbits")
+    sweep.add_argument("--map", type=map_named, default="model", help=f"the map to sweep: {', '.join(MAPS)} (default: model)")
+    sweep.add_argument("--grid", required=True, help="the values to sweep, as FROM:TO:COUNT with TO included, as in 2.8:4.0:200")
+    sweep.add_argument("--start", action="append", required=True, help="a start state; repeat it for each one, and write --start=TEXT when it begins with '-'")
+    sweep.add_argument("--steps", type=positive, required=True, help="how many times to step the map in each cell")
+    sweep.add_argument("--status", action="store_true", help="say how many cells are done and run none of them")
+    sweep.set_defaults(run=run_sweep)
     observe = commands.add_parser("observe", help="read a written trajectory's observables and the period of its orbit")
     observe.add_argument("trajectory", type=Path, help="a trajectory file written by `uni loop`")
     observe.add_argument("--burn-in", type=whole, default=0, dest="burn_in", help="steps to pass over before looking for a period (default: 0)")

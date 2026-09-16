@@ -41,6 +41,16 @@ def orbit(map: Map, start: str) -> Iterator[str]:
         yield state
 
 
+def trajectory_name(map: Mapping[str, Any], value: float, start: str, steps: int) -> str:
+    """The file an orbit of this many steps writes itself to, from what fixes it and nothing else.
+
+    Known before the orbit is run, which is what lets a sweep ask whether a cell is already
+    on disk without a second record of what it has done. [LAW:one-source-of-truth]
+    """
+    inputs = json.dumps([map, float(value), start, steps], sort_keys=True)
+    return hashlib.sha256(inputs.encode()).hexdigest()[:16] + ".json"
+
+
 class TrajectoryError(ConfigError):
     """A file does not hold a trajectory. The message says which field is wrong."""
 
@@ -62,8 +72,7 @@ class Trajectory:
     @property
     def name(self) -> str:
         """The file name, from what fixes the orbit, so rerunning a command rewrites its own file."""
-        inputs = json.dumps([self.map, self.value, self.start, len(self.states)], sort_keys=True)
-        return hashlib.sha256(inputs.encode()).hexdigest()[:16] + ".json"
+        return trajectory_name(self.map, self.value, self.start, len(self.states))
 
     def encode(self) -> bytes:
         # Sorted keys and no timestamp: the same orbit is the same bytes.
