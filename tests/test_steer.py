@@ -169,8 +169,10 @@ def test_a_value_with_no_knob_is_refused_before_the_checkpoint_is_read(capsys, m
 
 
 def test_an_unknown_direction_is_refused_with_the_known_ones(capsys):
-    with pytest.raises(SystemExit):
-        build_parser().parse_args(["loop", "--template", "rewrite", "--start", "x", "--steps", "1", "--knob", "nope"])
+    # Read by the map that owns --knob rather than by argparse, so it is the CLI's own refusal:
+    # `uni: ...` and EXIT_CONFIG, not argparse's exit 2.
+    argv = ["loop", "--template", "rewrite", "--start", "x", "--steps", "1", "--knob", "nope"]
+    assert main(argv, {}, Path.cwd()) == EXIT_CONFIG
     assert "no nope.json in uni/directions; there are formality" in capsys.readouterr().err
 
 

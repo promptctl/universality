@@ -17,7 +17,16 @@ class Map(Protocol):
 
     @property
     def spec(self) -> Mapping[str, Any]:
-        """Everything besides the start that fixes the orbit, as JSON data."""
+        """Everything besides the start and the value that fixes the orbit, as JSON data."""
+        ...
+
+    @property
+    def value(self) -> float:
+        """The map's one scalar parameter: r, or the knob's setting. Recorded beside the spec.
+
+        Asked of the map rather than read off the command line a second time, so what the file
+        says the orbit ran at is what it ran at. [LAW:one-source-of-truth]
+        """
         ...
 
     def step(self, state: str) -> str: ...
@@ -42,6 +51,13 @@ class Trajectory:
     value: float  # the knob's setting, which the map bakes in; recorded so a sweep reads it without decoding the knob
     start: str
     states: tuple[str, ...]  # the state after each step, so step n is states[n - 1]
+
+    def __post_init__(self) -> None:
+        # One number, one spelling, fixed here because this is what holds the file's shape rather
+        # than in each map that hands one over. A `Logistic(3)` would otherwise write "value": 3,
+        # which reads back as an int the parser refuses - and, because `name` hashes the value,
+        # would name a second file for an orbit that already has one. [LAW:single-enforcer]
+        object.__setattr__(self, "value", float(self.value))
 
     @property
     def name(self) -> str:

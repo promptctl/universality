@@ -66,6 +66,51 @@ The templates live in [uni/templates.toml](uni/templates.toml), each holding `{s
 exactly once. `identity` asks for the state back unchanged, `empty` sends the state as
 the whole prompt, and `rewrite` asks for a rewrite. The start may be empty.
 
+`--map` chooses which map is iterated, and defaults to the model. Whichever it is, the runner
+only ever calls `step(state)` on it, so nothing below the command line knows there is more than
+one. `--value` is that map's parameter: the knob's setting for the model, and r for the logistic
+map below. Each map reads the flags that describe it and refuses the other's, so a `--knob`
+carried over from a model run does not ride along unapplied on an orbit of numbers.
+
+## The logistic map
+
+    uv run uni loop --map logistic --start 0.5 --steps 400 --value 3.5
+
+`x -> r x (1 - x)`, the textbook map, iterated by the same runner, written to the same kind of
+trajectory file, and read by the same `uni observe`. It is here because it is the one map whose
+answer is known before the code runs: Feigenbaum's period doubling was published for it in 1978,
+so an orbit of it is the fixture where a wrong answer is visible as a wrong answer rather than as
+a result. Every brick in this repo has it as a second consumer, which is what keeps the bricks
+from being shaped around the model.
+
+    r = 2.8   period 1     r = 3.5   period 4     r = 3.9   no period in 1000 steps
+    r = 3.2   period 2     r = 3.55  period 8
+
+Those are what `uni observe` reports, exactly, on orbits from `--start 0.5`, given enough steps
+to pass the transient and then close the cycle once: 155 at r = 2.8, 35 at 3.2, 33 at 3.5, and
+289 at 3.55. The transient lengthens as the cascade goes on, so 2.8 is the slow one only until
+3.55 overtakes it, and `--steps 400` covers every row that has a period. The r = 3.9 row is a
+claim about a thousand steps and takes a thousand. Too few steps is not a wrong
+answer — `uni observe` says it found no period in the steps it was given, and means it.
+
+The orbit is periodic in the strict sense and not merely close to it: float64 lands on the cycle
+and stays there, so the detector's exactness reports it with nothing rounded to help.
+
+The states are text, like every other map's. A logistic state is the shortest text that reads
+back as exactly its float, and a second spelling of a number the map holds is refused rather than
+read: `--start 0.50` is told to write `0.5`. The detector compares the states themselves while the
+`x` column compares their numbers, so a spelling the map would never write is one state to the
+plot and two to the verdict — a fixed point reported as a transient it never had.
+
+r is refused outside 0..4 and a state outside 0..1, which is not fussiness either: outside them
+the orbit runs to -inf and then to nan, and a run of nans is a state that repeats, which a
+detector would report as period 1. r has no default for the same reason — 0 is a legal r whose
+orbit collapses to zero, so a forgotten `--value` would be answered `period 1` rather than asked
+about.
+
+This map costs no checkpoint. `uni loop --map logistic` imports no torch at all, refusals
+included, which a test holds to.
+
 ## The steering knob
 
 A knob is a number turned on the loop. The first one steers the model: it adds the
@@ -74,8 +119,9 @@ position of every step.
 
     uv run uni loop --template rewrite --steps 20 --start "..." --knob formality --value 2
 
-`--knob` names a direction in [uni/directions](uni/directions), or `none`, the default.
-`--value` defaults to 0, and at 0 the orbit is exactly the unsteered one. Positive values
+`--knob` names a direction in [uni/directions](uni/directions), or `none`; left off, the model
+map runs unturned. `--value` defaults to 0 for this map, and at 0 the orbit is exactly the
+unsteered one. Positive values
 push the rewrites toward the direction's quality and negative values push away from it.
 At layer 12, `formality` makes the rewrites clearly more formal by 2 and casual by -2. By
 4 the rewrites drift away from the text they started from, and they keep drifting: a value
@@ -112,7 +158,11 @@ states in the order they first appeared, so a period-2 orbit reads `1 2 1 2` str
 column. Step 0 is the start, which was given rather than stepped into, so its row carries a
 number and no readings.
 
-The observables are the character length of the state, the mean log-probability the model gives
+What an orbit can be read for is decided by what its states are made of, so the columns differ
+by map and nothing printing them asks which map it was. The character length of the state is the
+one every map answers. An orbit of numbers is read for the numbers, under the column `x` — there
+is nothing to derive, and the return map of such a map is the map itself drawn. A model's orbit
+is read for the mean log-probability the model gives
 the state it wrote (mean, not total, so it is not length under another name), and, for a run that
 was steered, how far the state sits along the direction that steered it. The log-probability is
 read with the knob at the setting the run recorded: the same model turned elsewhere is another
