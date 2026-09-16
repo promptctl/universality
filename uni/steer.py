@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import tomllib
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
@@ -20,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 import torch
 
 from uni.model import ResidualAdd
-from uni.parse import field
+from uni.parse import ConfigError, field
 from uni.pinned import Pinned
 from uni.template import Template, TemplateError, load_templates, parse_template
 
@@ -31,7 +32,7 @@ if TYPE_CHECKING:
 DIRECTIONS = Path(__file__).parent / "directions"
 
 
-class SteerError(Exception):
+class SteerError(ConfigError):
     """A contrast or direction file is missing or malformed. The message names the file and the field."""
 
 
@@ -95,7 +96,7 @@ def _read(path: Path, parse: Any, fix: str) -> tuple[dict[str, Any], bytes]:
         known = sorted({other.stem for other in DIRECTIONS.glob("*" + path.suffix)})
         found = f"; there are {', '.join(known)}" if known else ""
         raise SteerError(f"no {path.name} in uni/directions{found}. {fix}") from error
-    except (tomllib.TOMLDecodeError, json.JSONDecodeError) as error:
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError, json.JSONDecodeError) as error:
         raise SteerError(f"uni/directions/{path.name} does not parse: {error}") from error
     if type(raw) is not dict:
         raise SteerError(f"uni/directions/{path.name} must hold a table")
@@ -122,9 +123,12 @@ def read_direction(name: str, pinned: Pinned) -> Direction:
     except TemplateError as error:
         raise SteerError(f"{name}: {error}") from error
     vector = field(raw, "vector", list, SteerError)
-    if not all(type(value) is float for value in vector):
-        raise SteerError(f"{name}: vector must hold only floats")
+    if not (vector and all(type(value) is float and math.isfinite(value) for value in vector)):
+        raise SteerError(f"{name}: vector must hold at least one value and only finite floats")
     direction = Direction(_contrast(name, raw, parsed), pinned.checkpoint, tuple(vector))
+    # The contrast is copied into the file, so an edited contrast is a direction that no longer describes it.
+    if direction.contrast != load_contrast(name):
+        raise SteerError(f"{name}.json no longer matches the contrast in {name}.toml; run `uni direction {name}`")
     # The sha256 a trajectory records is of this file, so the file has to be the one `uni direction` writes.
     if data != direction.encode():
         raise SteerError(f"{name}.json is not what `uni direction {name}` writes; re-derive it rather than editing it")

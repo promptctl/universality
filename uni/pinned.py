@@ -8,12 +8,14 @@ from dataclasses import dataclass
 from importlib.resources import files
 from typing import Any, Literal, get_args
 
+from uni.parse import ConfigError
+
 Dtype = Literal["float32", "float16", "bfloat16"]
 
 COMMIT = re.compile(r"[0-9a-f]{40}")
 
 
-class PinnedConfigError(Exception):
+class PinnedConfigError(ConfigError):
     """pinned.toml does not pin a model. The message says which field is wrong."""
 
 

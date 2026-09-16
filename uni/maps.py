@@ -24,11 +24,14 @@ class Knob(Protocol):
 
 
 class NoKnob:
-    """The model unturned: no value reaches it."""
+    """The model unturned. A value has nothing to turn here, so only zero is a truthful one."""
 
     spec = None
 
     def additions(self, value: float) -> Sequence[ResidualAdd]:
+        # [LAW:no-silent-failure] a trajectory recording a value nothing applied reads back as a steering run.
+        if value:
+            raise ValueError(f"there is no knob to turn, so the value must be 0, got {value}")
         return ()
 
 

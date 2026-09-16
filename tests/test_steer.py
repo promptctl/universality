@@ -28,11 +28,35 @@ def test_the_committed_direction_was_derived_from_the_committed_contrast(formali
     assert formality.contrast == load_contrast("formality")
 
 
-def test_a_direction_file_that_was_edited_is_refused(tmp_path, monkeypatch):
-    edited = (steer.DIRECTIONS / "formality.json").read_bytes().replace(b"\n  ", b"\n ")
+def elsewhere(tmp_path, monkeypatch):
+    """The committed direction and its contrast in a directory a test may edit."""
+    for name in ("formality.json", "formality.toml"):
+        (tmp_path / name).write_bytes((steer.DIRECTIONS / name).read_bytes())
     monkeypatch.setattr(steer, "DIRECTIONS", tmp_path)
-    (tmp_path / "formality.json").write_bytes(edited)
+    return tmp_path
+
+
+def test_a_direction_file_that_was_edited_is_refused(tmp_path, monkeypatch):
+    files = elsewhere(tmp_path, monkeypatch)
+    (files / "formality.json").write_bytes((files / "formality.json").read_bytes().replace(b"\n  ", b"\n "))
     with pytest.raises(SteerError, match="re-derive it rather than editing it"):
+        read_direction("formality", load_pinned())
+
+
+def test_a_direction_that_no_longer_matches_its_contrast_is_refused(tmp_path, monkeypatch):
+    files = elsewhere(tmp_path, monkeypatch)
+    (files / "formality.toml").write_text((files / "formality.toml").read_text().replace("layer = 12", "layer = 14"))
+    with pytest.raises(SteerError, match="no longer matches the contrast"):
+        read_direction("formality", load_pinned())
+
+
+@pytest.mark.parametrize("vector", ["[]", "[1.0, NaN]"])
+def test_a_direction_whose_vector_is_unusable_is_refused(tmp_path, monkeypatch, vector):
+    files = elsewhere(tmp_path, monkeypatch)
+    text = (files / "formality.json").read_text()
+    head, _, tail = text.partition('  "vector": [')
+    (files / "formality.json").write_text(head + '  "vector": ' + vector + "\n}\n")
+    with pytest.raises(SteerError, match="only finite floats"):
         read_direction("formality", load_pinned())
 
 
@@ -107,10 +131,15 @@ def test_a_value_that_overflows_the_dtype_is_refused(model, formality):
         rewrites(model, Steer(formality), 1e300)
 
 
-def test_a_value_with_nothing_to_turn_is_refused(capsys):
+def test_a_value_with_no_knob_to_turn_is_refused():
+    with pytest.raises(ValueError, match="no knob to turn"):
+        NoKnob().additions(2.0)
+
+
+def test_the_command_reports_a_refused_value_rather_than_a_traceback(capsys):
     argv = ["loop", "--template", "rewrite", "--start", "x", "--steps", "1", "--value", "2"]
     assert main(argv, {}, Path.cwd()) == EXIT_CONFIG
-    assert "nothing to turn" in capsys.readouterr().err
+    assert "no knob to turn" in capsys.readouterr().err
 
 
 def test_an_unknown_direction_is_refused_with_the_known_ones(capsys):

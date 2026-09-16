@@ -16,8 +16,9 @@ from typing import TYPE_CHECKING
 from dotenv import dotenv_values
 
 from uni.determinism import RUNS
+from uni.parse import ConfigError
 from uni.remote import RemoteConfigError, remote_target_from_env, run_remote
-from uni.template import Template, TemplateError, load_templates
+from uni.template import Template, load_templates
 
 if TYPE_CHECKING:
     from uni.maps import Knob
@@ -106,22 +107,22 @@ def knob(name: str) -> Knob:
     # Imported here: a steering knob holds torch tensors, and only `uni loop` pays for loading torch.
     from uni.maps import NoKnob
     from uni.pinned import load_pinned
-    from uni.steer import Steer, SteerError, read_direction
+    from uni.steer import Steer, read_direction
 
     if name == "none":
         return NoKnob()
     try:
         return Steer(read_direction(name, load_pinned()))
-    except SteerError as error:
+    except ConfigError as error:  # argparse prints a traceback for anything but its own error type
         raise argparse.ArgumentTypeError(str(error)) from error
 
 
 def contrast(name: str) -> Contrast:
-    from uni.steer import SteerError, load_contrast
+    from uni.steer import load_contrast
 
     try:
         return load_contrast(name)
-    except SteerError as error:
+    except ConfigError as error:  # argparse prints a traceback for anything but its own error type
         raise argparse.ArgumentTypeError(str(error)) from error
 
 
@@ -140,7 +141,7 @@ def run_direction(args: argparse.Namespace) -> int:
 def template(name: str) -> Template:
     try:
         templates = load_templates()
-    except TemplateError as error:  # argparse would print a traceback, or hide the message behind its own
+    except ConfigError as error:  # argparse prints a traceback for anything but its own error type
         raise argparse.ArgumentTypeError(str(error)) from error
     if name not in templates:
         raise argparse.ArgumentTypeError(f"no template {name!r}; the templates are {', '.join(templates)}")
@@ -149,10 +150,6 @@ def template(name: str) -> Template:
 
 def run_loop(args: argparse.Namespace) -> int:
     """Print the start and every state as it lands, then write the trajectory file."""
-    if args.knob.spec is None and args.value:
-        # [LAW:no-silent-failure] a recorded value nothing applied reads back as a steering run that did nothing.
-        print(f"uni: --value {args.value} has nothing to turn; pass --knob, or leave --value at 0", file=sys.stderr)
-        return EXIT_CONFIG
     from uni.loop import Trajectory, orbit, write_trajectory
     from uni.maps import ModelMap
     from uni.model import Model
@@ -213,7 +210,11 @@ def main(argv: Sequence[str], env: Mapping[str, str], cwd: Path) -> int:
     remote, rest = split_remote(argv)
     if not remote:
         args = build_parser().parse_args(rest)
-        return args.run(args)
+        try:
+            return args.run(args)
+        except ValueError as error:  # every refused input, from the knob's value to an oversized prompt
+            print(f"uni: {error}", file=sys.stderr)
+            return EXIT_CONFIG
     try:
         tree = checkout_root(cwd)
         # The checkout's .env, under the real environment: a set variable wins over the file.
