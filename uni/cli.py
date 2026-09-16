@@ -185,8 +185,10 @@ MAP_FLAGS = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
 MAP_FLAGS.add_argument("--template", help="the model or response map's template, named in uni/templates.toml")
 MAP_FLAGS.add_argument("--knob", help="a direction in uni/directions: what the model map steers along (or none), or what the response map pushes along")
 MAP_FLAGS.add_argument("--text", help="the response map's text, rendered once into its template")
-MAP_FLAGS.add_argument("--layer", type=whole, help="the layer the response map reads its answer at")
+MAP_FLAGS.add_argument("--layer", type=whole, help="the layer the response map reads its answer at, or the smooth map's curve was read at")
 MAP_FLAGS.add_argument("--decimals", type=positive, help="the decimals the response map writes a push to (default: 4)")
+MAP_FLAGS.add_argument("--curve", type=Path, help="the curve the smooth map is fitted to, a file `uni response` wrote")
+MAP_FLAGS.add_argument("--degree", type=positive, help="the degree of the series the smooth map fits to its curve")
 MAP_OPTIONS = tuple(vars(MAP_FLAGS.parse_args([])))  # the flags above, under the names args carries them by
 
 
@@ -278,13 +280,19 @@ def response_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
     return ResponseFamily(pinned, prompt, args.text, Steer(read_direction(args.knob, pinned)), args.layer, decimals)
 
 
-def response_value(given: float | None) -> float:
-    """The gain has no default worth having, for the reason r has none: 0 is a legal gain, answered `period 1`."""
-    from uni.maps import MapError
+def smooth_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
+    """The response map with the model's answer replaced by a series fitted to a curve of it: no checkpoint, no roughness."""
+    from uni.curve import read_curve
+    from uni.maps import MapError, SmoothFamily
+    from uni.smooth import smooth
 
-    if given is None:
-        raise MapError("the response map's parameter is the gain; pass --value")
-    return given
+    refuse_unread(args, "smooth", ("curve", "layer", "degree"))
+    # [LAW:types-are-the-program] exception: argparse cannot require a flag for one --map only.
+    missing = [f"--{flag}" for flag in ("curve", "layer", "degree") if getattr(args, flag) is None]
+    if missing:
+        raise MapError(f"the smooth map is a series of some degree fitted to a curve's readings at a layer; pass {', '.join(missing)}")
+    curve = read_curve(args.curve, args.layer)
+    return SmoothFamily(curve.name, curve.layer, args.degree, smooth(curve, args.degree).series, curve.squared_length)
 
 
 def model_value(given: float | None) -> float:
@@ -293,15 +301,22 @@ def model_value(given: float | None) -> float:
     return 0.0 if given is None else given
 
 
-def logistic_value(given: float | None) -> float:
-    """r has no default worth having. 0 is a legal r, so a forgotten --value would not fail: it
-    would run the map that sends every state to zero and be answered `period 1` - a period claim,
-    which is this project's whole output, about a parameter nobody chose."""
-    from uni.maps import MapError
+def required(parameter: str) -> Callable[[float | None], float]:
+    """A --value with no default worth having, refused when it is missing with `parameter` said.
 
-    if given is None:
-        raise MapError("the logistic map's parameter is r; pass --value")
-    return given
+    r has none, and neither has a gain: 0 is a legal value of each, so a forgotten --value would not
+    fail. It would run the map that sends every state to zero and be answered `period 1` - a period
+    claim, which is this project's whole output, about a parameter nobody chose.
+    """
+
+    def value(given: float | None) -> float:
+        from uni.maps import MapError
+
+        if given is None:
+            raise MapError(f"{parameter}; pass --value")
+        return given
+
+    return value
 
 
 @dataclass(frozen=True)
@@ -318,7 +333,12 @@ class Kind:
     value: Callable[[float | None], float]  # a single run's parameter; a sweep's come from the grid
 
 
-MAPS = {"model": Kind(model_map, model_value), "logistic": Kind(logistic_map, logistic_value), "response": Kind(response_map, response_value)}
+MAPS = {
+    "model": Kind(model_map, model_value),
+    "logistic": Kind(logistic_map, required("the logistic map's parameter is r")),
+    "response": Kind(response_map, required("the response map's parameter is the gain")),
+    "smooth": Kind(smooth_map, required("the smooth map's parameter is the gain")),
+}
 
 
 def map_named(name: str) -> Kind:
@@ -454,6 +474,7 @@ def run_sweep(args: argparse.Namespace) -> int:
 
 
 FIGURES = Path("figures")  # committed, unlike trajectories and sweeps: a figure is what a person looks at
+CURVES = Path("curves")  # committed too: a curve is what every map fitted to it is fitted to, and costs a forward pass a push to read again
 
 
 class PlotError(ConfigError):
@@ -511,6 +532,7 @@ def run_response(args: argparse.Namespace) -> int:
     import json
     from dataclasses import asdict
 
+    from uni.curve import write_curves
     from uni.draw import scatter
     from uni.figure import Picture, Point
     from uni.model import Model
@@ -537,12 +559,27 @@ def run_response(args: argparse.Namespace) -> int:
     for layer, curve in curves.items():
         top = max(range(len(values)), key=curve.__getitem__)
         print(f"layer {layer}: maximum {curve[top]:.4f} at {values[top]:.4g}; the slope changes sign at {list(turns(values, curve))}")
+    described = {"pinned": asdict(pinned), "template": prompt.text, "start": args.start, "knob": steer.spec}
+    print(write_curves(described, values, curves, steer.direction.squared_length, args.curves))
     # Named for everything that fixes the curves, as a sweep's pictures are named for the sweep.
-    fixed = {"pinned": asdict(pinned), "template": prompt.text, "start": args.start, "knob": steer.spec, "values": list(values), "layers": list(curves)}
+    fixed = {**described, "values": list(values), "layers": list(curves)}
     stem = hashlib.sha256(json.dumps(fixed, sort_keys=True).encode()).hexdigest()[:16]
     points = tuple(Point(value, reading, layer) for layer, curve in curves.items() for value, reading in zip(values, curve))
     picture = Picture(points, f"response along {name}", f"push along {name}", f"what the layers after the push write along {name}", "layer" if len(curves) > 1 else None)
     print(scatter(picture, args.out / f"response-{stem}.png"))
+    return 0
+
+
+def run_smooth(args: argparse.Namespace) -> int:
+    """Print how far a curve's readings lie from the series of each degree fitted to them, beside their own jitter."""
+    from uni.curve import read_curve
+    from uni.smooth import jitter, smooth
+
+    curve = read_curve(args.curve, args.layer)
+    print(f"curve {curve.name} at layer {curve.layer}: {len(curve.values)} readings from {curve.values[0]:g} to {curve.values[-1]:g}, jitter {jitter(curve.readings):.2e}")
+    for degree in args.degree:
+        fitted = smooth(curve, degree)
+        print(f"degree {degree:>4}: rms residual {fitted.residual:.2e}, largest {fitted.largest:.2e}", flush=True)
     return 0
 
 
@@ -617,7 +654,9 @@ def run_cascade(args: argparse.Namespace) -> int:
         print(f"{period:>6}  {found[-1].value:>18.10g}  {found[-1].error:>8.1e}  {parabola.scatter:>8.1e}", flush=True)
     for index, ratio in enumerate(ratios(found)):
         periods = ", ".join(str(args.period * 2**doubling) for doubling in range(index, index + 3))
-        print(f"spacing ratio over periods {periods}: {ratio.value:.4f} +- {ratio.error:.4f}")
+        # Every digit a float gives, and the error beside it, as the values above are printed: which
+        # of those digits mean anything is the error's to say, and a smooth map's say more than four do.
+        print(f"spacing ratio over periods {periods}: {ratio.value:.7f} +- {ratio.error:.1e}")
     return 0
 
 
@@ -751,7 +790,13 @@ def build_parser() -> argparse.ArgumentParser:
     answer.add_argument("--grid", required=True, help="the pushes, as FROM:TO:COUNT with TO included")
     answer.add_argument("--layer", type=whole, action="append", required=True, help="a layer to read the response at; repeat it for each one")
     answer.add_argument("--out", type=Path, default=FIGURES, help=f"where to write the figure (default: {FIGURES})")
+    answer.add_argument("--curves", type=Path, default=CURVES, help=f"where to write the curves, for `uni smooth` and the smooth map to read (default: {CURVES})")
     answer.set_defaults(run=run_response)
+    smoothed = commands.add_parser("smooth", help="fit a series of each degree to a curve `uni response` wrote, and print how closely each fits beside the curve's own jitter")
+    smoothed.add_argument("--curve", type=Path, required=True, help="a curve file `uni response` wrote")
+    smoothed.add_argument("--layer", type=whole, required=True, help="the layer in it to fit")
+    smoothed.add_argument("--degree", type=positive, action="append", required=True, help="a degree to fit; repeat it for each one")
+    smoothed.set_defaults(run=run_smooth)
     direction = commands.add_parser("direction", help="derive a steering direction from uni/directions/<name>.toml")
     direction.add_argument("contrast", type=contrast, help="the contrast's name")
     direction.set_defaults(run=run_direction)
@@ -776,7 +821,7 @@ def checkout_root(cwd: Path) -> Path:
 # carries what to do instead, which differs by what the command reads.
 HERE = {
     "plot": "bring the sweep home first (see the README) and run it without --remote",
-    "response": "run it without --remote; the table it prints travels back, the figure it draws would not",
+    "response": "run it without --remote; the table it prints travels back, the figure and the curves it writes would not",
 }
 
 
