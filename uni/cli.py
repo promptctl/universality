@@ -8,10 +8,9 @@ import os
 import platform
 import subprocess
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from itertools import islice
 from pathlib import Path
-from collections.abc import Callable
 from typing import TYPE_CHECKING, assert_never
 
 from dotenv import dotenv_values
@@ -20,11 +19,10 @@ from uni.determinism import RUNS
 from uni.parse import ConfigError
 from uni.period import Contradiction, Cycle, NoCycle, Period
 from uni.remote import RemoteConfigError, remote_target_from_env, run_remote
-from uni.template import Template, load_templates
+from uni.template import Template, TemplateError, load_templates
 
 if TYPE_CHECKING:
     from uni.loop import Map
-    from uni.maps import Knob
     from uni.steer import Contrast
 
 EXIT_CONFIG = os.EX_CONFIG  # distinct from argparse's 2 and from anything rsync or ssh returns
@@ -113,20 +111,6 @@ def run_determinism(args: argparse.Namespace) -> int:
 TRAJECTORIES = Path("trajectories")  # under the directory uni runs in; the --remote sync excludes it, so the host keeps its own
 
 
-def knob(name: str) -> Knob:
-    # Imported here: a steering knob holds torch tensors, and only `uni loop` pays for loading torch.
-    from uni.maps import NoKnob
-    from uni.pinned import load_pinned
-    from uni.steer import Steer, read_direction
-
-    if name == "none":
-        return NoKnob()
-    try:
-        return Steer(read_direction(name, load_pinned()))
-    except ConfigError as error:  # argparse prints a traceback for anything but its own error type
-        raise argparse.ArgumentTypeError(str(error)) from error
-
-
 def contrast(name: str) -> Contrast:
     from uni.steer import load_contrast
 
@@ -149,30 +133,46 @@ def run_direction(args: argparse.Namespace) -> int:
 
 
 def template(name: str) -> Template:
-    try:
-        templates = load_templates()
-    except ConfigError as error:  # argparse prints a traceback for anything but its own error type
-        raise argparse.ArgumentTypeError(str(error)) from error
+    """The template a name stands for, refused unless uni/templates.toml holds one by that name."""
+    templates = load_templates()
     if name not in templates:
-        raise argparse.ArgumentTypeError(f"no template {name!r}; the templates are {', '.join(templates)}")
+        raise TemplateError(f"no template {name!r}; the templates are {', '.join(templates)}")
     return templates[name]
 
 
 def model_map(args: argparse.Namespace) -> Map:
-    """The pinned model reading its prompt from a template, turned by the knob."""
-    # Imported here: only this map costs torch, and `uni loop --map logistic` never reaches it.
-    from uni.maps import MapError, ModelMap, NoKnob
-    from uni.model import Model
-    from uni.pinned import load_pinned
+    """The pinned model reading its prompt from a template, turned by the knob.
 
-    # [LAW:types-are-the-program] exception: argparse cannot require a flag for one --map and not
-    # another, so the map that reads a template is the one that refuses a run without it.
+    [LAW:single-enforcer] every flag describing this map is read here, and only here. argparse
+    cannot know which flags belong to the --map it was handed, so a converter on one of them
+    would read a direction file, and load torch to hold it, for a run about to be refused.
+    """
+    from uni.maps import MapError, ModelMap, NoKnob  # torch-free, so a refusal below costs nothing
+
+    # [LAW:types-are-the-program] exception: argparse can require a flag for neither --map or for
+    # both, so the map that reads a template is the one that refuses a run without it.
     if args.template is None:
         raise MapError("the model map reads its prompt from a template; pass --template")
-    # [LAW:parse-dont-validate] the knob takes its value here, before a checkpoint is downloaded:
-    # past this line a map exists, and a map exists only at a value its knob accepted.
-    knob = (NoKnob() if args.knob is None else args.knob).turn(args.value)
-    return ModelMap(Model(load_pinned()), args.template, knob)
+    prompt = template(args.template)  # a name refused here is refused before a checkpoint is read
+    # Imported here: only this map costs torch, and `uni loop --map logistic` never reaches it.
+    from uni.model import Model
+    from uni.pinned import load_pinned
+    from uni.steer import Steer, read_direction
+
+    # [LAW:parse-dont-validate] the knob takes its value here, before a checkpoint is read: past
+    # this line a map exists, and a map exists only at a value its knob accepted. Left off, the
+    # setting the run records is 0, which is the value at which a knob adds nothing.
+    value = 0.0 if args.value is None else args.value
+    # The two knobs differ in what they need to exist, which is the whole of this branch: the one
+    # that adds nothing needs nothing, so it can refuse a value before the config is even read,
+    # while a direction has to be checked against the checkpoint it will be added to.
+    if args.knob in (None, "none"):
+        knob = NoKnob().turn(value)
+        pinned = load_pinned()
+    else:
+        pinned = load_pinned()
+        knob = Steer(read_direction(args.knob, pinned)).turn(value)
+    return ModelMap(Model(pinned), prompt, knob)
 
 
 def logistic_map(args: argparse.Namespace) -> Map:
@@ -184,6 +184,11 @@ def logistic_map(args: argparse.Namespace) -> Map:
     for flag, given in (("--template", args.template), ("--knob", args.knob)):
         if given is not None:
             raise MapError(f"{flag} describes the model map; the logistic map's one parameter is --value, which is r")
+    # r has no default worth having. 0 is a legal r, so a forgotten --value would not fail: it
+    # would run the map that sends everything to zero and be answered `period 1` - a period claim,
+    # which is this project's whole output, made about a parameter nobody chose.
+    if args.value is None:
+        raise MapError("the logistic map's parameter is r; pass --value")
     return Logistic(args.value)
 
 
@@ -212,7 +217,7 @@ def run_loop(args: argparse.Namespace) -> int:
     for step, state in enumerate(islice(orbit(map, args.start), args.steps), start=1):
         print(f"{step:>4}  {state!r}", flush=True)  # repr, so each state is one line and an empty one shows
         states.append(state)
-    path = write_trajectory(Trajectory(map.spec, args.value, args.start, tuple(states)), TRAJECTORIES)
+    path = write_trajectory(Trajectory(map.spec, map.value, args.start, tuple(states)), TRAJECTORIES)
     print()
     print(f"trajectory {path}")
     return 0
@@ -284,11 +289,11 @@ def build_parser() -> argparse.ArgumentParser:
     determinism.set_defaults(run=run_determinism)
     loop = commands.add_parser("loop", help="iterate a map from a start state and write the trajectory")
     loop.add_argument("--map", type=map_named, default="model", help=f"the map to iterate: {', '.join(MAPS)} (default: model)")
-    loop.add_argument("--template", type=template, help="the model map's template, named in uni/templates.toml")
+    loop.add_argument("--template", help="the model map's template, named in uni/templates.toml")
     loop.add_argument("--start", required=True, help="the first state; may be empty; write --start=TEXT when it begins with '-'")
     loop.add_argument("--steps", type=positive, required=True, help="how many times to step the map")
-    loop.add_argument("--knob", type=knob, help="a direction in uni/directions for the model map to steer along")
-    loop.add_argument("--value", type=finite, default=0.0, help="the map's parameter: the knob's setting, or r (default: 0)")
+    loop.add_argument("--knob", help="a direction in uni/directions for the model map to steer along, or none")
+    loop.add_argument("--value", type=finite, help="the map's parameter: the knob's setting (default: 0), or r, which has no default")
     loop.set_defaults(run=run_loop)
     observe = commands.add_parser("observe", help="read a written trajectory's observables and the period of its orbit")
     observe.add_argument("trajectory", type=Path, help="a trajectory file written by `uni loop`")

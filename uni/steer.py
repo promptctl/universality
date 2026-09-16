@@ -175,4 +175,4 @@ class Steer:
             "layer": contrast.layer,
             "sha256": self.direction.sha256,
         }
-        return Turned(spec, (ResidualAdd(contrast.layer, value * torch.tensor(self.direction.vector)),))
+        return Turned(value, spec, (ResidualAdd(contrast.layer, value * torch.tensor(self.direction.vector)),))

@@ -69,11 +69,12 @@ the whole prompt, and `rewrite` asks for a rewrite. The start may be empty.
 `--map` chooses which map is iterated, and defaults to the model. Whichever it is, the runner
 only ever calls `step(state)` on it, so nothing below the command line knows there is more than
 one. `--value` is that map's parameter: the knob's setting for the model, and r for the logistic
-map below.
+map below. Each map reads the flags that describe it and refuses the other's, so a `--knob`
+carried over from a model run does not ride along unapplied on an orbit of numbers.
 
 ## The logistic map
 
-    uv run uni loop --map logistic --start 0.5 --steps 200 --value 3.5
+    uv run uni loop --map logistic --start 0.5 --steps 400 --value 3.5
 
 `x -> r x (1 - x)`, the textbook map, iterated by the same runner, written to the same kind of
 trajectory file, and read by the same `uni observe`. It is here because it is the one map whose
@@ -85,19 +86,29 @@ from being shaped around the model.
     r = 2.8   period 1     r = 3.5   period 4     r = 3.9   no period in 1000 steps
     r = 3.2   period 2     r = 3.55  period 8
 
-Those are what `uni observe` reports, exactly, on orbits from `--start 0.5`. The orbit is
-periodic in the strict sense and not merely close to it: float64 lands on the cycle and stays
-there, so the detector's exactness reports it with nothing rounded to help. Give r = 2.8 at least
-200 steps — it converges slowly, and the transient runs to step 154.
+Those are what `uni observe` reports, exactly, on orbits from `--start 0.5`, given enough steps
+to pass the transient and then close the cycle once: 155 at r = 2.8, 35 at 3.2, 33 at 3.5, and
+289 at 3.55. The transient lengthens as the cascade goes on, so 2.8 is the slow one only until
+3.55 overtakes it, and `--steps 400` is what covers the whole table. Too few steps is not a wrong
+answer — `uni observe` says it found no period in the steps it was given, and means it.
+
+The orbit is periodic in the strict sense and not merely close to it: float64 lands on the cycle
+and stays there, so the detector's exactness reports it with nothing rounded to help.
 
 The states are text, like every other map's. A logistic state is the shortest text that reads
-back as exactly its float, because the detector compares the states themselves and two spellings
-of one number would be two states. r is refused outside 0..4 and a state outside 0..1, which is
-not fussiness: outside them the orbit runs to -inf and then to nan, and a run of nans is a state
-that repeats, which a detector would report as period 1.
+back as exactly its float, and a second spelling of a number the map holds is refused rather than
+read: `--start 0.50` is told to write `0.5`. The detector compares the states themselves while the
+`x` column compares their numbers, so a spelling the map would never write is one state to the
+plot and two to the verdict — a fixed point reported as a transient it never had.
 
-This map costs no checkpoint. `uni loop --map logistic` imports no torch at all, which a test
-holds to.
+r is refused outside 0..4 and a state outside 0..1, which is not fussiness either: outside them
+the orbit runs to -inf and then to nan, and a run of nans is a state that repeats, which a
+detector would report as period 1. r has no default for the same reason — 0 is a legal r whose
+orbit collapses to zero, so a forgotten `--value` would be answered `period 1` rather than asked
+about.
+
+This map costs no checkpoint. `uni loop --map logistic` imports no torch at all, refusals
+included, which a test holds to.
 
 ## The steering knob
 
@@ -108,7 +119,8 @@ position of every step.
     uv run uni loop --template rewrite --steps 20 --start "..." --knob formality --value 2
 
 `--knob` names a direction in [uni/directions](uni/directions), or `none`; left off, the model
-map runs unturned. `--value` defaults to 0, and at 0 the orbit is exactly the unsteered one. Positive values
+map runs unturned. `--value` defaults to 0 for this map, and at 0 the orbit is exactly the
+unsteered one. Positive values
 push the rewrites toward the direction's quality and negative values push away from it.
 At layer 12, `formality` makes the rewrites clearly more formal by 2 and casual by -2. By
 4 the rewrites drift away from the text they started from, and they keep drifting: a value

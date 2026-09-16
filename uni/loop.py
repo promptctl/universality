@@ -17,7 +17,16 @@ class Map(Protocol):
 
     @property
     def spec(self) -> Mapping[str, Any]:
-        """Everything besides the start that fixes the orbit, as JSON data."""
+        """Everything besides the start and the value that fixes the orbit, as JSON data."""
+        ...
+
+    @property
+    def value(self) -> float:
+        """The map's one scalar parameter: r, or the knob's setting. Recorded beside the spec.
+
+        Asked of the map rather than read off the command line a second time, so what the file
+        says the orbit ran at is what it ran at. [LAW:one-source-of-truth]
+        """
         ...
 
     def step(self, state: str) -> str: ...

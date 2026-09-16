@@ -71,16 +71,34 @@ def test_the_spec_names_the_map_and_nothing_r_already_says():
     assert Logistic(3.2).spec == {"kind": "logistic"}
 
 
-@pytest.mark.parametrize("r", [-0.5, 4.5, float("inf"), float("nan")])
+@pytest.mark.parametrize("r", [-0.5, 4.5, float("1e999"), float("-1e999"), float("nan")])
 def test_an_r_that_carries_the_interval_out_of_itself_is_refused(r):
     with pytest.raises(MapError, match="r must be in 0..4"):
         Logistic(r)
 
 
-@pytest.mark.parametrize("state", ["abc", "", "1.5", "-0.1", "nan", "inf", "0.5 0.5"])
+# The infinities are written as powers here and above, as they are in tests/test_steer.py: the
+# run host's name is a short common word, and no tracked file may carry one. 1e999 is the same
+# float, and a state naming it is refused by the range check either way it is spelled.
+@pytest.mark.parametrize("state", ["abc", "", "1.5", "-0.1", "nan", "1e999", "-1e999", "0.5 0.5"])
 def test_a_state_this_map_cannot_step_is_refused(state):
     with pytest.raises(MapError, match="a logistic state is a number in 0..1"):
         Logistic(3.2).step(state)
+
+
+@pytest.mark.parametrize("state", ["0.50", " 0.5 ", "+0.5", "5e-1", ".5"])
+def test_a_second_spelling_of_a_number_this_map_holds_is_refused(state):
+    # Each of these is 0.5, and none is what the map writes for it. Accepted, one of them as a
+    # --start would be a state the detector counts as new and the plot draws on top of the state
+    # it repeats: a fixed point reported as a transient, with nothing anywhere saying so.
+    with pytest.raises(MapError, match="shortest text that reads back as its number: write 0.5"):
+        Logistic(3.2).step(state)
+
+
+def test_a_start_the_map_could_have_written_is_the_one_it_takes(capsys, tmp_path, monkeypatch):
+    monkeypatch.setattr("uni.cli.TRAJECTORIES", tmp_path)
+    assert command(["loop", "--map", "logistic", "--start", "0.50", "--steps", "1", "--value", "3.2"]) == EXIT_CONFIG
+    assert "write 0.5, not '0.50'" in capsys.readouterr().err
 
 
 def command(argv):
@@ -145,6 +163,25 @@ def test_the_flags_of_the_other_map_are_refused_rather_than_dropped(capsys):
         argv = ["loop", "--map", "logistic", "--start", "0.5", "--steps", "1", "--value", "3.2", flag, value]
         assert command(argv) == EXIT_CONFIG
         assert f"{flag} describes the model map" in capsys.readouterr().err
+
+
+def test_r_is_asked_for_rather_than_defaulted(capsys):
+    # 0 is a legal r, so a forgotten --value would run the map that sends every state to zero and
+    # be answered `period 1` - a period claim, this project's whole output, about nobody's choice.
+    assert command(["loop", "--map", "logistic", "--start", "0.5", "--steps", "5"]) == EXIT_CONFIG
+    assert "the logistic map's parameter is r; pass --value" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("flag, value", [("--template", "rewrite"), ("--knob", "formality"), ("--value", None)])
+def test_a_refusal_of_this_map_costs_no_checkpoint(tmp_path, flag, value):
+    # The flags are refused by the map, not by argparse, and that is the point: a converter on
+    # --knob would read and checksum a direction file, and load torch to hold it, before the run
+    # it belongs to had been refused. Every refusal here has to stay cheaper than the run.
+    argv = ["loop", "--map", "logistic", "--start", "0.5", "--steps", "1", "--value", "3.2"]
+    argv = argv[:-2] if value is None else [*argv, flag, value]
+    code = f"import sys; from pathlib import Path; from uni.cli import main;\nprint(main({argv!r}, {{}}, Path.cwd()), 'torch' in sys.modules)"
+    run = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True, cwd=tmp_path)
+    assert run.stdout.split() == [str(EXIT_CONFIG), "False"]
 
 
 def test_the_model_map_still_needs_its_template(capsys, monkeypatch):

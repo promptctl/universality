@@ -23,8 +23,9 @@ class KnobError(ConfigError):
 
 @dataclass(frozen=True)
 class Turned:
-    """A knob at one setting: what it adds to the model, and what it was, for the trajectory file."""
+    """A knob at one setting: the setting, what it adds to the model, and what it was, for the file."""
 
+    value: float  # what it was turned to, which is the number the trajectory records
     spec: Mapping[str, Any] | None  # None for the knob that does nothing
     additions: Sequence[ResidualAdd]
 
@@ -42,7 +43,7 @@ class NoKnob:
         # [LAW:no-silent-failure] a trajectory recording a value nothing applied reads back as a steering run.
         if value:
             raise KnobError(f"there is no knob to turn, so the value must be 0, got {value}")
-        return Turned(None, ())
+        return Turned(value, None, ())
 
 
 @dataclass(frozen=True)
@@ -52,6 +53,12 @@ class ModelMap:
     model: Model
     template: Template
     knob: Turned
+
+    @property
+    def value(self) -> float:
+        # The knob's setting is this map's one parameter, and it is held once, by the knob that
+        # was turned to it. [LAW:one-source-of-truth]
+        return self.knob.value
 
     @property
     def spec(self) -> dict[str, Any]:
@@ -80,6 +87,11 @@ def logistic_state(state: str) -> float:
     # nan and the infinities fail this comparison rather than passing it, which is what is wanted.
     if not 0 <= x <= 1:
         raise MapError(f"a logistic state is a number in 0..1, got {state!r}")
+    # [LAW:one-source-of-truth] one number, one text. The detector compares the state's text and
+    # this reads its number, so a second spelling of one number - a `--start 0.50` - is one state
+    # to the plot and two to the verdict: a fixed point the period column would deny having.
+    if repr(x) != state:
+        raise MapError(f"a logistic state is the shortest text that reads back as its number: write {repr(x)}, not {state!r}")
     return x
 
 
@@ -94,6 +106,11 @@ class Logistic:
 
     r: float
 
+    @property
+    def value(self) -> float:
+        """r under the protocol's name for it: the one number besides the start that fixes the orbit."""
+        return self.r
+
     def __post_init__(self) -> None:
         # [LAW:parse-dont-validate] past this line a Logistic exists, and one exists only at an r
         # that keeps [0, 1] inside itself. Outside, the orbit runs to -inf and then to nan, and a
@@ -103,8 +120,8 @@ class Logistic:
 
     @property
     def spec(self) -> dict[str, Any]:
-        # r fixes this orbit and is recorded as the trajectory's value, beside the spec and not in
-        # it: one place, the same place a steering value is written. [LAW:one-source-of-truth]
+        # r is not in here: it is the trajectory's value, which the runner reads off `value`
+        # above, in the one place a steering setting is written too. [LAW:one-source-of-truth]
         return {"kind": "logistic"}
 
     def step(self, state: str) -> str:
