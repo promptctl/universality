@@ -292,8 +292,8 @@ SWEEPS = Path("sweeps")  # under the directory uni runs in; the --remote sync ex
 
 def run_sweep(args: argparse.Namespace) -> int:
     """Run every cell the sweep has not already written, and say how far it got."""
-    from uni.loop import Trajectory, orbit, write_trajectory
-    from uni.sweep import Sweep, SweepError, described, grid, pending, write_sweep
+    from uni.loop import Trajectory, write_trajectory
+    from uni.sweep import Failed, Sweep, described, grid, pending, run_cell, write_sweep
 
     # Read here and not by argparse: a grid that is not one is the user's typo, and this repo
     # reports that as `uni: ...` with EX_CONFIG. argparse catches only its own error type, so a
@@ -324,26 +324,33 @@ def run_sweep(args: argparse.Namespace) -> int:
     # raise where it should have answered.
     family.holds(tuple(dict.fromkeys(cell.start for cell in left)))  # each start once, in cell order
     write_sweep(sweep, SWEEPS)
+    failures: list[Failed] = []
     for done, cell in enumerate(left, start=1):
-        map = family.at(cell.value)
-        # The map's own description and its own value, the way `uni loop` records them, so what
-        # the file says the orbit ran at is what it ran at. [LAW:one-source-of-truth]
-        states = tuple(islice(orbit(map, cell.start), sweep.steps))
-        trajectory = Trajectory(map.spec, map.value, cell.start, states)
-        # [LAW:no-silent-failure] the sweep named this cell's file before running it, and
-        # resumption is that name coming true. A map that described itself differently, or that
-        # came back set to something other than what it was asked for, writes a file this sweep
-        # cannot find - and then every rerun runs the cell again, for ever, against a total that
-        # never lands.
-        if trajectory.name != cell.name:
-            raise SweepError(
-                f"the cell at {cell.value} writes {trajectory.name}, not the {cell.name} this sweep is looking for: "
-                "the map does not describe itself the same way twice"
-            )
-        write_trajectory(trajectory, home)
-        print(f"{done:>5}/{len(left)}  value {cell.value:<12.6g} {cell.name}", flush=True)  # a --remote run streams through a pipe
-    print(described(sweep, pending(sweep, home)))
-    return 0
+        # [LAW:dataflow-not-control-flow] one line per cell whatever came of it, so the progress a
+        # person watches scroll past has one shape: the value it ran at, and either the file it
+        # wrote or what stopped it. The two arms are what running a cell can come to, as
+        # `verdict`'s three are what the detector can see.
+        outcome = run_cell(family, cell, sweep.steps)
+        match outcome:
+            case Trajectory() as trajectory:
+                write_trajectory(trajectory, home)
+                note = trajectory.name
+            case Failed() as failure:
+                failures.append(failure)
+                note = f"cannot run: {failure.reason}"
+            case _:  # a third outcome would otherwise leave the line below printing a stale note
+                assert_never(outcome)
+        print(f"{done:>5}/{len(left)}  value {cell.value:<12.6g} {note}", flush=True)  # a --remote run streams through a pipe
+    # Flushed like the lines above it: stdout is a pipe under `--remote` and stderr is not, so
+    # without this the refusals below overtake the count they are counted in.
+    print(described(sweep, pending(sweep, home)), flush=True)
+    # [LAW:no-silent-failure] said twice on purpose: inline, where a person watching sees which
+    # cell it was, and again at the end, where it survives a thousand lines of scrollback. The
+    # count above is already honest - a cell with no orbit is a cell left to run - but it does not
+    # say that running is what failed, and a run that did less than it was asked does not exit 0.
+    for failure in failures:
+        print(f"uni: value {failure.cell.value:.6g} from {failure.cell.start!r} has no orbit: {failure.reason}", file=sys.stderr)
+    return EXIT_CONFIG if failures else 0
 
 
 FIGURES = Path("figures")  # committed, unlike trajectories and sweeps: a figure is what a person looks at
