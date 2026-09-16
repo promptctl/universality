@@ -140,6 +140,17 @@ def template(name: str) -> Template:
     return templates[name]
 
 
+# The flags that describe the model's map and no other one. Declared here rather than on `uni
+# loop` directly so the set has a single spelling: every other map's builder refuses whatever
+# this parser holds, so a flag added to it is refused by them without anything else being
+# edited. A model-only flag listed nowhere is one a logistic run would accept and quietly
+# ignore, which is the failure the refusal exists to prevent. [LAW:one-source-of-truth]
+MODEL_FLAGS = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+MODEL_FLAGS.add_argument("--template", help="the model map's template, named in uni/templates.toml")
+MODEL_FLAGS.add_argument("--knob", help="a direction in uni/directions for the model map to steer along, or none")
+MODEL_ONLY = tuple(vars(MODEL_FLAGS.parse_args([])))  # the flags above, under the names args carries them by
+
+
 def model_map(args: argparse.Namespace) -> Map:
     """The pinned model reading its prompt from a template, turned by the knob.
 
@@ -181,9 +192,9 @@ def logistic_map(args: argparse.Namespace) -> Map:
 
     # [LAW:no-silent-failure] these describe the model's map. Carried over from an earlier command
     # and dropped without a word, they would read back as settings this run had honoured.
-    for flag, given in (("--template", args.template), ("--knob", args.knob)):
-        if given is not None:
-            raise MapError(f"{flag} describes the model map; the logistic map's one parameter is --value, which is r")
+    for flag in MODEL_ONLY:
+        if getattr(args, flag) is not None:
+            raise MapError(f"--{flag} describes the model map; the logistic map's one parameter is --value, which is r")
     # r has no default worth having. 0 is a legal r, so a forgotten --value would not fail: it
     # would run the map that sends everything to zero and be answered `period 1` - a period claim,
     # which is this project's whole output, made about a parameter nobody chose.
@@ -287,12 +298,10 @@ def build_parser() -> argparse.ArgumentParser:
     determinism = commands.add_parser("determinism", help="generate each gate case many times and check every hash is equal")
     determinism.add_argument("--runs", type=positive, default=RUNS, help=f"runs per case (default: {RUNS})")
     determinism.set_defaults(run=run_determinism)
-    loop = commands.add_parser("loop", help="iterate a map from a start state and write the trajectory")
+    loop = commands.add_parser("loop", parents=[MODEL_FLAGS], help="iterate a map from a start state and write the trajectory")
     loop.add_argument("--map", type=map_named, default="model", help=f"the map to iterate: {', '.join(MAPS)} (default: model)")
-    loop.add_argument("--template", help="the model map's template, named in uni/templates.toml")
     loop.add_argument("--start", required=True, help="the first state; may be empty; write --start=TEXT when it begins with '-'")
     loop.add_argument("--steps", type=positive, required=True, help="how many times to step the map")
-    loop.add_argument("--knob", help="a direction in uni/directions for the model map to steer along, or none")
     loop.add_argument("--value", type=finite, help="the map's parameter: the knob's setting (default: 0), or r, which has no default")
     loop.set_defaults(run=run_loop)
     observe = commands.add_parser("observe", help="read a written trajectory's observables and the period of its orbit")

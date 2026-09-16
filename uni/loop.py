@@ -52,6 +52,13 @@ class Trajectory:
     start: str
     states: tuple[str, ...]  # the state after each step, so step n is states[n - 1]
 
+    def __post_init__(self) -> None:
+        # One number, one spelling, fixed here because this is what holds the file's shape rather
+        # than in each map that hands one over. A `Logistic(3)` would otherwise write "value": 3,
+        # which reads back as an int the parser refuses - and, because `name` hashes the value,
+        # would name a second file for an orbit that already has one. [LAW:single-enforcer]
+        object.__setattr__(self, "value", float(self.value))
+
     @property
     def name(self) -> str:
         """The file name, from what fixes the orbit, so rerunning a command rewrites its own file."""

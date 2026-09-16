@@ -165,7 +165,11 @@ def readings(observables: Sequence[Observable], step: Step) -> tuple[float, ...]
     """Every observable's number for one step, or a refusal that says which step has no number."""
     try:
         return tuple(observable.read(step) for observable in observables)
-    except ConfigError as error:  # truthful already; what it cannot know is which step it was reading
+    # Every observable was built before the table started printing - the checkpoint read, the
+    # template parsed, the directions checked against it - so nothing about the run's description
+    # is still waiting to fail here, and a refusal that arrives is about this one state. It is
+    # truthful already; what it cannot know is which step it was reading.
+    except ConfigError as error:
         raise ObserveError(f"step {step.index}: {error}") from error
 
 

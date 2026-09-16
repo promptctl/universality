@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from uni.cli import EXIT_CONFIG, main
-from uni.loop import Trajectory, orbit, read_trajectory
+from uni.cli import EXIT_CONFIG, MODEL_ONLY, main
+from uni.loop import Trajectory, orbit, read_trajectory, write_trajectory
 from uni.maps import Logistic, MapError
 from uni.observe import ObserveError, Step, Value, readings
 from uni.period import Cycle, NoCycle, detect
@@ -182,6 +182,25 @@ def test_a_refusal_of_this_map_costs_no_checkpoint(tmp_path, flag, value):
     code = f"import sys; from pathlib import Path; from uni.cli import main;\nprint(main({argv!r}, {{}}, Path.cwd()), 'torch' in sys.modules)"
     run = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True, cwd=tmp_path)
     assert run.stdout.split() == [str(EXIT_CONFIG), "False"]
+
+
+def test_every_model_flag_is_one_this_map_refuses(capsys):
+    # Derived from the parser the model's flags are declared in, not copied from it: a flag added
+    # there and nowhere else is refused here rather than accepted and silently dropped.
+    assert MODEL_ONLY == ("template", "knob")
+    for flag in MODEL_ONLY:
+        argv = ["loop", "--map", "logistic", "--start", "0.5", "--steps", "1", "--value", "3.2", f"--{flag}", "rewrite"]
+        assert command(argv) == EXIT_CONFIG
+        assert f"--{flag} describes the model map" in capsys.readouterr().err
+
+
+def test_an_r_that_is_a_whole_number_writes_a_file_that_reads_back(tmp_path):
+    # `Logistic(3)` is a legal map, and an int r would be written as `3`, which the parser reads
+    # back as an int and refuses - and which `name` would hash into a second file for one orbit.
+    written = Trajectory(Logistic(3).spec, Logistic(3).value, "0.5", ("0.375",))
+    assert written.value == 0.375 * 8  # 3.0, held as the float the file has to carry
+    assert read_trajectory(write_trajectory(written, tmp_path)) == written
+    assert written.name == Trajectory(Logistic(3.0).spec, 3.0, "0.5", ("0.375",)).name
 
 
 def test_the_model_map_still_needs_its_template(capsys, monkeypatch):

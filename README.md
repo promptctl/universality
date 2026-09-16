@@ -89,7 +89,8 @@ from being shaped around the model.
 Those are what `uni observe` reports, exactly, on orbits from `--start 0.5`, given enough steps
 to pass the transient and then close the cycle once: 155 at r = 2.8, 35 at 3.2, 33 at 3.5, and
 289 at 3.55. The transient lengthens as the cascade goes on, so 2.8 is the slow one only until
-3.55 overtakes it, and `--steps 400` is what covers the whole table. Too few steps is not a wrong
+3.55 overtakes it, and `--steps 400` covers every row that has a period. The r = 3.9 row is a
+claim about a thousand steps and takes a thousand. Too few steps is not a wrong
 answer — `uni observe` says it found no period in the steps it was given, and means it.
 
 The orbit is periodic in the strict sense and not merely close to it: float64 lands on the cycle
