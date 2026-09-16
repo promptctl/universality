@@ -64,6 +64,13 @@ def test_a_refusal_nobody_is_left_to_read_still_exits_as_a_refusal(tmp_path):
     assert ran.returncode == EXIT_CONFIG
 
 
+def test_help_nobody_is_left_to_read_still_exits_as_help(tmp_path):
+    # argparse writes --help and its usage errors and leaves through SystemExit, past everything
+    # `main` does; this exited 120 with "Exception ignored in" on the way out.
+    assert into_a_closed_pipe(tmp_path, "--help", stderr=subprocess.STDOUT).returncode == 0
+    assert into_a_closed_pipe(tmp_path, "sweep", "--grd", "1", stderr=subprocess.STDOUT).returncode == 2
+
+
 class Full:
     """A stdout on a disk with no room left: it takes the text, and fails to deliver it."""
 

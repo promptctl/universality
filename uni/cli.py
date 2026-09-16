@@ -651,18 +651,22 @@ def main(argv: Sequence[str], env: Mapping[str, str], cwd: Path) -> int:
 
 
 def entry() -> None:
-    code = main(sys.argv[1:], os.environ, Path.cwd())
-    # Python flushes both streams again on its way out, and one that cannot take what is left in
-    # it prints "Exception ignored in: <_io.TextIOWrapper ...>" over whatever the user piped into
-    # and exits 120 in place of `code`. `main` has already answered for the run and flushed its
-    # output, so what is left belongs to a run already answered for and has nowhere to go. Here
-    # and not in `main` because it rewires this process's own descriptors, which a caller of
-    # `main` in the same process still needs. [LAW:effects-at-boundaries]
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            stream.flush()
-        except OSError:
-            devnull = os.open(os.devnull, os.O_WRONLY)
-            os.dup2(devnull, stream.fileno())
-            os.close(devnull)
-    sys.exit(code)
+    try:
+        sys.exit(main(sys.argv[1:], os.environ, Path.cwd()))
+    finally:
+        # Python flushes both streams again on its way out, and one that cannot take what is left
+        # in it prints "Exception ignored in: <_io.TextIOWrapper ...>" over whatever the user piped
+        # into and exits 120 in place of the code this run chose. What is left belongs to a run
+        # already answered for - by `main`, which flushed its own output, or by argparse, whose
+        # --help and usage errors leave through SystemExit and which drops a failed write itself -
+        # so it has nowhere to go. A `finally` because both of those ways out need it, and safe as
+        # one because nothing in it can raise over the exit already in flight. Here and not in
+        # `main` because it rewires this process's own descriptors, which a caller of `main` in the
+        # same process still needs. [LAW:effects-at-boundaries]
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream.flush()
+            except OSError:
+                devnull = os.open(os.devnull, os.O_WRONLY)
+                os.dup2(devnull, stream.fileno())
+                os.close(devnull)
