@@ -1,0 +1,34 @@
+# Start sets: a passage cut after each of its word counts, so the starts of a sweep spread over
+# how long a state is. Named on the command line as `uni sweep --starts NAME`. Each prefix is the
+# passage's first N words joined by single spaces, so line breaks here are not part of any start.
+
+[harbor]
+passage = """\
+The harbor town woke slowly in winter. Fishing boats sat tied at the pier with their nets \
+folded, and the gulls walked the boards as if they owned them. The baker opened first, then the \
+hardware store, then the small library that kept odd hours because its only librarian also drove \
+the school bus. Nobody minded. People came in out of the wind to read the paper, argue about the \
+weather, and borrow books they had already read twice. In the afternoon the light went flat and \
+gray over the water, and the ferry from the island came in half empty, carrying mail, a crate of \
+oranges, and a teacher who had missed the morning boat. By five the streets were dark. The \
+lighthouse turned its long slow beam across the bay, and the town settled into the kind of quiet \
+that only happens when everyone knows everyone else and nothing much is expected to happen until \
+spring.
+"""
+words = [1, 2, 3, 5, 8, 12, 18, 27, 40, 60, 90, 130]
+
+[memo]
+passage = """\
+Following the review of last quarter's results, the operations team recommends three changes to \
+the deployment process. First, every release should be staged for at least twenty four hours \
+before it reaches production, so that regressions surface under real traffic without affecting \
+customers. Second, the on-call rotation should be extended from four engineers to six, which \
+reduces the number of consecutive weeks any one person carries the pager and should lower the \
+rate of missed alerts. Third, the incident template should require a written timeline within two \
+business days of any outage, including the first signal, the time to acknowledge, and the time \
+to mitigate. These changes carry modest costs in engineering time, but the team estimates they \
+would have prevented two of the four major incidents recorded this year. A decision is requested \
+by the end of the month so that the new process can take effect before the holiday freeze \
+begins.
+"""
+words = [1, 2, 3, 5, 8, 12, 18, 27, 40, 60, 90, 130]

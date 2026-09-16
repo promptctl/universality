@@ -7,3 +7,5 @@ identity = "Repeat the following text exactly, with nothing before or after it.\
 empty = "{state}"
 
 rewrite = "Rewrite the following text.\n\n{state}"
+
+summarize = "Summarize the following text.\n\n{state}"
