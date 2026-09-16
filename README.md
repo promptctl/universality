@@ -183,7 +183,8 @@ cell is actually run. A sweep is identified by what it is, so there is no way to
 cannot describe.
 
 Sweeps are kept where trajectories are: written on the machine that ran them, gitignored, and
-excluded from the `--remote` sync in both directions, so each machine keeps its own.
+excluded from the `--remote` sync — which runs one way, this tree to the host, with `--delete`. So
+a local sweep is never pushed and the host's own is never deleted, and each machine keeps its own.
 
 ## Observables and the period
 

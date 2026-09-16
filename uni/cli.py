@@ -272,7 +272,9 @@ def run_loop(args: argparse.Namespace) -> int:
     # [LAW:parse-dont-validate] the value is settled and the map built at it before a state is
     # stepped: past this line a map exists, and a map exists only at a value it accepted.
     value = args.map.value(args.value)
-    map = args.map.build(args, (value,)).at(value)
+    family = args.map.build(args, (value,))
+    family.holds((args.start,))
+    map = family.at(value)
     print(f"{'step':>4}  state")
     print(f"{0:>4}  {args.start!r}")
     states = []
@@ -300,6 +302,9 @@ def run_sweep(args: argparse.Namespace) -> int:
     # Built once for the whole grid, which is the point of a family: the checkpoint behind a model
     # sweep is read once, and not until a cell is actually run.
     family = args.map.build(args, values)
+    # Every start, like every value, is offered to the map before anything is written: a start it
+    # cannot step is a sweep that dies partway and dies in the same place on every resume.
+    family.holds(args.start)
     sweep = Sweep(family.spec, values, tuple(args.start), args.steps)
     home = sweep.home(SWEEPS)
     left = pending(sweep, home)

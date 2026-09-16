@@ -18,8 +18,6 @@ from uni.loop import read_trajectory, trajectory_name
 from uni.maps import LOGISTIC, Logistic
 from uni.sweep import MANIFEST, Sweep, SweepError, grid, pending, read_sweep, write_sweep
 
-LOGISTIC = {"kind": "logistic"}
-
 
 def command(argv):
     return main(argv, {}, Path.cwd())
@@ -294,6 +292,9 @@ class Drifting:
     def spec(self):
         return dict(LOGISTIC)
 
+    def holds(self, states):
+        return None
+
     def at(self, value):
         return Logistic(value / 2)
 
@@ -330,3 +331,21 @@ def test_a_manifest_that_does_not_describe_a_sweep_is_refused(tmp_path, raw, mes
     path.write_text(raw)
     with pytest.raises(SweepError, match=message):
         read_sweep(path)
+
+
+def test_a_start_the_map_cannot_step_is_refused_before_anything_is_written(capsys, tmp_path, monkeypatch):
+    # The starts get the pass the values get. Without it this writes its manifest, runs every cell
+    # of the first start, dies on the second - and dies in the same place on every resume, which
+    # is the failure the values were checked up front to prevent.
+    monkeypatch.setattr("uni.cli.SWEEPS", tmp_path)
+    argv = ["sweep", "--map", "logistic", "--grid", "2.8:4.0:200", "--start", "0.5", "--start", "0.10", "--steps", "5"]
+    assert command(argv) == EXIT_CONFIG
+    assert "write 0.1, not '0.10'" in capsys.readouterr().err
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_two_values_are_one_cell_exactly_when_they_are_one_file():
+    # 0.0 and -0.0 are equal and hash alike, so a set counts them as one - but `trajectory_name`
+    # hashes the spelling, and they name two files. Refusing them as a repeated value would be a
+    # refusal the directory disagrees with, so the check is keyed by the spelling too.
+    assert len({cell.name for cell in Sweep(LOGISTIC, (0.0, -0.0), ("0.5",), 4).cells}) == 2

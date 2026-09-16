@@ -76,6 +76,18 @@ class Family(Protocol):
         """
         ...
 
+    def holds(self, states: Sequence[str]) -> None:
+        """Refuse any of these states that no map of this family could step.
+
+        The parameter does not move the states a map holds - r does not change [0, 1], and a knob
+        setting does not make a string unreadable - so which states are legal is the family's own
+        answer, given before the first cell runs rather than discovered by reaching one. Cheap by
+        contract: it may not run the map. A sweep handed a start its map cannot step would
+        otherwise write its manifest, run every cell before that start, and die there - and die
+        again in the same place on every resume. [LAW:no-silent-failure]
+        """
+        ...
+
     def at(self, value: float) -> Map:
         """This map with its parameter set, at exactly that value: `at(v).value == v`."""
         ...
@@ -137,6 +149,12 @@ class ModelFamily:
     def spec(self) -> dict[str, Any]:
         return model_spec(self.pinned, self.template, self.knob.spec)
 
+    def holds(self, states: Sequence[str]) -> None:
+        # Every text is a state here: the template renders whatever it is given and the model
+        # replies to whatever it renders. Nothing to refuse, and this says so rather than leaving
+        # the question unanswered - a family that held only some strings would have to say which.
+        return None
+
     @cached_property
     def model(self) -> Model:
         # Held once, so a sweep of a thousand cells reads the checkpoint once and not once a cell.
@@ -182,6 +200,12 @@ class LogisticFamily:
     @property
     def spec(self) -> dict[str, Any]:
         return dict(LOGISTIC)
+
+    def holds(self, states: Sequence[str]) -> None:
+        # The function `step` reads a state with, so there is no second rule about which states
+        # this map holds, free to drift from the one that decides. [LAW:one-source-of-truth]
+        for state in states:
+            logistic_state(state)
 
     def at(self, value: float) -> Map:
         return Logistic(value)

@@ -21,11 +21,11 @@ VARIABLES = ("UNI_REMOTE_HOST", "UNI_REMOTE_USER", "UNI_REMOTE_DIR")
 REMOTE_DIR = re.compile(r"/[\w./-]+")
 
 # What git ignores stays home (rsync reads .gitignore itself; negated patterns are not
-# understood). .git is not needed to run, .env holds the host's identity, and .venv and
-# trajectories/ are the host's own: a plain exclude also shields them from --delete, the filter does not.
-# A plain --exclude and not the gitignore filter: the sync runs with --delete, which the filter
-# does not hold back, so a gitignored results directory would be deleted off the host it was
-# written on. Each machine keeps its own orbits and sweeps.
+# understood). .git is not needed to run and .env holds the host's identity. .venv, trajectories/
+# and sweeps/ are the host's own tools and results, and they get a plain --exclude rather than the
+# gitignore filter because the sync runs with --delete, which the filter does not hold back: a
+# gitignored results directory would be deleted off the machine that wrote it. Each machine keeps
+# its own orbits and sweeps.
 SYNC_FILTERS = (
     "--exclude=.git",
     "--exclude=.env",

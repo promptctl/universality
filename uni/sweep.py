@@ -107,11 +107,14 @@ class Sweep:
         for what, given in (("values", self.values), ("starts", self.starts)):
             if not given:
                 raise SweepError(f"a sweep needs at least one of {what} and this one has none")
-            seen: set[Any] = set()
+            # Keyed by the spelling `trajectory_name` hashes, so two of these are one cell in
+            # exactly the case where they are one file: 0.0 and -0.0 are equal and hash alike, and
+            # would be refused as one value while naming two. [LAW:one-source-of-truth]
+            seen: set[str] = set()
             for one in given:
-                if one in seen:
+                if repr(one) in seen:
                     raise SweepError(f"a sweep runs each cell once, and {what} names {one!r} twice")
-                seen.add(one)
+                seen.add(repr(one))
 
     @property
     def name(self) -> str:
