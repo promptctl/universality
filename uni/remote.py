@@ -108,9 +108,10 @@ def run_remote(target: RemoteTarget, argv: Sequence[str], tree: Path) -> int:
     for command in (sync_command(target, tree), run_command(target, argv)):
         # [LAW:no-silent-failure] ssh and rsync speak for themselves on stderr; stop at the first miss.
         returncode = subprocess.run(command).returncode
-        # A step killed by a signal comes back as minus the signal, which sys.exit would turn into
-        # 256 minus it. 128 plus it is what a shell says of the same death, so `uni sweep --remote
-        # | head` killing ssh exits as the local run does.
+        # A step killed by a signal - rsync or ssh on a Ctrl-C, say - comes back as minus the
+        # signal, which sys.exit would turn into 256 minus it. 128 plus it is what a shell says of
+        # the same death, and the number every reader of an exit code already knows. (Not `| head`:
+        # ssh ignores SIGPIPE, and a closed pipe reaches it as a write error it exits on itself.)
         code = returncode if returncode >= 0 else 128 - returncode
         if code:
             return code
