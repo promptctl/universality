@@ -519,7 +519,8 @@ push's size, so a large enough push rounds the model's writes out of the stream,
 reads as a model that answers nothing. The command bounds that rounding from the push alone
 before it runs a forward pass, refuses any cell it could move by a hundredth or more, and prints
 the worst bound over the grid: 0.00051 for the run above, where a push of 1e12 would be 1.3e7.
-Like `uni plot`, it runs here and refuses `--remote`: the figure it draws would stay on the host.
+Like `uni plot`, it runs here and refuses `--remote`: the figure it draws, and the curves it writes
+to `curves/` (see the smooth fit below), would stay on the host.
 
 ![the model's answer to a push along formality, at six layers](figures/response-6e6cae900235d2b4.png)
 
@@ -697,10 +698,10 @@ model's own float32 roughness. The spelling is recorded in every trajectory the 
 
 | spacing ratio over periods | delta_n |
 | :------------------------- | ------: |
-| 2, 4, 8 | 3.6404 +- 0.0000 |
-| 4, 8, 16 | 4.6248 +- 0.0004 |
-| 8, 16, 32 | 4.6262 +- 0.0024 |
-| 16, 32, 64 | 4.6309 +- 0.0120 |
+| 2, 4, 8 | 3.6403855 +- 4.5e-05 |
+| 4, 8, 16 | 4.6247912 +- 3.7e-04 |
+| 8, 16, 32 | 4.6262033 +- 2.4e-03 |
+| 16, 32, 64 | 4.6309232 +- 1.2e-02 |
 
 Starting from -8.613930 instead, five times the top's error away, moves those three ratios by
 -0.0019, +0.0056 and -0.0111, so the top's own error adds at most 0.0004, 0.0011 and 0.0022. Grids
@@ -714,9 +715,170 @@ the logistic map the ratios at these periods are already within 0.25% of it. Thi
 logistic map. Its hump falls away unevenly, its answer has the shoulder between -3 and 0 described
 above, and a stable fixed point coexists with the cascade. Whether its ratios go on to 4.669 is a question
 about doublings past 64, where the float32 roughness of the model's answer swamps the reading: at
-period 64 the readings already scatter by 0.0008. That is the next measurement
-(`universality-rung3-arw`), on a smooth fit to the model's own answers, so it can be followed
-past where the model's arithmetic ends.
+period 64 the readings already scatter by 0.0008. The next section follows them past there, on a
+smooth fit to the model's own answers.
+
+### Past period 64: the cascade on a smooth fit of the model's answer
+
+The model's answer is read once, finely, and kept:
+
+    uv run uni response --template rewrite --knob formality \
+        --start "The meeting moved to Thursday because the room was booked." \
+        --grid=-19:10:2901 --layer 23
+
+`uni response` writes every curve it reads to `curves/`, with what it was read from and the
+direction's squared length, in a file named by the hash of its own bytes. So this one is
+`curves/1bb8e39470dc1a00.json`, committed, and 2901 forward passes are not needed again. It is
+named by content and not by the command because the readings are float32 on one device: the same
+command elsewhere reads a curve that differs in its last bits, and writes it beside this one
+rather than over it.
+
+![the model's answer at layer 23, sampled every 0.01 from -19 to 10](figures/response-a6166ccd174afb26.png)
+
+`uni smooth` fits a Chebyshev series of each degree to the curve by least squares and says how far
+the readings lie from it:
+
+    uv run uni smooth --curve curves/1bb8e39470dc1a00.json --layer 23 \
+        --degree 60 --degree 90 --degree 150 --degree 220
+
+    curve 1bb8e39470dc1a00 at layer 23: 2901 readings from -19 to 10, jitter 1.35e-05
+    degree   60: rms residual 5.52e-04, largest 2.18e-03
+    degree   90: rms residual 2.04e-04, largest 6.96e-04
+    degree  150: rms residual 1.81e-05, largest 8.94e-05
+    degree  220: rms residual 1.41e-05, largest 8.52e-05
+
+The jitter is the readings' own scatter about whatever smooth curve lies under them, read from
+their fourth differences: a fourth difference of a smooth curve at a spacing of 0.01 is nothing,
+and of independent scatter s it is a number of variance 70 s^2. So a series whose residual comes
+down to the jitter has fitted the curve and not yet its noise. Degrees 150 and 220 are there, at
+1.3 and 1.05 times it. Degrees 60 and 90 are 41 and 15 times above it, and are here to show what
+a coarser fit changes. The fit is numpy's, in Chebyshev polynomials rather than the powers `uni
+cascade` fits its parabolas in: on these pushes the powers' normal equations have a condition
+number of 3e14 at degree 20 and are singular in a float by 60, where the Chebyshev least-squares
+problem has 11 at degree 150. A fit numpy reports as rank deficient is refused.
+
+`--map smooth --curve FILE --layer L --degree D` is the response map with the model's answer
+replaced by that series C: a push x goes to `gain * C(x) / |v|^2`, the same division by the same
+squared length, so a gain here is a gain there. The state is the push with every bit a float
+keeps, since the series has no roughness to lose them in, and a push outside -19 to 10, where the
+series was fitted to nothing, is refused rather than extrapolated. The map is recorded by the
+curve's name, the layer and the degree; the coefficients are recomputed from those.
+
+Its top is measured as the model's was, on a narrower grid:
+
+    uv run uni critical --map smooth --curve curves/1bb8e39470dc1a00.json --layer 23 \
+        --degree 150 --value 4.5 --grid=-8.616:-8.612:51
+
+    the map at 4.5 turns at -8.6140274 +- 2.0e-12 (a cubic through 51 states, scatter 2.6e-15), written -8.614027438063532
+
+The series has no noise, so a cubic's scatter about it is the cubic's failure to follow it, which
+shrinks with the grid; on a grid of ±0.025 the top came out 1.8e-9 away, and on grids from ±0.005
+to ±0.0005 within 3e-12 of this. That matters far down the cascade. An error e in the top offsets
+F^p(x_c) - x_c by e, which moves the superstable gain of period 2^n by e over a slope that grows as
+(delta / alpha)^n, while the spacings shrink as delta^-n: relative to its spacing, the gain moves
+by about e alpha^n, with alpha = 2.50. From a top 2e-9 off, the ratios over periods 1024 to 4096
+and 2048 to 8192 read 4.6691 and 4.6693; from this one, 4.6692 and 4.6692. The same grid gives the
+other degrees' tops: -8.61449199320805 (60), -8.613308370166342 (90), -8.61400587604972 (220).
+The model's own top, -8.61403 +- 0.00002, is 2.6e-6 from degree 150's and 2.4e-5 from degree 220's.
+
+Each grid below is 21 gains, a fiftieth of the spacing either side of its superstable gain: placed
+around the gain a scan found, and past period 1024 around where the spacings extrapolated by delta
+put it. A grid that missed its gain would be refused, for crossing zero no times.
+
+    uv run uni cascade --map smooth --curve curves/1bb8e39470dc1a00.json --layer 23 \
+        --degree 150 --critical=-8.614027438063532 --period 2 \
+        --grid 3.06727:3.07527:21 --grid 4.1438:4.1876:21 --grid 4.46037:4.47239:21 \
+        --grid 4.53008:4.53268:21 --grid 4.545166:4.545728:21 --grid 4.5484020:4.5485226:21 \
+        --grid 4.5490954:4.5491212:21 --grid 4.54924390:4.54924943:21 \
+        --grid 4.549275708:4.549276894:21 --grid 4.549282521:4.549282775:21 \
+        --grid 4.5492839804:4.5492840348:21 --grid 4.54928429290:4.54928430454:21 \
+        --grid 4.54928435982:4.54928436232:21
+
+<details>
+<summary>The same for degrees 60, 90 and 220</summary>
+
+    uv run uni cascade --map smooth --curve curves/1bb8e39470dc1a00.json --layer 23 \
+        --degree 60 --critical=-8.61449199320805 --period 2 \
+        --grid 3.06732:3.07532:21 --grid 4.1436:4.1874:21 --grid 4.46009:4.47212:21 \
+        --grid 4.52974:4.53233:21 --grid 4.544921:4.545487:21 --grid 4.5481901:4.5483120:21 \
+        --grid 4.5488910:4.5489172:21 --grid 4.54904120:4.54904679:21 \
+        --grid 4.549073356:4.549074554:21 --grid 4.549080244:4.549080500:21 \
+        --grid 4.5490817188:4.5490817737:21 --grid 4.54908203471:4.54908204648:21 \
+        --grid 4.54908210237:4.54908210489:21
+
+    uv run uni cascade --map smooth --curve curves/1bb8e39470dc1a00.json --layer 23 \
+        --degree 90 --critical=-8.613308370166342 --period 2 \
+        --grid 3.06712:3.07512:21 --grid 4.1440:4.1878:21 --grid 4.46021:4.47222:21 \
+        --grid 4.53010:4.53270:21 --grid 4.545087:4.545646:21 --grid 4.5483203:4.5484408:21 \
+        --grid 4.5490142:4.5490400:21 --grid 4.54916282:4.54916836:21 \
+        --grid 4.549194666:4.549195853:21 --grid 4.549201487:4.549201741:21 \
+        --grid 4.5492029473:4.5492030017:21 --grid 4.54920326013:4.54920327179:21 \
+        --grid 4.54920332713:4.54920332963:21
+
+    uv run uni cascade --map smooth --curve curves/1bb8e39470dc1a00.json --layer 23 \
+        --degree 220 --critical=-8.61400587604972 --period 2 \
+        --grid 3.06727:3.07527:21 --grid 4.1439:4.1876:21 --grid 4.46037:4.47239:21 \
+        --grid 4.53008:4.53268:21 --grid 4.545158:4.545720:21 --grid 4.5483975:4.5485182:21 \
+        --grid 4.5490916:4.5491174:21 --grid 4.54924023:4.54924577:21 \
+        --grid 4.549272073:4.549273259:21 --grid 4.549278892:4.549279146:21 \
+        --grid 4.5492803526:4.5492804070:21 --grid 4.54928066538:4.54928067704:21 \
+        --grid 4.54928073237:4.54928073487:21
+
+</details>
+
+Each runs in about two seconds. Where both reach, the fitted maps' superstable gains beside the
+model's, with the model's error:
+
+| period | model, 6 decimals | error | degree 150 | degree 220 | degree 60 |
+| -----: | ----------------: | ----: | ---------: | ---------: | --------: |
+| 2 | 3.071274395 | 8.4e-08 | 3.071274394 | 3.071270336 | 3.071324269 |
+| 4 | 4.165735261 | 2.1e-06 | 4.165734784 | 4.165741152 | 4.165491775 |
+| 8 | 4.466379481 | 2.5e-06 | 4.466381728 | 4.466379377 | 4.466103116 |
+| 16 | 4.531386572 | 4.2e-06 | 4.531382973 | 4.531382442 | 4.531034549 |
+| 32 | 4.545438504 | 5.0e-06 | 4.545446815 | 4.545439132 | 4.545204042 |
+| 64 | 4.548472873 | 4.9e-06 | 4.548462265 | 4.548457824 | 4.548251058 |
+
+Degree 150 lands within 2.2 of the model's errors of every one of them, and within 1.1e-5. Degree
+220 is within 1.5e-5 and 3.1 errors from period 4 on, but 4.1e-6 off at period 2, where the model's
+error is 8e-8: at that precision the fit's own error shows, and no fit to readings with a jitter
+of 1.35e-5 is exact. Degree 60, fitted to 41 times the jitter, is 5e-5 to 3.5e-4 off everywhere. And past period
+64, where the model can no longer be read, the series goes on:
+
+| spacing ratio over periods | model | degree 60 | degree 90 | degree 150 | degree 220 |
+| :------------------------- | ----: | --------: | --------: | ---------: | ---------: |
+| 2, 4, 8 | 3.64039 | 3.63981 | 3.64529 | 3.64035 | 3.64049 |
+| 4, 8, 16 | 4.6248 | 4.62967 | 4.60757 | 4.62525 | 4.62499 |
+| 8, 16, 32 | 4.6262 | 4.58248 | 4.66649 | 4.62187 | 4.62435 |
+| 16, 32, 64 | 4.631 | 4.65029 | 4.63459 | 4.66393 | 4.65655 |
+| 32, 64, 128 | | 4.66585 | 4.66153 | 4.66768 | 4.66806 |
+| 64, 128, 256 | | 4.66829 | 4.66773 | 4.66875 | 4.66882 |
+| 128, 256, 512 | | 4.66904 | 4.66888 | 4.66913 | 4.66913 |
+| 256, 512, 1024 | | 4.66916 | 4.66913 | 4.66918 | 4.66919 |
+| 512, 1024, 2048 | | 4.66919 | 4.66919 | 4.66920 | 4.66920 |
+| 1024, 2048, 4096 | | 4.66920 | 4.66920 | 4.66920 | 4.66920 |
+| 2048, 4096, 8192 | | 4.66920 | 4.66920 | 4.66920 | 4.66920 |
+
+Every fitted ratio carries an error of 2e-6 to 1.5e-5, from its parabolas. The model's are
+4.5e-5, 3.7e-4, 2.4e-3 and 1.2e-2, rounded here to the digits they leave.
+
+Two things are in this table. The first ratios are the shape's. Over periods 8, 16, 32 the four
+fits spread from 4.582 to 4.666, and even degrees 150 and 220, both at the jitter, differ by 0.007
+over periods 16, 32, 64. The fits at the jitter sit low and flat where the model did, at 4.625
+over 4, 8, 16 and 4.622 to 4.624 over 8, 16, 32, so the 0.9% the model's ratios fell short by
+there is its hump's own shape and not its roughness. Over 16, 32, 64 the model's 4.6309 +- 0.0120 lies 2.1 and 2.7 errors
+below those two fits.
+
+The last ratios are not the shape's. The loosest fit and the closest, whose superstable gains
+differ by 2e-4, both reach 4.66920 by period 4096, as the other two do, and over 2048, 4096, 8192
+the four read 4.6692031, 4.6692017, 4.6692012 and 4.6692026, within 2e-6 of each other and inside
+their errors of 7.5e-6. Feigenbaum's delta is 4.6692016. On the way there each gap to delta is
+about 4.9 times the next (for degree 150: -1.9e-5, -3.9e-6, -8e-7), a steady geometric approach.
+This is what universality claims: a constant the map's shape does not set, and here four maps
+whose early ratios differ by 2% share it.
+
+What this rests on is that the series is the model's answer. Degree 150 fits the curve to 1.3
+times the curve's own jitter and places the model's six measurable superstable gains within 2.2
+of their errors, and every degree, however loosely fitted, carries the cascade to the same delta.
 
 ## Running on the experiment host
 
