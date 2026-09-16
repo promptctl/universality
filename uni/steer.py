@@ -74,6 +74,10 @@ class Direction:
     def sha256(self) -> str:
         return hashlib.sha256(self.encode()).hexdigest()
 
+    def project(self, residual: torch.Tensor) -> float:
+        """How far a residual stream reaches along this direction. The direction owns its own geometry."""
+        return float(residual @ torch.tensor(self.vector, device=residual.device, dtype=residual.dtype))
+
 
 def _contrast(name: str, raw: Mapping[str, Any], template: Template) -> Contrast:
     # [LAW:parse-dont-validate] the contrast and its copy in a direction file are parsed by this one function.

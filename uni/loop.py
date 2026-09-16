@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
-from uni.parse import field
+from uni.parse import ConfigError, field
 
 
 class Map(Protocol):
@@ -32,7 +32,7 @@ def orbit(map: Map, start: str) -> Iterator[str]:
         yield state
 
 
-class TrajectoryError(Exception):
+class TrajectoryError(ConfigError):
     """A file does not hold a trajectory. The message says which field is wrong."""
 
 

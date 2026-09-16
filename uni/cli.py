@@ -11,12 +11,13 @@ import sys
 from collections.abc import Mapping, Sequence
 from itertools import islice
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, assert_never
 
 from dotenv import dotenv_values
 
 from uni.determinism import RUNS
 from uni.parse import ConfigError
+from uni.period import Contradiction, Cycle, NoCycle, Period
 from uni.remote import RemoteConfigError, remote_target_from_env, run_remote
 from uni.template import Template, load_templates
 
@@ -62,6 +63,13 @@ def run_gen(args: argparse.Namespace) -> int:
     for step, (token, logprob) in enumerate(zip(generation.tokens, generation.logprobs)):
         print(f"{step:>4} {logprob:>12.6f}  {token!r}")
     return 0
+
+
+def whole(text: str) -> int:
+    value = int(text)
+    if value < 0:
+        raise argparse.ArgumentTypeError(f"must not be negative, got {value}")
+    return value
 
 
 def positive(text: str) -> int:
@@ -171,6 +179,54 @@ def run_loop(args: argparse.Namespace) -> int:
     return 0
 
 
+def verdict(period: Period) -> str:
+    """What the detector saw, in a sentence. The one branch is the domain's own three answers."""
+    match period:
+        case Cycle(length=length, onset=onset):
+            return f"period {length}, entered at step {onset}"
+        case NoCycle(examined=examined):
+            return f"no period: {examined} steps examined and no state repeated, so any period is longer than that"
+        case Contradiction(onset=onset, length=length, step=step):
+            return (
+                f"the state at step {onset} came back {length} steps later and then went somewhere else, at step {step}. "
+                "The map is not a function of its state; run `uni determinism` before reading anything into this orbit"
+            )
+        case _:  # a fourth answer would otherwise be printed as the word None
+            assert_never(period)
+
+
+def run_observe(args: argparse.Namespace) -> int:
+    """Read a written trajectory back: each step's observables, and the period of its orbit."""
+    from uni.loop import read_trajectory
+    from uni.model import Model
+    from uni.observe import Length, Logprob, Projection, identities, steering_directions, steps, template_of
+    from uni.period import detect
+    from uni.pinned import load_pinned
+
+    trajectory = read_trajectory(args.trajectory)
+    template = template_of(trajectory)
+    pinned = load_pinned()
+    directions = steering_directions(trajectory, pinned)
+    model = Model(pinned)
+    observables = (
+        Length(),
+        Logprob(model, template),
+        *(Projection(model, template, direction) for direction in directions),
+    )
+    # The start is step 0 of the orbit, as `uni loop` prints it, so it is numbered and
+    # searched with the rest: an orbit that comes back to the text it started from has a
+    # period through step 0, and leaving the start out would hide exactly that.
+    orbit = (trajectory.start, *trajectory.states)
+    numbers = identities(orbit)
+    print(f"{'step':>4}  {'state':>5}" + "".join(f"  {observable.name:>16}" for observable in observables))
+    for step, number in zip(steps(trajectory), numbers[1:]):
+        readings = "".join(f"  {observable.read(step):>16.6f}" for observable in observables)
+        print(f"{step.index:>4}  {number:>5}{readings}", flush=True)  # a --remote run streams through a pipe
+    print()
+    print(verdict(detect(orbit, args.burn_in)))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="uni",
@@ -194,6 +250,10 @@ def build_parser() -> argparse.ArgumentParser:
     loop.add_argument("--knob", type=knob, default="none", help="a direction in uni/directions to steer along, or none (default)")
     loop.add_argument("--value", type=finite, default=0.0, help="the knob's value (default: 0)")
     loop.set_defaults(run=run_loop)
+    observe = commands.add_parser("observe", help="read a written trajectory's observables and the period of its orbit")
+    observe.add_argument("trajectory", type=Path, help="a trajectory file written by `uni loop`")
+    observe.add_argument("--burn-in", type=whole, default=0, dest="burn_in", help="steps to pass over before looking for a period (default: 0)")
+    observe.set_defaults(run=run_observe)
     direction = commands.add_parser("direction", help="derive a steering direction from uni/directions/<name>.toml")
     direction.add_argument("contrast", type=contrast, help="the contrast's name")
     direction.set_defaults(run=run_direction)

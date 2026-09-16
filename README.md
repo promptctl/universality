@@ -99,6 +99,43 @@ hash of the file itself: a direction file that has been edited by hand, or deriv
 different checkpoint than the one pinned, is refused. Re-derive when the contrast or the
 checkpoint changes.
 
+## Observables and the period
+
+A trajectory is read back from its file rather than re-run, so an observable thought of today
+can be asked of an orbit recorded months ago:
+
+    uv run uni observe trajectories/<name>.json
+
+It prints one row per step: a number for the state, then each observable. The state numbers
+count distinct states in the order they first appeared, so a period-2 orbit reads
+`1 2 1 2` straight down the column. The observables are the character length of the state, the
+mean log-probability the model gives the state it wrote (mean, not total, so it is not length
+under another name), and, for a run that was steered, how far the state sits along the
+direction that steered it. That last one is read at the layer the knob writes to, so it
+measures the axis the knob turns. A direction that has changed since the run is refused rather
+than projected onto.
+
+Then the period. The orbit of a deterministic map is exact about this: if a state comes back,
+the state after it is the same state as last time, and so is every state after that, forever.
+So one repeat fixes both numbers at once, and no window width or count of confirming cycles
+enters into it. That the model's map is deterministic is what `uni determinism` establishes.
+
+There are three things the detector can say, and only one of them carries a number:
+
+- `period P, entered at step N` — the orbit came back and kept coming back for the rest of
+  the data. Step 0 is the start, as `uni loop` prints it, so `N` also says how long the
+  transient was.
+- `no period: N steps examined and no state repeated` — nothing came back. Any period this
+  run has is longer than what was looked at, and the detector will not guess it.
+- The state at step N came back and then went somewhere else. That cannot happen to a map
+  that is a function of its state, so it is reported as its own answer rather than filed as
+  "no period", and it means `uni determinism` should be run before anything is read into the
+  orbit.
+
+`--burn-in N` passes over the first N steps before looking, for when an early transient is
+already known and not wanted. It is rarely needed: the detector reports where the cycle began,
+which is the same fact measured rather than assumed.
+
 ## Running on the experiment host
 
 Every `uni` command accepts `--remote`. With it, this working tree, uncommitted edits
