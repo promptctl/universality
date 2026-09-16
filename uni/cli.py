@@ -26,7 +26,7 @@ from uni.remote import RemoteConfigError, remote_target_from_env, run_remote
 from uni.template import Template, TemplateError, load_templates
 
 if TYPE_CHECKING:
-    from uni.maps import Family, Knob
+    from uni.maps import Family, Knob, Numbers
     from uni.steer import Contrast
 
 EXIT_CONFIG = os.EX_CONFIG  # distinct from argparse's 2 and from anything rsync or ssh returns
@@ -186,6 +186,7 @@ MAP_FLAGS.add_argument("--template", help="the model or response map's template,
 MAP_FLAGS.add_argument("--knob", help="a direction in uni/directions: what the model map steers along (or none), or what the response map pushes along")
 MAP_FLAGS.add_argument("--text", help="the response map's text, rendered once into its template")
 MAP_FLAGS.add_argument("--layer", type=whole, help="the layer the response map reads its answer at")
+MAP_FLAGS.add_argument("--decimals", type=positive, help="the decimals the response map writes a push to (default: 4)")
 MAP_OPTIONS = tuple(vars(MAP_FLAGS.parse_args([])))  # the flags above, under the names args carries them by
 
 
@@ -259,9 +260,9 @@ def logistic_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
 
 def response_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
     """The model's answer to a push, fed back as the next push times the gain, where the value is the gain."""
-    from uni.maps import MapError, ResponseFamily
+    from uni.maps import RESPONSE_DECIMALS, MapError, ResponseFamily
 
-    refuse_unread(args, "response", ("template", "knob", "text", "layer"))
+    refuse_unread(args, "response", ("template", "knob", "text", "layer", "decimals"))
     # [LAW:types-are-the-program] exception: argparse cannot require a flag for one --map only.
     missing = [f"--{flag}" for flag in ("template", "knob", "text", "layer") if getattr(args, flag) is None]
     if missing or args.knob == "none":
@@ -273,7 +274,8 @@ def response_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
     pinned = load_pinned()
     # Every gain is a map: a negative one feeds the answer back reversed, and 0 sends every push to
     # 0. What a gain can carry the orbit into is refused where it happens, by the reading's bound.
-    return ResponseFamily(pinned, prompt, args.text, Steer(read_direction(args.knob, pinned)), args.layer)
+    decimals = RESPONSE_DECIMALS if args.decimals is None else args.decimals
+    return ResponseFamily(pinned, prompt, args.text, Steer(read_direction(args.knob, pinned)), args.layer, decimals)
 
 
 def response_value(given: float | None) -> float:
@@ -556,20 +558,29 @@ def bracket(text: str) -> tuple[float, float]:
     return low, high
 
 
+def numbers_of(family: Family, command: str) -> Numbers:
+    """How the family's states read as numbers and are written back, refused for a family whose states are texts.
+
+    [LAW:single-enforcer] the one place a command that does arithmetic on states learns it can:
+    a fixed point, a slope and a superstable value are all numbers, and a map whose states are
+    texts has none of them, so it is told so rather than asked to spell a midpoint.
+    """
+    from uni.maps import NUMBERS, MapError
+
+    kind = family.spec["kind"]
+    if kind not in NUMBERS:
+        raise MapError(f"uni {command} reads a map whose states are numbers, and the {kind} map's are not; the maps whose are: {', '.join(NUMBERS)}")
+    return NUMBERS[kind](family.spec)
+
+
 def run_fixed(args: argparse.Namespace) -> int:
     """Print the fixed point and the map's slope there at each value on the grid, and where the slope passes through -1."""
-    from uni.fixed import FixedError, crossings, fixed_point, slope
-    from uni.maps import NUMBERS
+    from uni.fixed import crossings, fixed_point, slope
     from uni.sweep import grid
 
     values = grid(args.grid)
     family = args.map.build(args, values)
-    kind = family.spec["kind"]
-    # [LAW:no-silent-failure] a fixed point is a number, and so is a slope; a map whose states are
-    # texts has neither, and is told so rather than asked to spell a midpoint.
-    if kind not in NUMBERS:
-        raise FixedError(f"uni fixed reads a map whose states are numbers, and the {kind} map's are not; the maps whose are: {', '.join(NUMBERS)}")
-    numbers = NUMBERS[kind]
+    numbers = numbers_of(family, "fixed")
     low, high = args.bracket
     print(f"{'value':>10}  {'fixed point':>14}  {'slope':>10}", flush=True)
     slopes = []
@@ -586,6 +597,47 @@ def run_fixed(args: argparse.Namespace) -> int:
         print(f"the slope {where}")
     return 0
 
+
+def run_cascade(args: argparse.Namespace) -> int:
+    """Print the superstable value on each grid, one period doubled per grid, and the ratios of their spacings."""
+    from uni.cascade import ratios, returns, superstable
+    from uni.fit import crossing
+    from uni.sweep import grid
+
+    grids = tuple(grid(text) for text in args.grid)
+    family = args.map.build(args, tuple(value for values in grids for value in values))
+    numbers = numbers_of(family, "cascade")
+    family.holds((args.critical,))
+    print(f"{'period':>6}  {'superstable value':>18}  {'error':>8}  {'scatter':>8}", flush=True)
+    found = []
+    for doubling, values in enumerate(grids):
+        period = args.period * 2**doubling
+        parabola = superstable(values, [returns(family.at(value), numbers, args.critical, period) for value in values], period)
+        found.append(crossing(parabola, 0))
+        print(f"{period:>6}  {found[-1].value:>18.10g}  {found[-1].error:>8.1e}  {parabola.scatter:>8.1e}", flush=True)
+    for index, ratio in enumerate(ratios(found)):
+        periods = ", ".join(str(args.period * 2**doubling) for doubling in range(index, index + 3))
+        print(f"spacing ratio over periods {periods}: {ratio.value:.4f} +- {ratio.error:.4f}")
+    return 0
+
+
+def run_critical(args: argparse.Namespace) -> int:
+    """Print where the map at one value is highest or lowest on a grid of states: the top a cascade is read from."""
+    from uni.fit import crossing, fit
+    from uni.sweep import grid
+
+    value = args.map.value(args.value)
+    family = args.map.build(args, (value,))
+    numbers = numbers_of(family, "critical")
+    states = tuple(numbers.write(point) for point in grid(args.grid))
+    family.holds(states)
+    map = family.at(value)
+    # A cubic, the lowest degree that can lean: a top that falls away faster on one side than the
+    # other pulls a parabola's vertex toward the gentler side, by more the wider the grid.
+    cubic = fit(tuple(numbers.read(state) for state in states), tuple(numbers.read(map.step(state)) for state in states), 3)
+    top = crossing(cubic, 1)
+    print(f"the map at {value:g} turns at {top.value:.8g} +- {top.error:.1e} (a cubic through {len(states)} states, scatter {cubic.scatter:.1e}), written {numbers.write(top.value)}")
+    return 0
 
 def verdict(period: Period) -> str:
     """What the detector saw, in a sentence. The one branch is the domain's own three answers."""
@@ -681,6 +733,17 @@ def build_parser() -> argparse.ArgumentParser:
     fixed.add_argument("--bracket", type=bracket, required=True, help="LOW:HIGH, states the map carries in opposite directions; write --bracket=LOW:HIGH when LOW is negative")
     fixed.add_argument("--step", type=finite, required=True, help="the half-width of the central difference the slope is read across, in the state's own units")
     fixed.set_defaults(run=run_fixed)
+    cascade = commands.add_parser("cascade", parents=[MAP_FLAGS], help="find the value on each grid where the orbit from the map's top returns to itself, and the ratios of their spacings")
+    cascade.add_argument("--map", type=map_named, required=True, help=f"the map to read: {', '.join(MAPS)}; its states must be numbers")
+    cascade.add_argument("--critical", required=True, help="the state at the map's top, spelled as the map writes it; write --critical=STATE when it begins with '-'")
+    cascade.add_argument("--period", type=positive, required=True, help="the period whose superstable value the first grid holds; each later grid holds twice the one before")
+    cascade.add_argument("--grid", action="append", required=True, help="values around one superstable value, as FROM:TO:COUNT with TO included; repeat it for each period, in order")
+    cascade.set_defaults(run=run_cascade)
+    critical = commands.add_parser("critical", parents=[MAP_FLAGS], help="find where a map of numbers is highest or lowest on a grid of states, at one value")
+    critical.add_argument("--map", type=map_named, required=True, help=f"the map to read: {', '.join(MAPS)}; its states must be numbers")
+    critical.add_argument("--value", type=finite, help="the map's parameter to read it at, as `uni loop` takes it")
+    critical.add_argument("--grid", required=True, help="the states around the top, as FROM:TO:COUNT with TO included; write --grid=FROM:TO:COUNT when FROM is negative")
+    critical.set_defaults(run=run_critical)
     answer = commands.add_parser("response", help="read how the layers after a steering push answer it, with no token generated")
     answer.add_argument("--template", required=True, help="the template the start is rendered into, named in uni/templates.toml")
     answer.add_argument("--knob", required=True, help="the direction in uni/directions to push along")

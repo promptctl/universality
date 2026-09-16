@@ -1,11 +1,13 @@
 """The response map: the model's answer to a push, fed back as the next push, times a gain."""
 
+import re
 from pathlib import Path
 
 import pytest
 
 from uni.cli import EXIT_CONFIG, main
-from uni.maps import MapError, ResponseFamily, response_state, response_text
+from uni.loop import read_trajectory
+from uni.maps import NUMBERS, MapError, ResponseFamily, response_state, response_text
 from uni.model import ModelError
 from uni.response import response
 from uni.steer import Steer, read_direction
@@ -17,7 +19,7 @@ FLAGS = ["--map", "response", "--template", "rewrite", "--knob", "formality", "-
 
 @pytest.fixture(scope="module")
 def family(model):
-    held = ResponseFamily(model.pinned, load_templates()["rewrite"], TEXT, Steer(read_direction("formality", model.pinned)), 23)
+    held = ResponseFamily(model.pinned, load_templates()["rewrite"], TEXT, Steer(read_direction("formality", model.pinned)), 23, 4)
     held.__dict__["model"] = model  # the session's checkpoint, not a second one
     return held
 
@@ -25,19 +27,19 @@ def family(model):
 @pytest.mark.parametrize("push, text", [(-8.5, "-8.5000"), (5.33914, "5.3391"), (-0.00004, "0.0000"), (0.0, "0.0000")])
 def test_a_push_is_written_to_four_decimals_with_one_zero(push, text):
     # -0.00004 rounds to -0.0, and "-0.0000" beside "0.0000" would be two states for one push.
-    assert response_text(push) == text
-    assert response_state(text) == float(text)
+    assert response_text(push, 4) == text
+    assert response_state(text, 4) == float(text)
 
 
 @pytest.mark.parametrize("state, message", [("-8.5", "write -8.5000"), ("-0.0000", "write 0.0000"), ("nan", "not 'nan'"), ("x", "got 'x'")])
 def test_a_state_the_map_would_not_write_is_refused(state, message):
     with pytest.raises(MapError, match=message):
-        response_state(state)
+        response_state(state, 4)
 
 
 def test_a_step_is_the_answer_in_units_of_the_push_times_the_gain(model, family):
     answer = response(model, family.prompt, family.steer, -8.5, 23)
-    assert family.at(3.0).step("-8.5000") == response_text(3.0 * answer / family.steer.direction.squared_length)
+    assert family.at(3.0).step("-8.5000") == response_text(3.0 * answer / family.steer.direction.squared_length, 4)
 
 
 def test_a_start_too_large_to_read_is_refused_before_a_cell_runs(family):
@@ -71,3 +73,27 @@ def test_the_map_names_what_it_was_not_given_before_reading_a_checkpoint(dropped
 def test_the_gain_is_asked_for_rather_than_defaulted(capsys):
     assert main(["loop", *FLAGS, "--start=-8.5000", "--steps", "1"], {}, Path.cwd()) == EXIT_CONFIG
     assert "the response map's parameter is the gain; pass --value" in capsys.readouterr().err
+
+
+def test_a_run_can_write_its_pushes_to_more_decimals_and_records_that_it_did(model, monkeypatch, tmp_path):
+    monkeypatch.setattr("uni.model.Model", lambda pinned: model)
+    monkeypatch.setattr("uni.cli.TRAJECTORIES", tmp_path)
+    assert main(["loop", *FLAGS, "--decimals", "6", "--value", "3", "--start=-8.500000", "--steps", "2"], {}, Path.cwd()) == 0
+    (written,) = tmp_path.iterdir()
+    trajectory = read_trajectory(written)
+    assert trajectory.map["decimals"] == 6
+    assert all(len(state.split(".")[1]) == 6 for state in trajectory.states)
+    # Read back in the spelling the file records, so the observable takes the states the map wrote.
+    assert NUMBERS["response"](trajectory.map).read(trajectory.states[0]) == float(trajectory.states[0])
+
+
+def test_a_start_spelled_to_other_decimals_than_the_run_writes_is_refused(capsys):
+    assert main(["loop", *FLAGS, "--decimals", "6", "--value", "3", "--start=-8.5000", "--steps", "1"], {}, Path.cwd()) == EXIT_CONFIG
+    assert "written to 6 decimals: write -8.500000, not '-8.5000'" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("spec, recorded", [({"decimals": 0}, "0"), ({"decimals": -1}, "-1"), ({"decimals": 4.0}, "4.0"), ({"decimals": "4"}, "'4'"), ({"decimals": None}, "None"), ({}, "none")])
+def test_a_recorded_decimals_that_spells_no_push_is_refused(spec, recorded):
+    # A file is read as well as a family, and a file can be missing the field outright.
+    with pytest.raises(MapError, match=f"decimals are a positive whole number, and this one records {re.escape(recorded)}$"):
+        NUMBERS["response"](spec)
