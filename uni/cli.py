@@ -346,6 +346,40 @@ def run_sweep(args: argparse.Namespace) -> int:
     return 0
 
 
+FIGURES = Path("figures")  # committed, unlike trajectories and sweeps: a figure is what a person looks at
+
+
+class PlotError(ConfigError):
+    """A sweep cannot be drawn. The message says what is not there to draw."""
+
+
+def run_plot(args: argparse.Namespace) -> int:
+    """Draw a persisted sweep's two pictures, and say where each one went."""
+    from uni.draw import scatter
+    from uni.figure import orbit_diagram, read, return_map
+    from uni.sweep import MANIFEST, read_sweep
+
+    # The manifest is read from the directory rather than described again on the command line: the
+    # directory is named by the hash of those bytes, so the two cannot disagree about which sweep
+    # this is. [LAW:one-source-of-truth]
+    sweep = read_sweep(args.sweep / MANIFEST)
+    series = read(sweep, args.sweep, args.observable, args.burn_in)
+    # [LAW:no-silent-failure] an empty picture is a file that looks like an answer. A sweep that
+    # has run nothing yet, and a manifest sitting in some other sweep's directory, both land here.
+    if not any(one.numbers for one in series):
+        raise PlotError(
+            f"{args.sweep} holds no readings to draw: {len(series)} of "
+            f"{len(sweep.values) * len(sweep.starts)} cells are on disk, and --burn-in "
+            f"{args.burn_in} leaves nothing of them"
+        )
+    for kind, picture in (("return", return_map(series, args.observable)), ("orbit", orbit_diagram(series, args.observable))):
+        # Named for the sweep and what was read off it, so two sweeps and two observables are four
+        # files rather than one overwritten four times.
+        stem = f"{args.sweep.name}-{args.observable.replace(':', '-')}-{kind}"
+        print(f"{scatter(picture, args.out / f'{stem}.png')}  {len(picture.points)} points", flush=True)
+    return 0
+
+
 def verdict(period: Period) -> str:
     """What the detector saw, in a sentence. The one branch is the domain's own three answers."""
     match period:
@@ -426,6 +460,12 @@ def build_parser() -> argparse.ArgumentParser:
     observe = commands.add_parser("observe", help="read a written trajectory's observables and the period of its orbit")
     observe.add_argument("trajectory", type=Path, help="a trajectory file written by `uni loop`")
     observe.add_argument("--burn-in", type=whole, default=0, dest="burn_in", help="steps to pass over before looking for a period (default: 0)")
+    plot = commands.add_parser("plot", help="draw a persisted sweep's return map and orbit diagram")
+    plot.add_argument("sweep", type=Path, help="a sweep directory written by `uni sweep`")
+    plot.add_argument("--observable", required=True, help="the number to read off each step, as `uni observe` names its columns")
+    plot.add_argument("--burn-in", type=whole, default=0, dest="burn_in", help="steps to pass over before the orbit is taken as settled (default: 0)")
+    plot.add_argument("--out", type=Path, default=FIGURES, help=f"where to write the figures (default: {FIGURES})")
+    plot.set_defaults(run=run_plot)
     observe.set_defaults(run=run_observe)
     direction = commands.add_parser("direction", help="derive a steering direction from uni/directions/<name>.toml")
     direction.add_argument("contrast", type=contrast, help="the contrast's name")
