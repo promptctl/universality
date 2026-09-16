@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from uni import cascade
-from uni.cascade import ratios, returns
+from uni.cascade import nearest, quotients, ratios, returns
 from uni.fit import Estimate, FitError, crossing, fit
 from uni.cli import EXIT_CONFIG, main
 from uni.maps import NUMBERS, Logistic
@@ -14,6 +14,9 @@ from uni.maps import NUMBERS, Logistic
 # The logistic map's superstable r for periods 2 to 32, from its own orbit of 0.5 solved to 40 digits
 # with mpmath, independently of this code. Their spacing ratios are 4.6808, 4.6630, 4.6684.
 SUPERSTABLE = {2: 3.23606797749979, 4: 3.4985616993277, 8: 3.55464086276882, 16: 3.56666737985627, 32: 3.56924353163711}
+# F^(p/2)(0.5) - 0.5 at each of those values, from the same orbits in mpmath: the distance from the
+# top of the cycle's point nearest it. Their ratios are -2.6547448, -2.5318377, -2.5087182, -2.5041128.
+NEAREST = {2: 0.3090169943749474, 4: -0.1164017695468324, 8: 0.04597521058174422, 16: -0.01832617573366167, 32: 0.007318430628499477}
 GRIDS = {2: "3.2355:3.2365:11", 4: "3.4981:3.4991:11", 8: "3.5544:3.5549:11", 16: "3.56655:3.56675:11", 32: "3.5692:3.5693:11"}
 
 
@@ -21,10 +24,16 @@ def command(argv):
     return main(argv, {}, Path.cwd())
 
 
-def superstable(period, grid, critical="0.5"):
+def read(period, grid, critical="0.5"):
     first, last, count = grid.split(":")
     values = [float(first) + (float(last) - float(first)) * index / (int(count) - 1) for index in range(int(count))]
-    return crossing(cascade.superstable(values, [returns(Logistic(value), NUMBERS["logistic"]({}), critical, period) for value in values], period), 0)
+    returned = [returns(Logistic(value), NUMBERS["logistic"]({}), critical, period) for value in values]
+    zero = crossing(cascade.superstable(values, returned, period), 0)
+    return zero, nearest(values, returned, period, zero)
+
+
+def superstable(period, grid, critical="0.5"):
+    return read(period, grid, critical)[0]
 
 
 @pytest.mark.parametrize("period", SUPERSTABLE)
@@ -34,6 +43,23 @@ def test_the_logistic_superstable_values_are_the_known_ones(period):
     # And the error it reports covers how far off it is: the parabola follows the return's curve,
     # which a line would not, and a line's error would not cover what that curve does to it.
     assert abs(zero.value - SUPERSTABLE[period]) < 3 * zero.error
+
+
+@pytest.mark.parametrize("period", NEAREST)
+def test_the_cycle_s_nearest_point_to_the_top_is_the_known_one_and_its_error_covers_it(period):
+    distance = read(period, GRIDS[period])[1]
+    assert distance.value == pytest.approx(NEAREST[period], abs=4e-9)
+    assert abs(distance.value - NEAREST[period]) < 3 * distance.error
+
+
+def test_the_nearest_points_ratios_run_to_minus_alpha():
+    found = quotients(tuple(read(period, GRIDS[period])[1] for period in NEAREST))
+    assert [estimate.value for estimate in found] == pytest.approx([-2.6547448, -2.5318377, -2.5087182, -2.5041128], abs=3e-6)
+
+
+def test_a_quotient_s_error_is_its_two_values_relative_errors_added_in_quadrature():
+    (found,) = quotients((Estimate(-3.0, 0.03), Estimate(1.5, 0.02)))
+    assert (found.value, found.error) == pytest.approx((-2.0, 2.0 * math.hypot(0.01, 0.02 / 1.5)))
 
 
 def test_a_critical_point_off_by_a_little_moves_each_value_by_that_over_how_steeply_the_return_crosses():
@@ -64,8 +90,19 @@ def test_the_command_reads_the_logistic_cascade_and_its_ratios(capsys):
     assert command(argv) == 0
     printed = capsys.readouterr().out.splitlines()
     assert [float(line.split()[1]) for line in printed[1:6]] == pytest.approx(list(SUPERSTABLE.values()), abs=2e-9)
-    assert [line.split(": ")[0] for line in printed[6:]] == [f"spacing ratio over periods {p}" for p in ("2, 4, 8", "4, 8, 16", "8, 16, 32")]
-    assert [float(line.split(": ")[1].split()[0]) for line in printed[6:]] == pytest.approx([4.6808, 4.6630, 4.6684], abs=1e-4)
+    assert [float(line.split()[4]) for line in printed[1:6]] == pytest.approx(list(NEAREST.values()), abs=4e-9)
+    spacings, nearests = printed[6:9], printed[9:]
+    assert [line.split(": ")[0] for line in spacings] == [f"spacing ratio over periods {p}" for p in ("2, 4, 8", "4, 8, 16", "8, 16, 32")]
+    assert [float(line.split(": ")[1].split()[0]) for line in spacings] == pytest.approx([4.6808, 4.6630, 4.6684], abs=1e-4)
+    assert [line.split(": ")[0] for line in nearests] == [f"nearest-point ratio over periods {p}" for p in ("2, 4", "4, 8", "8, 16", "16, 32")]
+    assert [float(line.split(": ")[1].split()[0]) for line in nearests] == pytest.approx([-2.6547, -2.5318, -2.5087, -2.5041], abs=1e-4)
+
+
+def test_a_cascade_from_an_odd_period_has_no_nearest_point_on_its_first_row(capsys):
+    assert command(["cascade", "--map", "logistic", "--critical", "0.5", "--period", "1", "--grid", "1.9:2.1:11", "--grid", GRIDS[2], "--grid", GRIDS[4]]) == 0
+    printed = capsys.readouterr().out.splitlines()
+    assert [len(line.split()) for line in printed[1:4]] == [4, 6, 6]
+    assert printed[-1].startswith("nearest-point ratio over periods 2, 4: -2.654744")
 
 
 def test_a_line_through_exact_readings_crosses_where_it_should_with_no_error():

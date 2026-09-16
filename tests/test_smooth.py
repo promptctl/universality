@@ -41,7 +41,8 @@ def test_the_logistic_map_fitted_as_a_curve_has_the_logistic_cascade(logistic, c
     assert command(argv) == 0
     printed = capsys.readouterr().out.splitlines()
     assert [float(line.split()[1]) for line in printed[1:6]] == pytest.approx([3.23606797749979, 3.4985616993277, 3.55464086276882, 3.56666737985627, 3.56924353163711], abs=2e-9)
-    assert [float(line.split(": ")[1].split()[0]) for line in printed[6:]] == pytest.approx([4.6808, 4.6630, 4.6684], abs=1e-4)
+    assert [float(line.split(": ")[1].split()[0]) for line in printed[6:9]] == pytest.approx([4.6808, 4.6630, 4.6684], abs=1e-4)
+    assert [float(line.split(": ")[1].split()[0]) for line in printed[9:]] == pytest.approx([-2.6547, -2.5318, -2.5087, -2.5041], abs=1e-4)
 
 
 def test_its_top_is_where_the_logistic_map_s_is(logistic, capsys):

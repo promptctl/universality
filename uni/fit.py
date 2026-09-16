@@ -60,6 +60,13 @@ class Polynomial:
     def at(self, x: float, derivative: int = 0) -> float:
         return math.fsum(coefficient * term for coefficient, term in zip(self.coefficients, self.terms(x, derivative)))
 
+    def spread(self, x: float, derivative: int = 0) -> float:
+        """The variance the scatter gives the fit's `derivative`-th derivative in u at x, through the covariance of its coefficients."""
+        terms = self.terms(x, derivative)
+        form = math.fsum(terms[i] * self.covariance[i][j] * terms[j] for i in range(len(terms)) for j in range(len(terms)))
+        # A variance, so never below zero; fsum of a form that is exactly zero can still land a hair under it.
+        return max(form, 0.0)
+
 
 def fit(values: Sequence[float], readings: Sequence[float], degree: int) -> Polynomial:
     """The least-squares polynomial of `degree` through the readings taken at `values`."""
@@ -133,7 +140,4 @@ def crossing(polynomial: Polynomial, derivative: Literal[0, 1]) -> Estimate:
     steepness = polynomial.at(where, derivative + 1)
     if steepness == 0:
         raise FitError(f"the {NAMES[derivative]} touches zero at {where:.8g} without passing through it, so its crossing has no error to give")
-    terms = polynomial.terms(where, derivative)
-    spread = math.fsum(terms[i] * polynomial.covariance[i][j] * terms[j] for i in range(len(terms)) for j in range(len(terms)))
-    # A variance, so never below zero; fsum of a form that is exactly zero can still land a hair under it.
-    return Estimate(where, polynomial.scale * math.sqrt(max(spread, 0.0)) / abs(steepness))
+    return Estimate(where, polynomial.scale * math.sqrt(polynomial.spread(where, derivative)) / abs(steepness))
