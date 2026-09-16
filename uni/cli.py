@@ -597,7 +597,7 @@ def build_parser() -> argparse.ArgumentParser:
     answer.add_argument("--start", required=True, help="the text the prompt is made from; write --start=TEXT when it begins with '-'")
     answer.add_argument("--grid", required=True, help="the pushes, as FROM:TO:COUNT with TO included")
     answer.add_argument("--layer", type=whole, action="append", required=True, help="a layer to read the response at; repeat it for each one")
-    answer.add_argument("--out", type=Path, default=Path("figures"), help="where to write the figure (default: figures)")
+    answer.add_argument("--out", type=Path, default=FIGURES, help=f"where to write the figure (default: {FIGURES})")
     answer.set_defaults(run=run_response)
     direction = commands.add_parser("direction", help="derive a steering direction from uni/directions/<name>.toml")
     direction.add_argument("contrast", type=contrast, help="the contrast's name")
