@@ -447,9 +447,12 @@ write again: a summary of a summary, to this model under greedy decoding, is the
 
 **Rewrite is the same with a little more motion.** Of its 24 orbits, 18 are fixed points within
 four steps - again 18 different ones, none shared - four are period 2 by step 4, and two have not
-repeated in six steps. Its return map stays near the diagonal: no step moves a state of 60
-characters or more by more than 37% (94 to 129, on its way to a fixed point), and the one point
-far from it, 44 to 170, belongs to a 28-character start that has still not settled at step 6.
+repeated in six steps. Its return map stays near the diagonal. The map draws the model's own
+states, from step 1 on, and among those no step moves one of 60 characters or more by more than
+37% (94 to 129, on its way to a fixed point); the one point far from the diagonal, 44 to 170,
+belongs to a 28-character start that has still not settled at step 6. The first rewrite of a
+start is another matter - the 12-word harbor start goes from 64 characters to 615 - which is the
+model deciding what the text is, once.
 
 Turning the knob does not change that. The same 24 starts under the formality direction, at five
 coefficients inside the range where replies end:
