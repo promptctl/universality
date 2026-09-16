@@ -9,6 +9,11 @@ from dotenv import dotenv_values
 
 ROOT = Path(__file__).resolve().parents[1]
 
+# The length at which finding a value inside a compressed image stops being a coincidence: six
+# bytes is about one chance in forty thousand across ten megabytes of them, where three bytes is
+# about one in forty. Below it, a value is looked for in the text files alone.
+BINARY_FLOOR = 6
+
 # What a host's identity looks like when it leaks into text. Public shapes that share the
 # surface, an action pinned to a tag or sha, a version string, a file suffix, are carved out
 # by what follows, so a URL-form ssh target still counts. uv.lock writes four-part versions in
@@ -105,11 +110,23 @@ def test_what_the_text_scan_skips_is_exactly_the_committed_figures():
 def test_tracked_files_carry_no_value_from_the_real_env():
     # The patterns approximate an identity; your own .env defines it. Without a .env this checks nothing.
     # Searched as bytes over every tracked file, text or not - the figures the scan above skips
-    # included: a literal host name is a literal host name wherever it sits, and unlike the shapes
-    # above it cannot turn up in a PNG by chance. This is the only check that reads every one of
-    # them, and it reads nothing without a .env of your own.
-    secrets = [re.compile(rf"(?<![\w-]){re.escape(value)}(?![\w-])".encode()) for value in dotenv_values(ROOT / ".env").values() if value]
-    leaks = [(path, secret.pattern) for path, raw in tracked_bytes().items() for secret in secrets if secret.search(raw)]
+    # included, which is the only check that reads them at all, and which reads nothing without a
+    # .env of your own.
+    #
+    # Short values are searched in the text files only. A literal is a literal wherever it sits,
+    # but a few bytes of compressed image are a few random bytes: across the pictures committed
+    # here a three-byte value has a percent or so of matching nothing, and that failure would read
+    # as a host name leaked into a figure. Past BINARY_FLOOR the arithmetic settles it - a
+    # six-byte value has about one chance in forty thousand across ten megabytes - so the line is
+    # drawn where chance stops being the likelier explanation, and what it costs is named: a value
+    # shorter than that is checked everywhere a person could have written it and nowhere else.
+    values = [value for value in dotenv_values(ROOT / ".env").values() if value]
+    text, binary = tracked_text(), {path: raw for path, raw in tracked_bytes().items() if path not in tracked_text()}
+    leaks = []
+    for value in values:
+        secret = re.compile(rf"(?<![\w-]){re.escape(value)}(?![\w-])".encode())
+        searched = {**{path: raw.encode() for path, raw in text.items()}, **(binary if len(value) >= BINARY_FLOOR else {})}
+        leaks += [(path, value) for path, raw in searched.items() if secret.search(raw)]
     assert leaks == []
 
 
@@ -117,3 +134,9 @@ def test_env_is_ignored_and_example_is_tracked():
     tracked = tracked_files()
     assert ".env" not in tracked
     assert ".env.example" in tracked
+
+
+@pytest.mark.parametrize("value, in_binary", [("abc", False), ("abcdef", True), ("a-long-host-name", True)])
+def test_only_values_long_enough_to_mean_something_are_looked_for_in_a_figure(value, in_binary):
+    # The floor is the whole of the rule: long enough that a hit is the value and not the entropy.
+    assert (len(value) >= BINARY_FLOOR) is in_binary

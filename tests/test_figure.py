@@ -117,7 +117,7 @@ def test_a_sweep_of_one_value_renders_a_single_column(tmp_path, monkeypatch, cap
     written, home = sweep(tmp_path, monkeypatch, gridtext="3.9:3.9:1", steps=40)
     out = tmp_path / "figures"
     assert command(["plot", str(home), "--observable", "x", "--burn-in", "20", "--out", str(out)]) == 0
-    assert sorted(p.name.split("-", 1)[1] for p in out.glob("*.png")) == ["x-orbit.png", "x-return.png"]
+    assert sorted(p.name.split("-", 1)[1] for p in out.glob("*.png")) == ["x-burn20-orbit.png", "x-burn20-return.png"]
     column = orbit_diagram(read(written, home, "x", burn_in=20), "x")
     assert {point.x for point in column.points} == {3.9}
 
@@ -222,7 +222,7 @@ def test_a_figure_is_named_by_the_sweep_and_not_by_the_directory_it_was_found_in
         copied.joinpath(path.name).write_bytes(path.read_bytes())
     out = tmp_path / "figures"
     assert command(["plot", str(copied), "--observable", "x", "--out", str(out)]) == 0
-    assert sorted(p.name for p in out.glob("*.png")) == [f"{written.name}-x-orbit.png", f"{written.name}-x-return.png"]
+    assert sorted(p.name for p in out.glob("*.png")) == [f"{written.name}-x-burn0-orbit.png", f"{written.name}-x-burn0-return.png"]
 
 
 def test_a_cell_that_cannot_be_read_says_which_cell(tmp_path, monkeypatch, capsys):
@@ -233,10 +233,17 @@ def test_a_cell_that_cannot_be_read_says_which_cell(tmp_path, monkeypatch, capsy
     broken = finished(written, home)[1]
     # A kind this build cannot read, which `observables` refuses before any reading is taken - the
     # half of the per-cell work the message used to come out of unattributed.
-    (home / broken.name).write_text('{"map": {"kind": "henon"}, "value": 3.3, "start": "0.2", "states": ["0.5"]}')
-    assert command(["plot", str(home), "--observable", "x", "--out", str(tmp_path / "figures")]) == EXIT_CONFIG
-    printed = capsys.readouterr().err
-    assert broken.name in printed and "'henon' orbit is not one this build can read" in printed
+    for raw, message in (
+        # The three families that refuse a cell, which are three sibling error types: the file's
+        # own shape, what its states are made of, and - for a steered orbit - the direction file.
+        ('{"map": {"kind": "logistic"}, "value": 3.3, "start": "0.2", "states": [1, 2]}', "states must all be strings"),
+        ('{"map": {"kind": "henon"}, "value": 3.3, "start": "0.2", "states": ["0.5"]}', "not one this build can read"),
+        ('{"map": {"kind": "logistic"}, "value": 3.3, "start": "0.2", "states": ["nope"]}', "a logistic state is a number in 0..1"),
+    ):
+        (home / broken.name).write_text(raw)
+        assert command(["plot", str(home), "--observable", "x", "--out", str(tmp_path / "figures")]) == EXIT_CONFIG
+        printed = capsys.readouterr().err
+        assert broken.name in printed and message in printed
 
 
 def test_plot_is_refused_on_the_host_rather_than_drawing_where_nothing_can_reach_it(capsys):

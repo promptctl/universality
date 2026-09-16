@@ -18,6 +18,7 @@ from pathlib import Path
 
 from uni.loop import read_trajectory
 from uni.observe import Observable, ObserveError, Weights, observables, readings, steps
+from uni.parse import ConfigError
 from uni.sweep import Sweep, finished
 
 
@@ -93,7 +94,12 @@ def read(sweep: Sweep, home: Path, name: str, burn_in: int) -> tuple[Readings, .
             observable = named(observables(trajectory, weights), name)
             settled = [step for step in steps(trajectory) if step.index >= burn_in]
             numbers = tuple(readings((observable,), step)[0] for step in settled)
-        except ObserveError as error:
+        # ConfigError and not ObserveError: a cell is refused by `read_trajectory` for its shape,
+        # by `read_direction` for a direction that has changed, and by the observables for what its
+        # states are made of - three sibling error types under the one the CLI reports, and only
+        # one of them was being named. [LAW:single-enforcer] the contract is the type the CLI
+        # reports, so that is the type this catches.
+        except ConfigError as error:
             raise ObserveError(f"{cell.name}: {error}") from error
         out.append(Readings(trajectory.value, numbers))
     return tuple(out)

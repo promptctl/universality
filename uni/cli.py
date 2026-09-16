@@ -380,11 +380,15 @@ def run_plot(args: argparse.Namespace) -> int:
         )
     for kind, picture in pictures.items():
         # Named by the sweep and what was read off it, so two sweeps and two observables are four
-        # files rather than one overwritten four times. The name comes from the manifest and not
+        # files rather than one overwritten four times. The burn-in is in it because it is the
+        # third thing that fixes what the picture shows, and this repo names a file by what fixes
+        # it: without it, plotting the reference cascade again without `--burn-in` would replace
+        # the committed figure with a transient-laden one under the name the README links to.
+        # The name comes from the manifest and not
         # from the directory it was found in: they agree for a sweep this program wrote, and when
         # they do not - a copied directory, a renamed one - it is the sweep that says which
         # picture this is. [LAW:one-source-of-truth]
-        stem = f"{sweep.name}-{args.observable.replace(':', '-')}-{kind}"
+        stem = f"{sweep.name}-{args.observable.replace(':', '-')}-burn{args.burn_in}-{kind}"
         print(f"{scatter(picture, args.out / f'{stem}.png')}  {len(picture.points)} points", flush=True)
     return 0
 
@@ -444,9 +448,6 @@ def build_parser() -> argparse.ArgumentParser:
         parents=[REMOTE],
         allow_abbrev=False,
     )
-    # Every command travels to the host unless it says otherwise, which is the case for all but
-    # the one whose answer is a file this checkout keeps.
-    parser.set_defaults(here=False)
     commands = parser.add_subparsers(dest="command", required=True)
     host = commands.add_parser("host", help="print where uni is running")
     host.set_defaults(run=run_host)
@@ -477,7 +478,7 @@ def build_parser() -> argparse.ArgumentParser:
     plot.add_argument("--observable", required=True, help="the number to read off each step, as `uni observe` names its columns")
     plot.add_argument("--burn-in", type=whole, default=0, dest="burn_in", help="steps to pass over before the orbit is taken as settled (default: 0)")
     plot.add_argument("--out", type=Path, default=FIGURES, help=f"where to write the figures (default: {FIGURES})")
-    plot.set_defaults(run=run_plot, here=True)
+    plot.set_defaults(run=run_plot)
     observe.set_defaults(run=run_observe)
     direction = commands.add_parser("direction", help="derive a steering direction from uni/directions/<name>.toml")
     direction.add_argument("contrast", type=contrast, help="the contrast's name")
@@ -494,15 +495,21 @@ def checkout_root(cwd: Path) -> Path:
     return Path(found.stdout.strip())
 
 
+# The commands whose answer is a file in this checkout, so there is nowhere on the host to put it.
+# Named here rather than read off the parsed command, which is what this first tried: parsing runs
+# the converters, one of which reads a direction and so imports torch, and `--remote` exists
+# precisely so this machine never pays for that. A set of names costs nothing to consult, and the
+# test that every other command still travels is what keeps it in step with the parser below.
+HERE = frozenset({"plot"})
+
+
 def stays_here(rest: Sequence[str]) -> bool:
     """Whether the command in `rest` is one whose answer is a file in this checkout.
 
-    Asked of the parsed command rather than of the text, so a command joins this set by declaring
-    `here=True` beside its `run` and nothing here grows a list of names to keep in step with it.
-    Parsed with `parse_known_args` because what the host runs is still `rest` itself: this reads
-    the command out of it and leaves everything else alone. [LAW:one-source-of-truth]
+    Read off the front of what is left after `--remote` is taken out, which is where the
+    subcommand is: the top-level parser carries no other argument that takes a value.
     """
-    return bool(build_parser().parse_known_args(list(rest))[0].here)
+    return bool(rest) and rest[0] in HERE
 
 
 def main(argv: Sequence[str], env: Mapping[str, str], cwd: Path) -> int:

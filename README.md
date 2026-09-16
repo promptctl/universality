@@ -257,12 +257,13 @@ that are on disk, which is the point of persisting them one at a time; a sweep w
 disk, or a burn-in that ate every step, is refused rather than written as an empty figure that
 looks like an answer.
 
-The figure files are named for the sweep they came from, so a picture says which sweep it is of
-and two sweeps do not overwrite each other.
+The figure files are named for what fixes the picture - the sweep, the observable, the burn-in -
+so a picture says what it is of, and drawing the same sweep another way puts a new file beside the
+old one rather than over it.
 
 ### The logistic cascade
 
-![orbit diagram of the logistic map](figures/e84d01205c88ec92-x-orbit.png)
+![orbit diagram of the logistic map](figures/e84d01205c88ec92-x-burn200-orbit.png)
 
     uv run uni sweep --map logistic --grid 2.5:4.0:600 --start 0.2 --start 0.7 --steps 400
     uv run uni plot sweeps/e84d01205c88ec92 --observable x --burn-in 200
@@ -274,7 +275,7 @@ window at about 3.83, with its own miniature cascade. The start is 0.2 and 0.7 r
 because 0.5 is exactly the pre-image of the map's maximum: at r = 4 it lands on 1.0 and then on
 0.0, and the whole right-hand edge of the picture would be a single dot at zero.
 
-![return map of the logistic map](figures/e84d01205c88ec92-x-return.png)
+![return map of the logistic map](figures/e84d01205c88ec92-x-burn200-return.png)
 
 The return map of the same sweep is the family of parabolas, one per r, fanning up to the r = 4
 one that touches 1.0. PROJECT.md asks of Rung 1 whether the return map has one smooth hump,
@@ -304,7 +305,7 @@ it, which is also why `figures/` is excluded from the sync rather than deleted b
 machines, because it is the hash of what the sweep is. There is no `uni fetch` doing the middle
 line for you yet; it is filed as `universality-remote-lhh`.
 
-![orbit diagram of the rewrite loop along the formality direction](figures/1a8fce648065056f-along-formality-orbit.png)
+![orbit diagram of the rewrite loop along the formality direction](figures/1a8fce648065056f-along-formality-burn10-orbit.png)
 
 The knob works, and monotonically: where the settled state sits along the formality direction
 rises steadily from about -4 at a coefficient of -6 to about +5 at +3.5, and then stops rising.
@@ -318,14 +319,14 @@ a period 4 at -6, and one orbit at +6 that had not repeated within its 31 states
 longer than one sit around the unsteered point and at the far ends, not in a doubling sequence,
 and 0.5 apart on the knob is far too coarse a grid to call any of it a bifurcation.
 
-![return map of the rewrite loop along the formality direction](figures/1a8fce648065056f-along-formality-return.png)
+![return map of the rewrite loop along the formality direction](figures/1a8fce648065056f-along-formality-burn10-return.png)
 
 The return map says the same thing in one line: the points lie on the diagonal. Rung 1 of
 PROJECT.md asks whether this map has one smooth hump, because that is the shape the whole theory
 rests on. This is not that shape — it is the identity, which is what a return map of fixed points
 looks like. A hump needs states that move.
 
-![orbit diagram of the rewrite loop read for length](figures/1a8fce648065056f-length-orbit.png)
+![orbit diagram of the rewrite loop read for length](figures/1a8fce648065056f-length-burn10-orbit.png)
 
 Read for the character length of the state instead, the same sweep shows the knob's real effect
 on this loop: near zero the fixed point is a single tidy sentence of about 60 characters, and
