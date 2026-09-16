@@ -76,7 +76,11 @@ class Direction:
 
     def project(self, residual: torch.Tensor) -> float:
         """How far a residual stream reaches along this direction. The direction owns its own geometry."""
-        return float(residual @ torch.tensor(self.vector, device=residual.device, dtype=residual.dtype))
+        # Both sides at float32, the precision the vector is stored and committed at: a checkpoint
+        # pinned at float16 would otherwise round the vector first, and the reading would carry the
+        # rounding in the digits it is printed to.
+        vector = torch.tensor(self.vector, device=residual.device, dtype=torch.float32)
+        return float(residual.float() @ vector)
 
 
 def _contrast(name: str, raw: Mapping[str, Any], template: Template) -> Contrast:

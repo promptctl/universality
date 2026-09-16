@@ -34,7 +34,7 @@ class Contradiction:
 
     onset: int
     length: int
-    step: int  # the index whose successor broke the cycle
+    step: int  # the first index holding something other than the state `length` steps before it
 
 
 # [LAW:types-are-the-program] a period that was not seen has no number to report, because the
@@ -54,8 +54,8 @@ def detect(labels: Sequence[Hashable], burn_in: int = 0) -> Period:
         # [LAW:no-silent-failure] determinism is the reason one repeat is enough, so it is
         # checked rather than assumed: a cycle that breaks is a map that is not one.
         length = index - onset
-        for step in range(onset, len(labels) - length):
-            if labels[step] != labels[step + length]:
+        for step in range(onset + length, len(labels)):
+            if labels[step] != labels[step - length]:
                 return Contradiction(onset=onset, length=length, step=step)
         return Cycle(length=length, onset=onset)
     return NoCycle(examined=max(len(labels) - burn_in, 0))

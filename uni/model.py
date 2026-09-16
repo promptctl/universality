@@ -111,17 +111,19 @@ class Model:
         return captured[0][0, span].mean(dim=0)
 
     @torch.inference_mode()
-    def reply_logprob(self, prompt: str, reply: str) -> float:
+    def reply_logprob(self, prompt: str, reply: str, additions: Sequence[ResidualAdd]) -> float:
         """The mean log-probability the model gives each token of `reply`, written after `prompt`.
 
         Mean and not total, so the number is not length wearing a second name; length is its
-        own observable.
+        own observable. `additions` are the ones the reply was written under: the same model
+        turned to a different setting is a different model, and scores the reply differently.
         """
         ids, span = self.encode_reply(prompt, reply)
         # Position i carries the logits that choose token i + 1, so scoring the span needs the
         # positions from one before it. Only those are kept: all of them is more than one Metal
         # kernel can encode for a prompt near the context limit.
-        out = self.model(input_ids=ids, logits_to_keep=ids.shape[1] - span.start + 1)
+        with self._residual(additions):
+            out = self.model(input_ids=ids, logits_to_keep=ids.shape[1] - span.start + 1)
         logp = torch.log_softmax(out.logits[0, : span.stop - span.start].float(), dim=-1)
         return float(logp.gather(1, ids[0, span].unsqueeze(1)).mean())
 

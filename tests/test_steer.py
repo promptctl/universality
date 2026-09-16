@@ -96,6 +96,13 @@ def test_the_trajectory_names_the_exact_direction_file(formality):
     assert spec == {"kind": "steer", "direction": "formality", "layer": 12, "sha256": hashlib.sha256(file).hexdigest()}
 
 
+def test_the_projection_is_taken_at_the_precision_the_vector_is_kept_at(formality):
+    # A checkpoint pinned at float16 would otherwise round the vector before the dot product,
+    # and the reading is printed to six decimals the rounding would own.
+    coarse = dataclasses.replace(formality, vector=(1.0001,) * 8)
+    assert coarse.project(torch.ones(8, dtype=torch.float16)) == pytest.approx(8.0008, rel=1e-6)
+
+
 def test_the_direction_is_what_its_pairs_produce(model, formality):
     # Close, not equal: machines differ in the sixth decimal of float32 kernels.
     derived = torch.tensor(derive(model, formality.contrast).vector)

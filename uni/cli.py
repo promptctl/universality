@@ -188,8 +188,9 @@ def verdict(period: Period) -> str:
             return f"no period: {examined} steps examined and no state repeated, so any period is longer than that"
         case Contradiction(onset=onset, length=length, step=step):
             return (
-                f"the state at step {onset} came back {length} steps later and then went somewhere else, at step {step}. "
-                "The map is not a function of its state; run `uni determinism` before reading anything into this orbit"
+                f"the state at step {onset} came back {length} steps later, but step {step} is not the state "
+                f"{length} steps before it. The map is not a function of its state; run `uni determinism` "
+                "before reading anything into this orbit"
             )
         case _:  # a fourth answer would otherwise be printed as the word None
             assert_never(period)
@@ -199,31 +200,38 @@ def run_observe(args: argparse.Namespace) -> int:
     """Read a written trajectory back: each step's observables, and the period of its orbit."""
     from uni.loop import read_trajectory
     from uni.model import Model
-    from uni.observe import Length, Logprob, Projection, identities, steering_directions, steps, template_of
+    from uni.observe import Length, Logprob, Projection, identities, readings, steering_additions, steering_directions, steps, template_of, written_by
     from uni.period import detect
     from uni.pinned import load_pinned
 
     trajectory = read_trajectory(args.trajectory)
     template = template_of(trajectory)
-    pinned = load_pinned()
+    pinned = written_by(trajectory, load_pinned())
     directions = steering_directions(trajectory, pinned)
-    model = Model(pinned)
-    observables = (
-        Length(),
-        Logprob(model, template),
-        *(Projection(model, template, direction) for direction in directions),
-    )
     # The start is step 0 of the orbit, as `uni loop` prints it, so it is numbered and
     # searched with the rest: an orbit that comes back to the text it started from has a
     # period through step 0, and leaving the start out would hide exactly that.
     orbit = (trajectory.start, *trajectory.states)
     numbers = identities(orbit)
-    print(f"{'step':>4}  {'state':>5}" + "".join(f"  {observable.name:>16}" for observable in observables))
-    for step, number in zip(steps(trajectory), numbers[1:]):
-        readings = "".join(f"  {observable.read(step):>16.6f}" for observable in observables)
-        print(f"{step.index:>4}  {number:>5}{readings}", flush=True)  # a --remote run streams through a pipe
-    print()
+    # The period is read off the states alone, so it is printed before the checkpoint is even
+    # loaded: it is the answer, the rows below are the evidence, and no step that cannot be
+    # scored can take it away.
     print(verdict(detect(orbit, args.burn_in)))
+    print()
+    model = Model(pinned)
+    observables = (
+        Length(),
+        Logprob(model, template, steering_additions(directions, trajectory.value)),
+        *(Projection(model, template, direction) for direction in directions),
+    )
+    print(f"{'step':>4}  {'state':>5}" + "".join(f"  {observable.name:>16}" for observable in observables))
+    # The start was given rather than stepped into, so no observable of a step has a reading for
+    # it; its row is printed anyway, so the identity column reads as the orbit and every step the
+    # verdict can name is one the table shows.
+    print(f"{0:>4}  {numbers[0]:>5}" + "".join(f"  {'-':>16}" for _ in observables))
+    for step, number in zip(steps(trajectory), numbers[1:]):
+        row = "".join(f"  {reading:>16.6f}" for reading in readings(observables, step))
+        print(f"{step.index:>4}  {number:>5}{row}", flush=True)  # a --remote run streams through a pipe
     return 0
 
 

@@ -38,7 +38,11 @@ def test_an_orbit_that_never_repeats_never_reports_a_period(steps):
 def test_a_state_that_returns_and_then_goes_elsewhere_is_not_a_period():
     # Only a map that is not a function of its state can do this, so it is neither a cycle
     # nor an absence of one, and reporting either would bury a broken determinism gate.
-    assert detect("ababac") == Contradiction(onset=0, length=2, step=3)
+    # The step reported is the one holding the state that broke the cycle: index 5, the 'c',
+    # and not the on-cycle index it was compared against.
+    contradiction = detect("ababac")
+    assert contradiction == Contradiction(onset=0, length=2, step=5)
+    assert "ababac"[contradiction.step] == "c"
 
 
 def test_the_burn_in_is_not_searched():
