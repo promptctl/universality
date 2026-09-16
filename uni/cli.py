@@ -317,6 +317,7 @@ SWEEPS = Path("sweeps")  # under the directory uni runs in; the --remote sync ex
 def run_sweep(args: argparse.Namespace) -> int:
     """Run every cell the sweep has not already written, and say how far it got."""
     from uni.loop import Trajectory, write_trajectory
+    from uni.starts import named_starts
     from uni.sweep import Failed, Sweep, described, grid, pending, run_cell, write_sweep
 
     # Read here and not by argparse: a grid that is not one is the user's typo, and this repo
@@ -326,7 +327,9 @@ def run_sweep(args: argparse.Namespace) -> int:
     # Built once for the whole grid, which is the point of a family: the checkpoint behind a model
     # sweep is read once, and not until a cell is actually run.
     family = args.map.build(args, values)
-    sweep = Sweep(family.spec, values, tuple(args.start), args.steps)
+    # The typed starts, then each named set's, in the order the flags were given within each kind.
+    # A sweep given neither is refused by Sweep, which already refuses a sweep with no starts.
+    sweep = Sweep(family.spec, values, (*args.start, *named_starts(args.starts)), args.steps)
     home = sweep.home(SWEEPS)
     left = pending(sweep, home)
     print(f"sweep {home}")
@@ -532,7 +535,8 @@ def build_parser() -> argparse.ArgumentParser:
     sweep = commands.add_parser("sweep", parents=[MODEL_FLAGS], help="run a map at every value on a grid, from every start, and keep the orbits")
     sweep.add_argument("--map", type=map_named, default="model", help=f"the map to sweep: {', '.join(MAPS)} (default: model)")
     sweep.add_argument("--grid", required=True, help="the values to sweep, as FROM:TO:COUNT with TO included, as in 2.8:4.0:200")
-    sweep.add_argument("--start", action="append", required=True, help="a start state; repeat it for each one, and write --start=TEXT when it begins with '-'")
+    sweep.add_argument("--start", action="append", default=[], help="a start state; repeat it for each one, and write --start=TEXT when it begins with '-'")
+    sweep.add_argument("--starts", action="append", default=[], help="a set of starts named in uni/starts.toml, run after any --start; repeat it for each set")
     sweep.add_argument("--steps", type=positive, required=True, help="how many times to step the map in each cell")
     sweep.add_argument("--status", action="store_true", help="say how many cells are done and run none of them")
     sweep.set_defaults(run=run_sweep)

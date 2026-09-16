@@ -28,6 +28,6 @@ def test_a_template_must_be_a_string():
 
 def test_the_shipped_templates_parse():
     templates = load_templates()
-    assert {"identity", "empty", "rewrite"} <= templates.keys()
+    assert {"identity", "empty", "rewrite", "summarize"} <= templates.keys()
     assert templates["empty"].render("anything") == "anything"
     assert templates["empty"].render("") == ""
