@@ -435,9 +435,11 @@ class SmoothFamily:
 
     @property
     def spec(self) -> dict[str, Any]:
-        # The coefficients are not recorded: they are the fit's to recompute from the curve and the
-        # degree, and a copy of them is a second account of the map free to disagree with the first.
-        return {"kind": "smooth", "curve": self.curve, "layer": self.layer, "degree": self.degree}
+        # [LAW:one-source-of-truth] the coefficients are the fit's to recompute from the curve and the
+        # degree, so they are named and not copied. Named, because a least-squares fit need not land on
+        # the same last bits under another numpy build, and a cascade to period 8192 turns on those:
+        # a sweep resumed there would match a spec of the curve and degree alone and run another map.
+        return {"kind": "smooth", "curve": self.curve, "layer": self.layer, "degree": self.degree, "series": self.series.name}
 
     def admit(self, push: float) -> None:
         """Refuse a push outside the curve's samples. [LAW:single-enforcer] a start and every step are refused by this."""

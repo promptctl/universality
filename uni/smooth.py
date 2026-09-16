@@ -10,6 +10,8 @@ read at more than one degree to show which ratios depend on the fit's fidelity a
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -29,6 +31,11 @@ class Series:
     low: float
     high: float
     coefficients: tuple[float, ...]
+
+    @property
+    def name(self) -> str:
+        """The series' content, hashed, as a curve's name is: the fit's last bits can differ from one numpy build to the next, and a map is the series it runs."""
+        return hashlib.sha256(json.dumps([self.low, self.high, self.coefficients]).encode()).hexdigest()[:16]
 
     def at(self, x: float) -> float:
         """The series at x, by Clenshaw's recurrence: plain floats, so a state written from it is a float's own spelling."""

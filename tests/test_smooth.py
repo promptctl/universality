@@ -49,12 +49,15 @@ def test_its_top_is_where_the_logistic_map_s_is(logistic, capsys):
     assert float(capsys.readouterr().out.split()[-1]) == pytest.approx(0.5, abs=1e-12)
 
 
-def test_a_curve_is_named_by_its_bytes_and_the_map_by_that_name(logistic):
+def test_a_curve_is_named_by_its_bytes_and_the_map_by_that_name_and_its_series_bits(logistic):
     assert logistic.stem == hashlib.sha256(logistic.read_bytes()).hexdigest()[:16]
     from uni.cli import MAPS, build_parser
 
     args = build_parser().parse_args(["loop", *flags(logistic, 5), "--start", "0.5", "--steps", "1", "--value", "3"])
-    assert MAPS["smooth"].build(args, (3.0,)).spec == {"kind": "smooth", "curve": logistic.stem, "layer": 7, "degree": 5}
+    family = MAPS["smooth"].build(args, (3.0,))
+    assert family.spec == {"kind": "smooth", "curve": logistic.stem, "layer": 7, "degree": 5, "series": family.series.name}
+    changed = Series(family.series.low, family.series.high, (*family.series.coefficients[:-1], math.nextafter(family.series.coefficients[-1], 1)))
+    assert changed.name != family.series.name
 
 
 def test_the_series_is_numpy_s_chebyshev_series_evaluated_in_plain_floats():

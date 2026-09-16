@@ -871,7 +871,7 @@ below those two fits.
 The last ratios are not the shape's. The loosest fit and the closest, whose superstable gains
 differ by 2e-4, both reach 4.66920 by period 4096, as the other two do, and over 2048, 4096, 8192
 the four read 4.6692031, 4.6692017, 4.6692012 and 4.6692026, within 2e-6 of each other and inside
-their errors of 7.5e-6. Feigenbaum's delta is 4.6692016. On the way there each gap to delta is
+their errors of 7.5e-6 to 8e-6. Feigenbaum's delta is 4.6692016. On the way there each gap to delta is
 about 4.9 times the next (for degree 150: -1.9e-5, -3.9e-6, -8e-7), a steady geometric approach.
 This is what universality claims: a constant the map's shape does not set, and here four maps
 whose early ratios differ by 2% share it.
