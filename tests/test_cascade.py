@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from uni.cascade import ratios, returned
+from uni import cascade
+from uni.cascade import ratios, returns
 from uni.fit import Estimate, FitError, crossing, fit
 from uni.cli import EXIT_CONFIG, main
 from uni.maps import NUMBERS, Logistic
@@ -23,7 +24,7 @@ def command(argv):
 def superstable(period, grid, critical="0.5"):
     first, last, count = grid.split(":")
     values = [float(first) + (float(last) - float(first)) * index / (int(count) - 1) for index in range(int(count))]
-    return crossing(fit(values, [returned(Logistic(value), NUMBERS["logistic"]({}), critical, period) for value in values], 2), 0)
+    return crossing(cascade.superstable(values, [returns(Logistic(value), NUMBERS["logistic"]({}), critical, period) for value in values], period), 0)
 
 
 @pytest.mark.parametrize("period", SUPERSTABLE)
@@ -40,6 +41,20 @@ def test_a_critical_point_off_by_a_little_moves_each_value_by_that_over_how_stee
     # period-2 value by 1e-4 over how steeply the return crosses zero there, about 0.35 per unit of r.
     moved = superstable(2, GRIDS[2], "0.5001").value - superstable(2, GRIDS[2]).value
     assert abs(moved) == pytest.approx(2.9e-4, rel=0.05)
+
+
+@pytest.mark.parametrize("period, grids", [("2", (GRIDS[2], GRIDS[2])), ("4", (GRIDS[2],))])
+def test_a_grid_holding_a_shorter_cycle_s_value_is_refused_rather_than_read_as_its_own(capsys, period, grids):
+    # At the period-2 value the top returns after 4 steps as well, so a period-4 grid placed there
+    # would find it again, and a spacing of zero would come out as a ratio like any other.
+    argv = ["cascade", "--map", "logistic", "--critical", "0.5", "--period", period] + [flag for text in grids for flag in ("--grid", text)]
+    assert command(argv) == EXIT_CONFIG
+    assert "holds a superstable value of period 2: the orbit of the top closes after 2 steps there, and so after 4 as well" in capsys.readouterr().err
+
+
+def test_the_returns_of_a_period_are_those_after_each_number_of_steps_dividing_it():
+    assert sorted(returns(Logistic(3.5), NUMBERS["logistic"]({}), "0.5", 12)) == [1, 2, 3, 4, 6, 12]
+    assert list(returns(Logistic(3.5), NUMBERS["logistic"]({}), "0.5", 1)) == [1]
 
 
 def test_the_command_reads_the_logistic_cascade_and_its_ratios(capsys):
@@ -84,6 +99,8 @@ def test_the_top_of_a_cubic_is_where_its_slope_crosses_zero():
     [
         ([1.0, 2.0], [-1.0, 1.0], 1, "degree 1 fitted to 2 readings has none left over"),
         ([1.0, 1.0, 1.0], [-1.0, 0.0, 1.0], 1, "needs readings at 2 distinct values at least, and these are at 1"),
+        # Not exactly repeated values alone: rounding leaves the elimination a pivot a hair off zero.
+        ([3.1, 3.3, 3.7] * 3, [1.0, -0.5, 2.0, 1.1, -0.4, 2.1, 0.9, -0.6, 1.9], 3, "needs readings at 4 distinct values at least, and these are at 3"),
         ([1.0, 2.0, 3.0], [1.0, 1.0, 1.0], 1, "crosses zero 0 times"),
         ([1.0, 2.0, 3.0], [1.0, 2.0, 3.0], 1, "crosses zero 0 times between 1 and 3"),
     ],

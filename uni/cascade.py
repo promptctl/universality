@@ -11,29 +11,56 @@ value is found without waiting for an orbit to settle, and near a doubling an or
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from itertools import islice
 from typing import TYPE_CHECKING
 
-from uni.fit import Estimate
+from uni.fit import Estimate, Polynomial, fit
 from uni.loop import orbit
+from uni.parse import ConfigError
 
 if TYPE_CHECKING:
     from uni.loop import Map
     from uni.maps import Numbers
 
 
-def returned(map: Map, numbers: Numbers, critical: str, period: int) -> float:
-    """Where `period` steps from the critical point land, measured from it: F^p(x_c) - x_c.
+class CascadeError(ConfigError):
+    """A grid cannot tell the superstable value of its period from one of a period dividing it."""
 
-    Zero at a superstable value, and of opposite signs either side of it, because the orbit passes
-    the top from one side and then the other. Its companion F^p(F(x_c)) - F(x_c), which starts a
-    step later, would ignore a small error in x_c, since the map is flat at its top - but for the
-    same reason it only touches zero, and a value it only touches cannot be bracketed.
+
+def returns(map: Map, numbers: Numbers, critical: str, period: int) -> dict[int, float]:
+    """Where the orbit of the critical point lands after `period` steps, and after each number of steps dividing it, measured from it: F^d(x_c) - x_c.
+
+    Zero at a superstable value of that many steps, and of opposite signs either side of it, because
+    the orbit passes the top from one side and then the other. Its companion F^p(F(x_c)) - F(x_c),
+    which starts a step later, would ignore a small error in x_c, since the map is flat at its top -
+    but for the same reason it only touches zero, and a value it only touches cannot be bracketed.
     So the critical point is measured first (`uni critical`), and moves this by its own error.
+
+    The steps dividing `period` come from the same orbit, on its way: a cycle through the top of d
+    steps closes again after every multiple of d, so each of them is a zero this return has too.
     """
-    (after,) = islice(orbit(map, critical), period - 1, period)
-    return numbers.read(after) - numbers.read(critical)
+    start = numbers.read(critical)
+    states = islice(orbit(map, critical), period)
+    return {steps: numbers.read(state) - start for steps, state in enumerate(states, start=1) if period % steps == 0}
+
+
+def superstable(values: Sequence[float], returned: Sequence[Mapping[int, float]], period: int) -> Polynomial:
+    """The parabola through the return after `period` steps, whose crossing of zero is the superstable value.
+
+    Refused when the return after fewer steps dividing `period` changes sign on the same grid: there
+    the orbit of the top closes after those fewer steps, so after `period` too, and a zero found on
+    the grid could be that shorter cycle's value rather than this one's. [LAW:single-enforcer]
+    """
+    for steps in sorted(returned[0])[:-1]:
+        readings = [landed[steps] for landed in returned]
+        sides = [(reading > 0) - (reading < 0) for reading in readings]
+        if 0 in sides or len(set(sides)) > 1:
+            raise CascadeError(
+                f"the grid for period {period}, {min(values):.10g} to {max(values):.10g}, holds a superstable value of period {steps}: "
+                f"the orbit of the top closes after {steps} steps there, and so after {period} as well; move the grid past it"
+            )
+    return fit(values, [landed[period] for landed in returned], 2)
 
 
 def ratios(values: Sequence[Estimate]) -> tuple[Estimate, ...]:

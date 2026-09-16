@@ -600,8 +600,8 @@ def run_fixed(args: argparse.Namespace) -> int:
 
 def run_cascade(args: argparse.Namespace) -> int:
     """Print the superstable value on each grid, one period doubled per grid, and the ratios of their spacings."""
-    from uni.cascade import ratios, returned
-    from uni.fit import crossing, fit
+    from uni.cascade import ratios, returns, superstable
+    from uni.fit import crossing
     from uni.sweep import grid
 
     grids = tuple(grid(text) for text in args.grid)
@@ -612,7 +612,7 @@ def run_cascade(args: argparse.Namespace) -> int:
     found = []
     for doubling, values in enumerate(grids):
         period = args.period * 2**doubling
-        parabola = fit(values, tuple(returned(family.at(value), numbers, args.critical, period) for value in values), 2)
+        parabola = superstable(values, [returns(family.at(value), numbers, args.critical, period) for value in values], period)
         found.append(crossing(parabola, 0))
         print(f"{period:>6}  {found[-1].value:>18.10g}  {found[-1].error:>8.1e}  {parabola.scatter:>8.1e}", flush=True)
     for index, ratio in enumerate(ratios(found)):

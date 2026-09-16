@@ -68,11 +68,16 @@ def fit(values: Sequence[float], readings: Sequence[float], degree: int) -> Poly
     # its scatter is zero and every error it reports is zero, whatever the readings were.
     if len(values) <= size:
         raise FitError(f"a polynomial of degree {degree} fitted to {len(values)} readings has none left over to measure its scatter by; give at least {size + 1}")
+    # [LAW:parse-dont-validate] counted here, exactly, rather than noticed as a zero pivot inside the
+    # elimination: rounding leaves a pivot a hair off zero, and the inverse it then gives is noise.
+    distinct = len(set(values))
+    if distinct < size:
+        raise FitError(f"a polynomial of degree {degree} needs readings at {size} distinct values at least, and these are at {distinct}")
     low, high = min(values), max(values)
     center, scale = (low + high) / 2, (high - low) / 2
-    rows = [[((value - center) / scale) ** power for power in range(size)] for value in values] if scale else []
+    rows = [[((value - center) / scale) ** power for power in range(size)] for value in values]
     normal = [[math.fsum(row[i] * row[j] for row in rows) for j in range(size)] for i in range(size)]
-    inverse = invert(normal, values)
+    inverse = invert(normal)
     projected = [math.fsum(row[i] * reading for row, reading in zip(rows, readings)) for i in range(size)]
     coefficients = tuple(math.fsum(inverse[i][j] * projected[j] for j in range(size)) for i in range(size))
     residual = math.fsum((reading - math.fsum(c * t for c, t in zip(coefficients, row))) ** 2 for row, reading in zip(rows, readings))
@@ -81,15 +86,15 @@ def fit(values: Sequence[float], readings: Sequence[float], degree: int) -> Poly
     return Polynomial(center, scale, coefficients, covariance, low, high, math.sqrt(residual / len(values)))
 
 
-def invert(matrix: list[list[float]], values: Sequence[float]) -> list[list[float]]:
-    """The inverse of the fit's normal equations, by Gauss-Jordan elimination with partial pivoting."""
+def invert(matrix: list[list[float]]) -> list[list[float]]:
+    """The inverse of the fit's normal equations, by Gauss-Jordan elimination with partial pivoting.
+
+    Only ever handed the equations of readings at enough distinct values, which are never singular.
+    """
     size = len(matrix)
     work = [row[:] + [float(i == j) for j in range(size)] for i, row in enumerate(matrix)]
     for column in range(size):
         pivot = max(range(column, size), key=lambda row: abs(work[row][column]))
-        if work[pivot][column] == 0:
-            distinct = len(set(values))
-            raise FitError(f"a polynomial of degree {size - 1} needs readings at {size} distinct values at least, and these are at {distinct}")
         work[column], work[pivot] = work[pivot], work[column]
         lead = work[column][column]
         work[column] = [entry / lead for entry in work[column]]
