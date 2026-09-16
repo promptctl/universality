@@ -70,6 +70,12 @@ def read(sweep: Sweep, home: Path, name: str, burn_in: int) -> tuple[Readings, .
     The burn-in is dropped here rather than by each picture, because it means one thing - the
     steps before the orbit settled are not what either picture is about - and a picture that
     dropped its own would be a second place deciding what settled means. [LAW:single-enforcer]
+
+    It means the same thing it means to `uni observe`, which is why it is written as a test on the
+    step's own number rather than as a slice: `detect` passes over a sequence whose element 0 is
+    the start, so its `--burn-in N` keeps step N onward. A slice of `steps()` starts counting at
+    step 1 and would keep step N + 1, so the period a person reads off one command would be
+    measured over different states than the picture drawn by the other. [LAW:one-source-of-truth]
     """
     # One checkpoint for the whole picture, not one per cell: what every cell of a sweep is read
     # through is the same model, because the sweep's own description says so. [LAW:carrying-cost]
@@ -78,7 +84,14 @@ def read(sweep: Sweep, home: Path, name: str, burn_in: int) -> tuple[Readings, .
     for cell in finished(sweep, home):
         trajectory = read_trajectory(home / cell.name)
         observable = named(observables(trajectory, weights), name)
-        numbers = tuple(readings((observable,), step)[0] for step in steps(trajectory)[burn_in:])
+        settled = [step for step in steps(trajectory) if step.index >= burn_in]
+        # [LAW:no-silent-failure] `readings` names the step it could not read, which was the whole
+        # story when the caller was one named trajectory. Over a sweep it is the cell that says
+        # which file to go and look at.
+        try:
+            numbers = tuple(readings((observable,), step)[0] for step in settled)
+        except ObserveError as error:
+            raise ObserveError(f"{cell.name}: {error}") from error
         out.append(Readings(trajectory.value, numbers))
     return tuple(out)
 

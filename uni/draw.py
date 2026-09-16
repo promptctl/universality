@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
+from uni.atomic import write_whole
 from uni.figure import Picture
 
 DPI = 160  # a figure a person looks at, at a size that shows a cascade's fourth split
@@ -46,10 +48,14 @@ def scatter(picture: Picture, path: Path) -> Path:
         axes.set_title(picture.title)
         axes.set_xlabel(picture.x_label)
         axes.set_ylabel(picture.y_label)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        figure.savefig(path, dpi=DPI, bbox_inches="tight")
+        # Rendered into memory and handed to the one writer, rather than saved straight to the
+        # path: a figure killed mid-write would otherwise leave a stump at the name this command
+        # has already printed as the answer, in a directory that gets committed. `uni.atomic` says
+        # every file this program writes goes through it, and a picture is a file.
+        drawing = io.BytesIO()
+        figure.savefig(drawing, format="png", dpi=DPI, bbox_inches="tight")
     finally:
         # Figures are held by pyplot until closed, so a command drawing several would grow without
         # this even though nothing here keeps a reference.
         plt.close(figure)
-    return path
+    return write_whole(path, drawing.getvalue())

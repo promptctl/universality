@@ -100,13 +100,14 @@ def test_what_the_text_scan_skips_is_exactly_the_committed_figures():
     # read fails here until someone has looked at it. [LAW:no-silent-failure]
     skipped = set(tracked_files()) - set(tracked_text())
     assert skipped == {path for path in tracked_files() if path.endswith(".png")}
-    assert skipped <= set(tracked_bytes())  # and every one of them is still read for a real value
 
 
 def test_tracked_files_carry_no_value_from_the_real_env():
     # The patterns approximate an identity; your own .env defines it. Without a .env this checks nothing.
-    # Searched as bytes over every tracked file, text or not: a literal host name is a literal
-    # host name wherever it sits, and unlike the shapes above it cannot turn up in a PNG by chance.
+    # Searched as bytes over every tracked file, text or not - the figures the scan above skips
+    # included: a literal host name is a literal host name wherever it sits, and unlike the shapes
+    # above it cannot turn up in a PNG by chance. This is the only check that reads every one of
+    # them, and it reads nothing without a .env of your own.
     secrets = [re.compile(rf"(?<![\w-]){re.escape(value)}(?![\w-])".encode()) for value in dotenv_values(ROOT / ".env").values() if value]
     leaks = [(path, secret.pattern) for path, raw in tracked_bytes().items() for secret in secrets if secret.search(raw)]
     assert leaks == []

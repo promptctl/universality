@@ -12,7 +12,7 @@ import pytest
 from uni.cli import EXIT_CONFIG, main
 from uni.figure import Readings, named, orbit_diagram, read, return_map
 from uni.loop import read_trajectory
-from uni.observe import ObserveError, Weights, observables
+from uni.observe import ObserveError, Weights, observables, steps
 from uni.sweep import MANIFEST, finished, pending, read_sweep
 
 
@@ -49,11 +49,21 @@ def test_a_sweep_still_running_is_drawn_from_what_is_on_disk(tmp_path, monkeypat
     assert lost in pending(written, home)
 
 
-def test_the_burn_in_drops_that_many_steps_from_the_front(tmp_path, monkeypatch):
+def test_the_burn_in_keeps_the_steps_uni_observe_would_keep(tmp_path, monkeypatch):
+    # One meaning for one flag. `detect` passes over a sequence whose element 0 is the start, so
+    # its --burn-in N keeps step N onward; a slice of `steps()` counts from step 1 and would keep
+    # step N + 1. Paired on one sweep - as the README pairs them - that is a period measured over
+    # different states than the picture beside it is drawn from.
     written, home = sweep(tmp_path, monkeypatch, steps=8)
-    whole = read(written, home, "x", burn_in=0)[0]
-    settled = read(written, home, "x", burn_in=5)[0]
-    assert settled.numbers == whole.numbers[5:]
+    trajectory = read_trajectory(home / finished(written, home)[0].name)
+    orbit = (trajectory.start, *trajectory.states)
+    for burn_in in (0, 1, 2, 5):
+        drawn = [step.state for step in steps(trajectory) if step.index >= burn_in]
+        assert len(read(written, home, "x", burn_in)[0].numbers) == len(drawn)
+        examined = list(orbit[burn_in:])  # what `uni observe --burn-in` hands the detector
+        # The same states, but for the start: it is step 0, and no observable reads it, so a
+        # picture has nothing to plot for it. Past step 0 the two commands keep the same orbit.
+        assert drawn == (examined[1:] if burn_in == 0 else examined)
 
 
 def test_a_burn_in_past_the_end_leaves_a_cell_with_nothing(tmp_path, monkeypatch):
@@ -146,7 +156,7 @@ def test_a_burn_in_that_leaves_one_step_refuses_both_rather_than_drawing_a_blank
     # which is exactly how a blank figure gets written beside a good one and exits 0.
     _, home = sweep(tmp_path, monkeypatch, steps=6)
     out = tmp_path / "figures"
-    assert command(["plot", str(home), "--observable", "x", "--burn-in", "5", "--out", str(out)]) == EXIT_CONFIG
+    assert command(["plot", str(home), "--observable", "x", "--burn-in", "6", "--out", str(out)]) == EXIT_CONFIG
     printed = capsys.readouterr().err
     assert "nothing to draw the return map of" in printed
     assert "a return map needs two from one cell, an orbit diagram one" in printed

@@ -381,7 +381,7 @@ def run_plot(args: argparse.Namespace) -> int:
     for kind, picture in pictures.items():
         # Named for the sweep and what was read off it, so two sweeps and two observables are four
         # files rather than one overwritten four times.
-        stem = f"{args.sweep.name}-{args.observable.replace(':', '-')}-{kind}"
+        stem = f"{args.sweep.resolve().name}-{args.observable.replace(':', '-')}-{kind}"
         print(f"{scatter(picture, args.out / f'{stem}.png')}  {len(picture.points)} points", flush=True)
     return 0
 
