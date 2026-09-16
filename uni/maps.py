@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -168,7 +168,19 @@ class ModelFamily:
         return Model(self.pinned)
 
     def at(self, value: float) -> Map:
-        return ModelMap(self.model, self.template, self.knob.turn(value))
+        # Imported here for the reason `model` above gives, and at no extra cost: the checkpoint
+        # this reaches for on the next line has already paid for torch.
+        from uni.model import ResidualAdd
+
+        turned = self.knob.turn(value)
+        # [LAW:parse-dont-validate] the additions become ones this checkpoint can take, or no map
+        # is made. What an addition adds to is fixed by the direction and not by the setting, so a
+        # layer this checkpoint does not have, or a vector of the wrong length, is wrong in every
+        # cell of a sweep - which is why it is caught here, before a token is generated, rather
+        # than once per cell by a run that can never write a file. The vector reaches the device
+        # once per map rather than once per step as well.
+        additions = tuple(ResidualAdd(one.layer, self.model.residual_vector(one)) for one in turned.additions)
+        return ModelMap(self.model, self.template, replace(turned, additions=additions))
 
 
 def logistic_state(state: str) -> float:

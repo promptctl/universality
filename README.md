@@ -161,6 +161,38 @@ rather than run twice into one file, and so is a grid the map cannot take — ev
 to the map and to the knob before the first cell runs, because a sweep that dies two hundred cells
 in dies again on every resume.
 
+One failure those checks cannot cover: a model's states are its own replies, so they can grow
+until the rendered state leaves no room to generate, and whether step 300 still fits is knowable
+only by running to step 300. So a cell the map refuses **partway through its orbit** does not stop
+the sweep. The run says so on that cell's line, carries on to the cells after it — which are
+separate runs of a separate map, with nothing wrong with them — names every refused cell again at
+the end, and exits non-zero. Nothing is written for a cell with no orbit: a sweep directory holds
+trajectories and nothing else, so the cell simply stays pending and the next run tries it again,
+which is what you want the moment whatever refused it is fixed. Were the failure recorded instead,
+the cell would be marked done by a run that did not do it, and nothing would ever go back for it.
+
+What makes that a statement about the cell rather than about the sweep is *what* was refused, not
+how far the orbit got. A steering direction's layer, and the length of its vector, are fixed by
+the direction and not by the setting, so an addition the checkpoint cannot take is one no cell
+could have taken: the family is asked for a map before the manifest is written, so that sweep is
+refused whole, with no token generated and no directory left behind to fill. A map that comes back
+set to a value other than the one it was asked for says the same kind of thing about every cell,
+but is found only by running one, so it stops the run where it is found. How early the orbit
+stopped would be the wrong test for the same thing, because residual additions large enough to
+overflow the model's arithmetic also refuse the first token, and *that* is a property of the
+value the cell runs at.
+
+Two things a refused cell does not get, and both are deliberate. It is not remembered: a rerun
+runs it again, pays for its orbit again, and is refused again, so an unattended resume loop does
+not converge — read the exit code, which is `79` when a sweep ran and came up short, distinct from
+the `78` that says the command itself cannot be run. The two do not add up: a run that refused
+some cells and was then stopped outright exits `78`, because what ended it outranks how far it
+got, and its refusals are on stderr rather than in the code. And the states it did produce are
+thrown away rather than written under their own shorter name, which would put a file in the
+directory this sweep never named and no rerun would ever look for. Both are the price of a sweep
+directory that holds finished orbits and nothing else; `universality-sweep-81g` carries the
+question of whether a sweep should be able to say "tried and cannot" somewhere.
+
 The sweep writes `sweeps/<name>/`: one trajectory per cell, in the same format `uni loop` writes
 and `uni observe` reads, beside a `sweep.json` naming the map, the values, the starts, and the
 step count. The directory is a hash of exactly those, so rerunning the same command resumes the

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import math
 import os
 import platform
@@ -28,6 +29,12 @@ if TYPE_CHECKING:
 
 EXIT_CONFIG = os.EX_CONFIG  # distinct from argparse's 2 and from anything rsync or ssh returns
 EXIT_DIVERGED = 1  # the determinism gate ran and some case produced more than one hash
+# The sweep ran and some cell of it has no orbit: a different answer from EXIT_CONFIG, which says
+# the run as described cannot be run, because here it was run and most of it is on disk. One past
+# the end of the sysexits table EXIT_CONFIG comes from, so it is no more rsync's or ssh's than
+# that one is. [LAW:no-silent-failure] the distinction the determinism gate already draws with
+# EXIT_DIVERGED: the command worked, and what it found is the bad news.
+EXIT_INCOMPLETE = 79
 
 # --remote is parsed here, once, and never reaches a subcommand: what is left over is
 # exactly what the host runs. [LAW:one-source-of-truth]
@@ -292,8 +299,8 @@ SWEEPS = Path("sweeps")  # under the directory uni runs in; the --remote sync ex
 
 def run_sweep(args: argparse.Namespace) -> int:
     """Run every cell the sweep has not already written, and say how far it got."""
-    from uni.loop import Trajectory, orbit, write_trajectory
-    from uni.sweep import Sweep, SweepError, described, grid, pending, write_sweep
+    from uni.loop import Trajectory, write_trajectory
+    from uni.sweep import Failed, Sweep, described, grid, pending, run_cell, write_sweep
 
     # Read here and not by argparse: a grid that is not one is the user's typo, and this repo
     # reports that as `uni: ...` with EX_CONFIG. argparse catches only its own error type, so a
@@ -323,27 +330,73 @@ def run_sweep(args: argparse.Namespace) -> int:
     # read half a billion parameters to print a number it already has - and, off Metal, would
     # raise where it should have answered.
     family.holds(tuple(dict.fromkeys(cell.start for cell in left)))  # each start once, in cell order
+    # And the map itself, once, at the same moment and for the same reason. What a map is made out
+    # of - a steering direction's layer, the length of its vector - is the family's and not the
+    # value's, so a family that cannot make one here cannot make one at any cell of this sweep.
+    # [LAW:parse-dont-validate] past this line a family that can make maps exists, which is what
+    # lets the line below write a directory: refused here the refusal costs nothing, and refused
+    # one line later it has already left a sweep directory no run will ever fill - the litter the
+    # `--status` return above exists to avoid. Guarded on `left` as `holds` is, so rerunning a
+    # finished sweep to see that it is finished still loads nothing.
+    if left:
+        family.at(left[0].value)
     write_sweep(sweep, SWEEPS)
-    for done, cell in enumerate(left, start=1):
-        map = family.at(cell.value)
-        # The map's own description and its own value, the way `uni loop` records them, so what
-        # the file says the orbit ran at is what it ran at. [LAW:one-source-of-truth]
-        states = tuple(islice(orbit(map, cell.start), sweep.steps))
-        trajectory = Trajectory(map.spec, map.value, cell.start, states)
-        # [LAW:no-silent-failure] the sweep named this cell's file before running it, and
-        # resumption is that name coming true. A map that described itself differently, or that
-        # came back set to something other than what it was asked for, writes a file this sweep
-        # cannot find - and then every rerun runs the cell again, for ever, against a total that
-        # never lands.
-        if trajectory.name != cell.name:
-            raise SweepError(
-                f"the cell at {cell.value} writes {trajectory.name}, not the {cell.name} this sweep is looking for: "
-                "the map does not describe itself the same way twice"
-            )
-        write_trajectory(trajectory, home)
-        print(f"{done:>5}/{len(left)}  value {cell.value:<12.6g} {cell.name}", flush=True)  # a --remote run streams through a pipe
-    print(described(sweep, pending(sweep, home)))
-    return 0
+    failures: list[Failed] = []
+    # [LAW:no-silent-failure] the count and the refusals are printed however the run ends, because
+    # they are about what it did rather than about how it stopped. Without this a cell refused at
+    # 3 and a map that misnames its file at 4 would end with only the second said out loud, and
+    # the first would survive as one line in the scrollback of a sweep that prints thousands.
+    try:
+        for done, cell in enumerate(left, start=1):
+            # [LAW:dataflow-not-control-flow] one line per cell whatever came of it, so the
+            # progress a person watches scroll past has one shape: the value it ran at, the cell
+            # it is, and what stopped it if anything did. The two arms are what running a cell can
+            # come to, as `verdict`'s three are what the detector can see.
+            outcome = run_cell(family, cell, sweep.steps)
+            match outcome:
+                case Trajectory() as trajectory:
+                    write_trajectory(trajectory, home)
+                    note = ""
+                case Failed() as failure:
+                    failures.append(failure)
+                    note = f"  cannot run: {failure.reason}"
+                case _:  # a third outcome would otherwise leave the line below printing a stale note
+                    assert_never(outcome)
+            # The cell's own name and not the trajectory's, though `run_cell` has just proved them
+            # equal: it is what the cell is, so a refused cell is named here as exactly as a
+            # written one. The value beside it is rounded to fit a column a thousand of these
+            # scroll through, and rounded it names a different orbit - so it reads the line, and
+            # the name identifies it. [LAW:one-source-of-truth]
+            print(f"{done:>5}/{len(left)}  value {cell.value:<12.6g} {cell.name}{note}", flush=True)  # a --remote run streams through a pipe
+    finally:
+        # Said twice on purpose: inline, where a person watching sees which cell it was, and again
+        # here, where it survives a thousand lines of scrollback. The value is written as the
+        # shortest text that reads back as itself, the rule `logistic_state` holds a state to: it
+        # is what names the cell, and rounded to six figures it names a different orbit in a
+        # different file.
+        #
+        # Before the count and not after it, which is the order that keeps the promise this block
+        # is for: `uni sweep ... | head` closes stdout, so printing the count first would raise
+        # BrokenPipeError out of the finally, replace whatever ended the run, and take the
+        # refusals with it - a pipe closing would be the one ending that silenced them.
+        # Suppressed rather than let out, because a `finally` that raises replaces whatever ended
+        # the run: with stdout closed, the SweepError above would reach the user as a traceback
+        # instead of as `uni: ...` and EXIT_CONFIG, and no handler further out can recover an
+        # exception this block has already destroyed. Saying how far a run got to nobody is not a
+        # failure of the run. (That a closed pipe is a traceback at all is universality-errors-k9u
+        # and belongs to every command here; this is only the one ending it would swallow.)
+        #
+        # OSError and not BrokenPipeError, because the question this block has to answer is
+        # whether the stream can still carry a message, and OSError is what Python calls a stream
+        # that cannot: `| head` is the one that happens, but a full disk under `> file` and a
+        # detached terminal lose the report the same way and must not cost the run its message
+        # either. It is only ever the report that is dropped - `pending` reads a directory through
+        # `Path.exists`, which answers rather than raises.
+        with contextlib.suppress(OSError):
+            for failure in failures:
+                print(f"uni: value {failure.cell.value!r} from {failure.cell.start!r} has no orbit: {failure.reason}", file=sys.stderr)
+            print(described(sweep, pending(sweep, home)), flush=True)
+    return EXIT_INCOMPLETE if failures else 0
 
 
 FIGURES = Path("figures")  # committed, unlike trajectories and sweeps: a figure is what a person looks at

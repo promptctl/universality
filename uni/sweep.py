@@ -15,12 +15,16 @@ import json
 import math
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from itertools import islice
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from uni.atomic import write_whole
-from uni.loop import trajectory_name
+from uni.loop import Trajectory, orbit, trajectory_name
 from uni.parse import ConfigError, field
+
+if TYPE_CHECKING:  # only to name the protocol a cell is run through; running one never needs it
+    from uni.maps import Family
 
 
 class SweepError(ConfigError):
@@ -187,6 +191,66 @@ def read_sweep(path: Path) -> Sweep:
         tuple(starts),
         field(raw, "steps", int, SweepError),
     )
+
+
+@dataclass(frozen=True)
+class Failed:
+    """A cell the map could not run, and the reason it gave: all a run knows about a cell with no orbit.
+
+    Kept as a value and never written down. A sweep directory holds trajectories and nothing else,
+    so `written` below stays a question about a directory listing rather than about what is inside
+    each file - and a cell that failed stays pending, which is what lets a rerun try it again once
+    whatever stopped it is fixed. A failure recorded on disk would be a cell marked done by a run
+    that did not do it, and nothing would ever go back for it. [LAW:one-source-of-truth]
+    """
+
+    cell: Cell
+    reason: str
+
+
+def run_cell(family: Family, cell: Cell, steps: int) -> Trajectory | Failed:
+    """This cell's orbit, or the reason there is none, refused if it would land in the wrong file.
+
+    A map's states can grow - a model's are its own replies - so whether step 300 still fits is
+    knowable only by running to step 300, and it is the one failure the checks before the first
+    cell cannot cover. So it is returned rather than raised: the cells after this one are separate
+    runs of a separate map and there is nothing wrong with them, and a sweep that stopped here
+    would stop at the same cell on every resume, leaving them unreachable for good.
+
+    Two refusals are not of that kind and are raised rather than returned, because neither is
+    about this cell. `family.at` is outside the try below: what a map is made out of - a steering
+    direction's layer, the length of its vector - is fixed by the family and not by the value, so
+    a family that cannot make a map at a value it was already offered cannot make one at any of
+    them, and stopping at the first cell beats saying so once per cell for a sweep that can never
+    write a file. And a map that describes itself differently than it did when the sweep named its
+    cells writes files no run of this sweep will ever look for.
+
+    How far the orbit got is deliberately not the test. It is tempting - a direction that fits no
+    cell refuses the first step of every one of them - but it is a proxy for the distinction
+    rather than the distinction itself: residual additions large enough to overflow the model's
+    arithmetic also refuse the first step, and that is a property of the value this cell runs at.
+    Read as "about no cell in particular" it would rebuild, at one end of a steering grid, exactly
+    the wall this function exists to remove. [LAW:parse-dont-validate] what is about the whole
+    sweep is refused where the whole sweep is made, and what is left here is about the cell.
+    """
+    map = family.at(cell.value)
+    try:
+        states = tuple(islice(orbit(map, cell.start), steps))
+    except ConfigError as error:
+        return Failed(cell, str(error))
+    # The map's own description and its own value, the way `uni loop` records them, so what the
+    # file says the orbit ran at is what it ran at. [LAW:one-source-of-truth]
+    trajectory = Trajectory(map.spec, map.value, cell.start, states)
+    # [LAW:no-silent-failure] the sweep named this cell's file before running it, and resumption
+    # is that name coming true. A map that came back set to something other than what it was asked
+    # for writes a file this sweep cannot find - and then every rerun runs the cell again, for
+    # ever, against a total that never lands.
+    if trajectory.name != cell.name:
+        raise SweepError(
+            f"the cell at {cell.value} writes {trajectory.name}, not the {cell.name} this sweep is looking for: "
+            "the map does not describe itself the same way twice"
+        )
+    return trajectory
 
 
 def written(cell: Cell, home: Path) -> bool:

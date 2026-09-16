@@ -7,7 +7,8 @@ from itertools import islice
 import pytest
 
 from uni.loop import Trajectory, orbit, read_trajectory
-from uni.maps import ModelMap, NoKnob
+from uni.maps import ModelFamily, ModelMap, NoKnob, Turned
+from uni.model import ModelError, ResidualAdd
 from uni.template import load_templates
 
 PARAGRAPH = "The lighthouse keeper climbed the stairs each night, counting them aloud so the dark would not feel so large."
@@ -90,3 +91,50 @@ def test_a_family_refuses_a_start_the_context_has_no_room_to_answer(model, templ
     family.holds(("a start the context has plenty of room to answer",))
     with pytest.raises(ModelError, match="leaves no room to generate"):
         family.holds(("word " * model.context_limit,))
+
+
+class Elsewhere:
+    """A knob that adds to a layer no checkpoint this size has, as a hand-edited direction does."""
+
+    def __init__(self, hidden_size):
+        self.hidden_size = hidden_size
+
+    @property
+    def spec(self):
+        return {"kind": "elsewhere"}
+
+    def turn(self, value):
+        import torch
+
+        return Turned(value, self.spec, (ResidualAdd(999, torch.zeros(self.hidden_size)),))
+
+
+def test_a_family_whose_knob_does_not_fit_the_checkpoint_makes_no_map(model, templates):
+    # A direction's layer and the length of its vector are fixed by the direction, not by the
+    # setting, so an addition this checkpoint cannot take is one no cell of a sweep could have
+    # taken. Caught where the map is made, one sweep of six hundred cells is refused once, at the
+    # first cell, before a token is generated; caught in the decoding loop, it was refused six
+    # hundred times by a run that could never have written a file.
+    family = ModelFamily(model.pinned, templates["identity"], Elsewhere(model.hidden_size))
+    family.__dict__["model"] = model  # the checkpoint this session already holds, not a second one
+    assert family.model is model  # said out loud, so a family that stops caching fails here
+    # rather than quietly loading half a billion parameters a second time.
+    with pytest.raises(ModelError, match="layer must be in"):
+        family.at(0.0)
+
+
+def test_a_family_whose_knob_fits_makes_a_map_whose_additions_are_on_the_device(model, templates):
+    # The other half: what `at` hands back is a map whose additions have already landed where they
+    # are added, so the vector reaches the device once per map rather than once per step.
+    import torch
+
+    class Fitting(Elsewhere):
+        def turn(self, value):
+            return Turned(value, self.spec, (ResidualAdd(0, value * torch.ones(self.hidden_size)),))
+
+    family = ModelFamily(model.pinned, templates["identity"], Fitting(model.hidden_size))
+    family.__dict__["model"] = model
+    assert family.model is model
+    (addition,) = family.at(2.0).knob.additions
+    assert addition.vector.device.type == model.device.type
+    assert addition.vector.dtype == model.dtype

@@ -8,15 +8,15 @@ check what a rerun does about them.
 import json
 import subprocess
 import sys
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
 
-from uni.cli import EXIT_CONFIG, Kind, logistic_value, main
+from uni.cli import EXIT_CONFIG, EXIT_INCOMPLETE, Kind, logistic_value, main
 from uni.loop import read_trajectory, trajectory_name
-from uni.maps import LOGISTIC, Logistic
-from uni.sweep import MANIFEST, Sweep, SweepError, grid, pending, read_sweep, write_sweep
+from uni.maps import LOGISTIC, Logistic, MapError
+from uni.sweep import MANIFEST, Failed, Sweep, SweepError, grid, pending, read_sweep, run_cell, write_sweep
 
 
 def command(argv):
@@ -285,8 +285,15 @@ def test_a_grid_the_map_refuses_is_refused_whole_and_before_anything_is_written(
     assert list(tmp_path.iterdir()) == []
 
 
-class Drifting:
-    """A family whose maps are not at the value they were asked for."""
+class Assorted:
+    """A family whose map at each value is whatever the test says, so one sweep meets several.
+
+    Handed factories rather than maps, the way a real family makes one per `at`: `Outgrown` below
+    counts its own steps, and a cell run again by a resume has to meet a fresh one.
+    """
+
+    def __init__(self, maps=()):
+        self.maps = dict(maps)
 
     @property
     def spec(self):
@@ -296,7 +303,12 @@ class Drifting:
         return None
 
     def at(self, value):
-        return Logistic(value / 2)
+        return self.maps.get(value, Logistic)(value)
+
+
+def drifting(value):
+    """A map that is not at the value it was asked for, so it writes a file no cell is looking for."""
+    return Logistic(value / 2)
 
 
 def test_a_cell_that_would_write_a_file_this_sweep_cannot_find_stops_it(capsys, tmp_path, monkeypatch):
@@ -304,12 +316,19 @@ def test_a_cell_that_would_write_a_file_this_sweep_cannot_find_stops_it(capsys, 
     # A map at a value other than the one asked for writes somewhere else, so `pending` would
     # never stop naming the cell and every rerun would run it again, for ever.
     monkeypatch.setattr("uni.cli.SWEEPS", tmp_path)
-    monkeypatch.setitem(main.__globals__["MAPS"], "drifting", Kind(lambda args, values: Drifting(), logistic_value))
+    everywhere = {value: drifting for value in grid("3.2:3.5:4")}
+    monkeypatch.setitem(main.__globals__["MAPS"], "drifting", Kind(lambda args, values: Assorted(everywhere), logistic_value))
     argv = ["sweep", "--map", "drifting", "--grid", "3.2:3.5:4", "--start", "0.5", "--steps", "6"]
     assert command(argv) == EXIT_CONFIG
-    assert "does not describe itself the same way twice" in capsys.readouterr().err
+    printed = capsys.readouterr()
+    assert "does not describe itself the same way twice" in printed.err
     (home,) = tmp_path.iterdir()
     assert cells(home) == []  # it stopped at the first cell rather than filling the directory
+    # And stopped there rather than carrying on the way it carries on past a cell the map refused.
+    # The two are not the same failure: a map that refuses a cell has said something about that
+    # cell, and a map that names its file differently than this sweep named it has said something
+    # about every cell - so this one is raised where that one is returned, and the run ends here.
+    assert "2/4" not in printed.out
 
 
 @pytest.mark.parametrize(
@@ -423,3 +442,215 @@ def test_a_sweep_with_nothing_left_asks_the_map_to_hold_no_start(tmp_path, monke
     assert asked == [("0.5",)]
     assert command(argv) == 0
     assert asked == [("0.5",), ()]  # nothing left, so nothing asked
+
+
+@dataclass
+class Outgrown:
+    """A map that steps `after` times and then has nowhere to put the next state.
+
+    What a model map does when its states - which are the model's own replies - grow until the
+    rendered state leaves no room to generate. Which step that happens at is knowable only by
+    running to it, so this is the one failure the checks before the first cell cannot cover.
+    """
+
+    r: float
+    after: int
+    taken: int = 0
+
+    @property
+    def value(self):
+        return self.r
+
+    @property
+    def spec(self):
+        return dict(LOGISTIC)
+
+    def step(self, state):
+        self.taken += 1
+        if self.taken > self.after:
+            raise MapError("prompt is 32760 tokens; the context limit of 32768 leaves no room to generate")
+        return Logistic(self.r).step(state)
+
+
+def outgrows(after):
+    """A factory for a map that gets `after` states out before it has nowhere to put the next."""
+    return lambda value: Outgrown(value, after)
+
+
+def four_cells(tmp_path, monkeypatch, family):
+    """The four-cell logistic sweep, run through a family handed in, and the command that runs it."""
+    monkeypatch.setattr("uni.cli.SWEEPS", tmp_path)
+    monkeypatch.setitem(main.__globals__["MAPS"], "assorted", Kind(lambda args, values: family, logistic_value))
+    return ["sweep", "--map", "assorted", "--grid", "3.2:3.5:4", "--start", "0.5", "--steps", "6"]
+
+
+def test_a_cell_the_map_cannot_run_leaves_the_cells_after_it_to_run(capsys, tmp_path, monkeypatch):
+    # Stopping at this cell would stop at it on every resume, because whatever the map refused it
+    # for is a property of the cell and the resume runs the same cell again - so the cells after
+    # it would be unreachable for good, which is a worse wall than the one the up-front checks
+    # exist to prevent: no amount of rerunning gets past this one.
+    values = grid("3.2:3.5:4")
+    argv = four_cells(tmp_path, monkeypatch, Assorted({values[1]: outgrows(3)}))
+    # A run that did less than it was asked does not exit 0 - and does not say what a mistyped
+    # --grid says either, because this sweep ran and most of it is on disk.
+    assert command(argv) == EXIT_INCOMPLETE
+    assert EXIT_INCOMPLETE != EXIT_CONFIG
+    printed = capsys.readouterr()
+    (home,) = tmp_path.iterdir()
+    assert len(cells(home)) == 3
+    refused = trajectory_name(LOGISTIC, values[1], "0.5", 6)
+    assert refused not in cells(home)  # nothing is written for a cell with no orbit
+    # And yet it is named where a person watching sees it. The value on that line is rounded to
+    # fit its column, and rounded it is 3.3 - an orbit in another file - so the name is what says
+    # which cell stopped.
+    assert refused in printed.out
+    assert "3 of 4 cells done, 1 to run" in printed.out
+    # Named, which is the whole of what the old message did not do: it said token counts and left
+    # the reader to work out which of four hundred cells they were about. The value is written as
+    # the shortest text that reads back as itself - the rule `logistic_state` holds a state to -
+    # because it is what names the cell, and this one rounds to 3.3, which is a different orbit in
+    # a different file, and in the chaotic regime a visibly different one.
+    assert values[1] != 3.3
+    assert f"value {values[1]!r} from '0.5' has no orbit: prompt is 32760 tokens" in printed.err
+
+
+def test_a_cell_with_no_orbit_leaves_nothing_behind_in_the_sweep_directory(tmp_path, monkeypatch):
+    # [LAW:one-source-of-truth] `written` asks a directory listing whether a cell is done, and
+    # `pending` and `finished` are its two halves. A failure recorded here would be a second kind
+    # of file in a directory of orbits, which every reader of a sweep - those two, the plot, the
+    # rsync that brings one home - would have to learn to tell from the real thing.
+    values = grid("3.2:3.5:4")
+    argv = four_cells(tmp_path, monkeypatch, Assorted({values[1]: outgrows(3)}))
+    assert command(argv) == EXIT_INCOMPLETE
+    (home,) = tmp_path.iterdir()
+    assert sorted(p.name for p in home.iterdir()) == sorted([MANIFEST, *cells(home)])
+    assert {read_trajectory(home / name).value for name in cells(home)} == {3.2, values[2], 3.5}
+
+
+def test_a_cell_that_could_not_run_is_run_again_by_the_next_run(tmp_path, monkeypatch):
+    # The point of keeping the failure out of the directory: the cell is still pending, so the run
+    # after the cause is gone picks it up with nothing to delete by hand first. A cell recorded as
+    # failed would be a cell marked done by a run that did not do it, and nothing would go back.
+    values = grid("3.2:3.5:4")
+    argv = four_cells(tmp_path, monkeypatch, Assorted({values[1]: outgrows(3)}))
+    assert command(argv) == EXIT_INCOMPLETE
+    (home,) = tmp_path.iterdir()
+    assert len(cells(home)) == 3
+    monkeypatch.setitem(main.__globals__["MAPS"], "assorted", Kind(lambda args, vals: Assorted(), logistic_value))
+    assert command(argv) == 0
+    assert len(cells(home)) == 4
+    assert read_trajectory(home / trajectory_name(LOGISTIC, values[1], "0.5", 6)).value == values[1]
+
+
+def test_a_cell_refused_at_its_very_first_step_is_still_that_cell_being_refused(tmp_path, monkeypatch):
+    # How far the orbit got is not the test, however tempting: residual additions large enough to
+    # overflow the model's arithmetic refuse the first token of the cell they are too large in,
+    # which is a property of that cell's value. Read as "this is about no cell in particular" it
+    # would rebuild, at one end of a steering grid, the very wall this feature removes.
+    values = grid("3.2:3.5:4")
+    argv = four_cells(tmp_path, monkeypatch, Assorted({values[1]: outgrows(0)}))
+    assert command(argv) == EXIT_INCOMPLETE
+    (home,) = tmp_path.iterdir()
+    assert len(cells(home)) == 3
+    assert trajectory_name(LOGISTIC, values[1], "0.5", 6) not in cells(home)
+
+
+def unmakeable(value):
+    """A value the family cannot make a map at, the way a direction that fits no checkpoint is."""
+    raise MapError("layer must be in 0..23, got 40")
+
+
+def test_a_family_that_cannot_make_the_map_stops_the_sweep(capsys, tmp_path, monkeypatch):
+    # What a map is made out of is the family's, not the value's: a steering direction's layer and
+    # the length of its vector are the same in every cell. So a family that cannot make a map at
+    # the first cell cannot make one at any of them, and the sweep is refused whole - before the
+    # manifest, as a grid the map refuses is - rather than once per cell for a run that can never
+    # write a file. An empty sweep directory left behind here is litter nothing ever fills: the
+    # spec that named it is the one that has to change before the run can work.
+    argv = four_cells(tmp_path, monkeypatch, Assorted({value: unmakeable for value in grid("3.2:3.5:4")}))
+    assert command(argv) == EXIT_CONFIG
+    printed = capsys.readouterr()
+    assert "1/4" not in printed.out  # no cell ran at all, never mind all four
+    assert "uni: layer must be in 0..23, got 40" in printed.err
+    assert "has no orbit" not in printed.err  # not dressed up as one cell's failure, because it is not
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_the_cells_refused_so_far_are_named_even_when_something_else_ends_the_run(capsys, tmp_path, monkeypatch):
+    # The count and the refusals are about what the run did, not about how it stopped. Said only
+    # on the way out of a clean loop, this refusal would survive as one line in the scrollback of
+    # a sweep that prints thousands, while the message that ended the run got the last word.
+    #
+    # A cell is written before the refusal on purpose, so the count on the way out is one the
+    # count before the run could not have printed: asserted against "0 of 4" - what this sweep
+    # starts at - the whole `finally` could be deleted and this test would not notice.
+    values = grid("3.2:3.5:4")
+    argv = four_cells(tmp_path, monkeypatch, Assorted({values[1]: outgrows(3), values[2]: drifting}))
+    assert command(argv) == EXIT_CONFIG
+    printed = capsys.readouterr()
+    assert "0 of 4 cells done, 4 to run" in printed.out  # what it was going to do, said before it ran
+    assert "1 of 4 cells done, 3 to run" in printed.out  # what it did, said on the way out
+    assert f"value {values[1]!r} from '0.5' has no orbit" in printed.err
+    assert "does not describe itself the same way twice" in printed.err
+
+
+class Closed:
+    """A stdout that cannot carry anything more, the way `uni sweep ... | head` leaves one."""
+
+    def __init__(self, error):
+        self.error = error
+        self.listening = True
+
+    def write(self, text):
+        if not self.listening:
+            raise self.error
+        return len(text)
+
+    def flush(self):
+        if not self.listening:
+            raise self.error
+
+
+def closing(stdout):
+    """A drifting map that stops the reader as it is made, so the pipe goes as the run is ending."""
+
+    def make(value):
+        stdout.listening = False
+        return drifting(value)
+
+    return make
+
+
+# A closed pipe is the one that happens, and a full disk under `> file` loses the report the same
+# way: what the run has to survive is a stream that cannot carry a message, not one particular
+# reason it cannot. Both, so the suppression is pinned to the question and not to the `| head`.
+@pytest.mark.parametrize("error", [BrokenPipeError(32, "Broken pipe"), OSError(28, "No space left on device")])
+def test_a_stdout_that_cannot_carry_the_report_does_not_replace_what_ended_the_run(capsys, tmp_path, monkeypatch, error):
+    # The count is printed from a `finally`, and a `finally` that raises replaces the exception
+    # that got it there. Nothing further out can put that back, so with the reader gone the
+    # refusal this sweep exists to report would reach the user as a traceback from the reporting
+    # instead of as `uni: ...` and EXIT_CONFIG. Saying how far a run got to nobody is not a
+    # failure of the run.
+    values = grid("3.2:3.5:4")
+    stdout = Closed(error)
+    argv = four_cells(tmp_path, monkeypatch, Assorted({values[0]: outgrows(3), values[1]: closing(stdout)}))
+    monkeypatch.setattr(sys, "stdout", stdout)  # after the sweep is described: this run has a reader until cell 2
+    assert command(argv) == EXIT_CONFIG
+    printed = capsys.readouterr()
+    assert "does not describe itself the same way twice" in printed.err  # what ended the run, not what the finally hit
+    assert f"value {values[0]!r} from '0.5' has no orbit" in printed.err  # and the refusal it was carrying
+
+
+def test_a_map_that_refuses_a_cell_is_answered_with_a_value_and_not_an_exception():
+    # The decision this ticket settled, pinned where it is made rather than only where it shows:
+    # the ways a cell can fail to produce a trajectory differ in what they are about, so they
+    # differ in kind, and no caller has to read a message to tell one from the other.
+    values = grid("3.2:3.5:4")
+    cell = next(one for one in Sweep(LOGISTIC, values, ("0.5",), 6).cells if one.value == values[1])
+    refused = Failed(cell, "prompt is 32760 tokens; the context limit of 32768 leaves no room to generate")
+    assert run_cell(Assorted({values[1]: outgrows(3)}), cell, 6) == refused
+    assert run_cell(Assorted({values[1]: outgrows(0)}), cell, 6) == refused  # however early it came
+    with pytest.raises(MapError, match="layer must be in"):
+        run_cell(Assorted({values[1]: unmakeable}), cell, 6)
+    with pytest.raises(SweepError, match="does not describe itself the same way twice"):
+        run_cell(Assorted({values[1]: drifting}), cell, 6)
