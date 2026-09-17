@@ -1636,8 +1636,8 @@ model's error.
 | 64 | 4.683522055 | 5.2e-06 | 4.683548836 | 4.683545472 | 4.683623859 |
 
 Through period 16 the model's gains lie within 0.7 of its errors of degree 220's. At periods 32 and
-64 they lie 3.0 and 5.2 errors below, 2.2e-5 and 2.7e-5, which is the rewrite loop's pattern: there
-the model's distance at period 64 sat 3.5 errors from every fit's.
+64 they lie 3.0 and 5.2 errors below, 2.2e-5 and 2.7e-5, so by period 64 the model's gain is not the
+best fit's.
 
 | spacing ratio over periods | model | degree 220 | degree 150 | degree 90 |
 | :------------------------- | ----: | ---------: | ---------: | --------: |
@@ -1694,10 +1694,11 @@ their errors of degree 220's and its nearest-point ratios within 2.5.
 
 Its late numbers are the constants. Over 2048, 4096, 8192 the three fits read 4.6692018, 4.6692001
 and 4.6692033. Aitken's extrapolation on the last three nearest-point ratios gives -2.5029077,
--2.5029076 and -2.5029081 for degrees 220, 150 and 90, within 2e-7 of alpha = 2.5029079, and on the
+-2.5029076 and -2.5029081 for degrees 220, 150 and 90, within 3e-7 of alpha = 2.5029079, and on the
 last three growths 6.6190364, 6.6190364 and 6.6190368, within 7e-7 of kappa = 6.619037. The fits of a
-second loop reach the three constants, and the model itself, read to period 64, follows the best fit
-there.
+second loop reach the three constants. The model itself is read to period 64, where its ratios follow
+the best fit's within 1.0 and 2.5 of their errors while its gains drift 5.2 errors from the fit's. The
+limits are the fits'.
 
 ## Running on the experiment host
 
