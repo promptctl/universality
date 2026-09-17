@@ -210,6 +210,6 @@ def test_an_r_that_is_a_whole_number_writes_a_file_that_reads_back(tmp_path):
 
 
 def test_the_model_map_still_needs_its_template(capsys, monkeypatch):
-    monkeypatch.setattr("uni.pinned.load_pinned", lambda: pytest.fail("the checkpoint was read before the flags were"))
+    monkeypatch.setattr("uni.pinned.load_pinned", lambda name=None: pytest.fail("the checkpoint was read before the flags were"))
     assert command(["loop", "--start", "x", "--steps", "1"]) == EXIT_CONFIG
     assert "pass --template" in capsys.readouterr().err

@@ -181,7 +181,7 @@ def test_a_value_with_no_knob_to_turn_is_refused():
 
 
 def test_a_value_with_no_knob_is_refused_before_the_checkpoint_is_read(capsys, monkeypatch):
-    monkeypatch.setattr("uni.pinned.load_pinned", lambda: pytest.fail("the checkpoint was read before the value was refused"))
+    monkeypatch.setattr("uni.pinned.load_pinned", lambda name=None: pytest.fail("the checkpoint was read before the value was refused"))
     argv = ["loop", "--template", "rewrite", "--start", "x", "--steps", "1", "--value", "2"]
     assert main(argv, {}, Path.cwd()) == EXIT_CONFIG
     assert "uni: there is no knob to turn" in capsys.readouterr().err

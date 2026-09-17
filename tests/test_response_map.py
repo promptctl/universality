@@ -63,7 +63,7 @@ def test_the_loop_at_gain_three_settles_on_a_period_two_orbit_through_the_top(mo
 
 @pytest.mark.parametrize("dropped", ["--template", "--knob", "--text", "--layer"])
 def test_the_map_names_what_it_was_not_given_before_reading_a_checkpoint(dropped, monkeypatch, capsys):
-    monkeypatch.setattr("uni.pinned.load_pinned", lambda: pytest.fail("pinned.toml was read before the flags were"))
+    monkeypatch.setattr("uni.pinned.load_pinned", lambda name=None: pytest.fail("pinned.toml was read before the flags were"))
     at = FLAGS.index(dropped)
     argv = ["loop", *FLAGS[:at], *FLAGS[at + 2 :], "--value", "3", "--start=-8.5000", "--steps", "1"]
     assert main(argv, {}, Path.cwd()) == EXIT_CONFIG
