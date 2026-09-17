@@ -1532,6 +1532,174 @@ second knob, a different quality pushed along a different direction, with a hump
 gives fits whose deep ratios reach the same three constants. The model itself is read to period 64,
 where its ratios are 4.624 and -2.504, and it follows the best fit there. The limits are the fits'.
 
+### Rung 5, a second loop: summarize
+
+The loops above all rewrite one sentence. This one summarizes another, under the knob they share,
+formality, so the loop is what changes and the knob is not: the `summarize` template of
+`uni/templates.toml`, and the text "The committee postponed the vote after two members raised
+concerns about the budget."
+
+    uv run uni response --template summarize --knob formality \
+        --start "The committee postponed the vote after two members raised concerns about the budget." \
+        --grid=-60:60:241 --layer 16 --layer 18 --layer 20 --layer 23
+
+    layer 16: maximum 3.3395 at -9; the slope changes sign at [-9.0, 23.0]
+    layer 18: maximum 4.2142 at -8.5; the slope changes sign at [-8.5, -1.5, 0.0, 11.5]
+    layer 20: maximum -3.4797 at -8; the slope changes sign at [-8.0, -3.0, 0.5, 17.5]
+    layer 23: maximum 15.1554 at -9; the slope changes sign at [-48.0, -9.0]
+
+![the summarize loop's answer along formality, at four layers](figures/response-b59ed490bc564e86.png)
+
+At layer 23 it has a hump like the rewrite loop's, with a top near -9 and a steep fall to the right,
+and a shoulder near 0 as that loop had between -3 and 0. It is read at layer 23 as the rewrite loop
+was, finely over the pushes its cascade visits:
+
+    uv run uni response --template summarize --knob formality \
+        --start "The committee postponed the vote after two members raised concerns about the budget." \
+        --grid=-20:12:3201 --layer 23
+
+![the summarize loop's answer at layer 23, every 0.01 from -20 to 12](figures/response-fba06596ba37787a.png)
+
+    uv run uni smooth --curve curves/b0b78d1f63093ba4.json --layer 23 \
+        --degree 60 --degree 90 --degree 150 --degree 220 --degree 300
+
+    curve b0b78d1f63093ba4 at layer 23: 3201 readings from -20 to 12, jitter 1.36e-05
+    degree   60: rms residual 1.82e-03, largest 6.93e-03
+    degree   90: rms residual 2.56e-04, largest 1.08e-03
+    degree  150: rms residual 2.62e-05, largest 1.17e-04
+    degree  220: rms residual 1.47e-05, largest 8.31e-05
+    degree  300: rms residual 1.42e-05, largest 7.79e-05
+
+Degree 220 is at 1.08 times the jitter and degree 300 adds nothing to it; 150 is at 1.9 and 90 at
+19. The cascade is read on 220, 150 and 90. Their tops, and the model's:
+
+    uv run uni critical --map smooth --curve curves/b0b78d1f63093ba4.json --layer 23 \
+        --degree 220 --value 4.8 --grid=-8.7486:-8.7446:51
+
+    the map at 4.8 turns at -8.7466417 +- 1.4e-12 (a cubic through 51 states, scatter 1.9e-15), written -8.74664174487155
+
+    uv run uni critical --map response --template summarize --knob formality \
+        --text "The committee postponed the vote after two members raised concerns about the budget." \
+        --layer 23 --decimals 6 --value 4.8 --grid=-9.25:-8.25:101
+
+    the map at 4.8 turns at -8.7466491 +- 1.6e-05 (a cubic through 101 states, scatter 8.0e-06), written -8.746649
+
+Degree 150's top is -8.746668511874857, on the grid -8.7487:-8.7447:51, and degree 90's
+-8.747041615800935, on -8.7490:-8.7450:51. Degree 220's lies 7.4e-6 from the model's, inside the
+model's error.
+
+    uv run uni cascade --map smooth --curve curves/b0b78d1f63093ba4.json --layer 23 \
+        --degree 220 --critical=-8.74664174487155 --period 2 \
+        --grid=3.2099:3.2529:21 --grid=4.2834:4.3263:21 --grid=4.59689:4.60881:21 \
+        --grid=4.66539:4.66794:21 --grid=4.680285:4.680841:21 --grid=4.6834891:4.6836085:21 \
+        --grid=4.6841759:4.6842015:21 --grid=4.68432303:4.68432851:21 \
+        --grid=4.684354536:4.684355710:21 --grid=4.684361285:4.684361536:21 \
+        --grid=4.6843627300:4.6843627838:21 --grid=4.68436303953:4.68436305106:21 \
+        --grid=4.68436310582:4.68436310829:21
+
+<details>
+<summary>Degrees 150 and 90, and the model read directly</summary>
+
+    uv run uni cascade --map smooth --curve curves/b0b78d1f63093ba4.json --layer 23 \
+        --degree 150 --critical=-8.746668511874857 --period 2 \
+        --grid=3.2099:3.2529:21 --grid=4.2834:4.3263:21 --grid=4.59690:4.60882:21 \
+        --grid=4.66539:4.66794:21 --grid=4.680281:4.680837:21 --grid=4.6834857:4.6836052:21 \
+        --grid=4.6841727:4.6841983:21 --grid=4.68431990:4.68432538:21 \
+        --grid=4.684351415:4.684352590:21 --grid=4.684358166:4.684358417:21 \
+        --grid=4.6843596114:4.6843596653:21 --grid=4.68435992108:4.68435993262:21 \
+        --grid=4.68435998739:4.68435998987:21
+
+    uv run uni cascade --map smooth --curve curves/b0b78d1f63093ba4.json --layer 23 \
+        --degree 90 --critical=-8.747041615800935 --period 2 \
+        --grid=3.2100:3.2529:21 --grid=4.2833:4.3262:21 --grid=4.59689:4.60882:21 \
+        --grid=4.66541:4.66796:21 --grid=4.680355:4.680913:21 --grid=4.6835641:4.6836837:21 \
+        --grid=4.6842514:4.6842770:21 --grid=4.68439860:4.68440409:21 \
+        --grid=4.684430131:4.684431305:21 --grid=4.684436883:4.684437135:21 \
+        --grid=4.6844383291:4.6844383830:21 --grid=4.68443863888:4.68443865042:21 \
+        --grid=4.68443870521:4.68443870768:21
+
+    uv run uni cascade --map response --template summarize --knob formality \
+        --text "The committee postponed the vote after two members raised concerns about the budget." \
+        --layer 23 --decimals 6 --critical=-8.746649 --period 2 \
+        --grid=3.0167:3.4461:21 --grid=4.0902:4.5196:21 --grid=4.5433:4.6624:21 \
+        --grid=4.6539:4.6794:21 --grid=4.67778:4.68334:21 --grid=4.682952:4.684146:21
+
+</details>
+
+| period | model, 6 decimals | error | degree 220 | degree 150 | degree 90 |
+| -----: | ----------------: | ----: | ---------: | ---------: | --------: |
+| 2 | 3.23138673 | 9.3e-06 | 3.231384275 | 3.23139137 | 3.231449606 |
+| 4 | 4.304935607 | 1.1e-04 | 4.304863114 | 4.304864354 | 4.304737815 |
+| 8 | 4.602851863 | 1.0e-04 | 4.602851324 | 4.602861767 | 4.602854195 |
+| 16 | 4.666669552 | 9.7e-06 | 4.666666244 | 4.666661523 | 4.666685684 |
+| 32 | 4.680540868 | 7.4e-06 | 4.680563331 | 4.680558968 | 4.680634078 |
+| 64 | 4.683522055 | 5.2e-06 | 4.683548836 | 4.683545472 | 4.683623859 |
+
+Through period 16 the model's gains lie within 0.7 of its errors of degree 220's. At periods 32 and
+64 they lie 3.0 and 5.2 errors below, 2.2e-5 and 2.7e-5, so by period 64 the model's gain is not the
+best fit's.
+
+| spacing ratio over periods | model | degree 220 | degree 150 | degree 90 |
+| :------------------------- | ----: | ---------: | ---------: | --------: |
+| 2, 4, 8 | 3.6035 +- 2.2e-03 | 3.60242 | 3.60229 | 3.60023 |
+| 4, 8, 16 | 4.6682 +- 9.4e-03 | 4.66957 | 4.67082 | 4.67037 |
+| 8, 16, 32 | 4.6007 +- 8.8e-03 | 4.59196 | 4.59075 | 4.57626 |
+| 16, 32, 64 | 4.6530 +- 1.7e-02 | 4.65485 | 4.65342 | 4.66536 |
+| 32, 64, 128 | | 4.66579 | 4.66594 | 4.66907 |
+| 64, 128, 256 | | 4.66850 | 4.66851 | 4.66894 |
+| 128, 256, 512 | | 4.66906 | 4.66906 | 4.66918 |
+| 256, 512, 1024 | | 4.66917 | 4.66917 | 4.66919 |
+| 512, 1024, 2048 | | 4.66920 | 4.66920 | 4.66920 |
+| 1024, 2048, 4096 | | 4.66920 | 4.66920 | 4.66920 |
+| 2048, 4096, 8192 | | 4.66920 | 4.66920 | 4.66920 |
+
+The fitted ratios carry errors of 2.6e-6 to 1.1e-5.
+
+| nearest-point ratio over periods | model | degree 220 | degree 150 | degree 90 |
+| :------------------------------- | ----: | ---------: | ---------: | --------: |
+| 2, 4 | -2.30778 +- 2.7e-04 | -2.30795 | -2.30796 | -2.30848 |
+| 4, 8 | -3.83537 +- 1.6e-03 | -3.83515 | -3.83492 | -3.83272 |
+| 8, 16 | -2.20133 +- 1.0e-03 | -2.20141 | -2.20201 | -2.20408 |
+| 16, 32 | -2.65070 +- 2.0e-03 | -2.64752 | -2.64707 | -2.63412 |
+| 32, 64 | -2.46381 +- 6.3e-03 | -2.44829 | -2.44881 | -2.45201 |
+| 64, 128 | | -2.52498 | -2.52498 | -2.52458 |
+| 128, 256 | | -2.49407 | -2.49413 | -2.49444 |
+| 256, 512 | | -2.50644 | -2.50642 | -2.50633 |
+| 512, 1024 | | -2.50150 | -2.50150 | -2.50155 |
+| 1024, 2048 | | -2.50347 | -2.50347 | -2.50345 |
+| 2048, 4096 | | -2.50268 | -2.50268 | -2.50269 |
+| 4096, 8192 | | -2.50300 | -2.50300 | -2.50300 |
+
+| noise growth over periods | degree 220 | degree 150 | degree 90 |
+| :------------------------ | ---------: | ---------: | --------: |
+| 2, 4 | 4.68648 | 4.68643 | 4.68761 |
+| 4, 8 | 10.17848 | 10.17635 | 10.15513 |
+| 8, 16 | 5.79115 | 5.79176 | 5.80572 |
+| 16, 32 | 6.99716 | 6.99333 | 6.96497 |
+| 32, 64 | 6.47350 | 6.47454 | 6.48675 |
+| 64, 128 | 6.67711 | 6.67702 | 6.67655 |
+| 128, 256 | 6.59563 | 6.59575 | 6.59673 |
+| 256, 512 | 6.62835 | 6.62831 | 6.62811 |
+| 512, 1024 | 6.61530 | 6.61532 | 6.61544 |
+| 1024, 2048 | 6.62053 | 6.62052 | 6.62048 |
+| 2048, 4096 | 6.61844 | 6.61844 | 6.61846 |
+| 4096, 8192 | 6.61927 | 6.61927 | 6.61927 |
+
+The fitted nearest-point ratios carry errors of 3.5e-7 to 2.1e-6, and the growths 8e-7 to 3.4e-5.
+
+Its early numbers are close to the rewrite loop's, 3.60 and 4.67 against 3.64 and 4.62, -2.31
+against -2.17, and growths of 4.69 and 10.18 against 4.48 and 10.05: the two loops share their
+knob, and their humps share most of their shape. Through period 64 the model's spacing ratios lie within 1.0 of
+their errors of degree 220's and its nearest-point ratios within 2.5.
+
+Its late numbers are the constants. Over 2048, 4096, 8192 the three fits read 4.6692018, 4.6692001
+and 4.6692033. Aitken's extrapolation on the last three nearest-point ratios gives -2.5029077,
+-2.5029076 and -2.5029081 for degrees 220, 150 and 90, within 3e-7 of alpha = 2.5029079, and on the
+last three growths 6.6190364, 6.6190364 and 6.6190368, within 7e-7 of kappa = 6.619037. The fits of a
+second loop reach the three constants. The model itself is read to period 64, where its ratios follow
+the best fit's within 1.0 and 2.5 of their errors while its gains drift 5.2 errors from the fit's. The
+limits are the fits'.
+
 ## Running on the experiment host
 
 Every `uni` command accepts `--remote`. With it, this working tree, uncommitted edits
