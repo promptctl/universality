@@ -12,12 +12,13 @@ import json
 import math
 from bisect import bisect_right
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from uni.atomic import write_whole
-from uni.parse import ConfigError, field
+from uni.parse import ConfigError
+from uni.parse import field as required
 
 
 class CurveError(ConfigError):
@@ -33,7 +34,18 @@ class Curve:
     values: tuple[float, ...]  # the pushes, rising
     readings: tuple[float, ...]
     squared_length: float
-    reading: str | None = None  # what each reading is, as `uni temperature` records it; `uni response` records none
+    described: Mapping[str, Any] = field(default_factory=dict)  # what the readings were read from, as the file records it
+
+    @property
+    def reading(self) -> str | None:
+        """What each reading is, as `uni temperature` records it: a mean or a spread. `uni response` records none."""
+        reading = self.described.get("reading")
+        return reading if type(reading) is str else None
+
+    @property
+    def source(self) -> Mapping[str, Any]:
+        """What was pushed and read, whatever was taken of the draw: two curves of one source are answers and noise of one loop."""
+        return {key: value for key, value in self.described.items() if key not in ("reading", "temperature")}
 
     def at(self, push: float) -> float:
         """The reading at `push`, on the straight line between the readings either side of it, refused outside the pushes read."""
@@ -76,8 +88,11 @@ def read_curve(path: Path, layer: int) -> Curve:
         raise CurveError(f"{path} is not JSON: {error}") from error
     if type(raw) is not dict:
         raise CurveError(f"{path} must hold a JSON object")
-    values, layers = field(raw, "values", list, CurveError), field(raw, "layers", dict, CurveError)
-    squared_length = field(raw, "squared_length", float, CurveError)
+    values, layers = required(raw, "values", list, CurveError), required(raw, "layers", dict, CurveError)
+    squared_length = required(raw, "squared_length", float, CurveError)
+    described = raw.get("described", {})
+    if type(described) is not dict:
+        raise CurveError(f"described in {path} must be a JSON object")
     if str(layer) not in layers:
         raise CurveError(f"{path} holds the curve at layer {', '.join(layers) or 'none'}, not at {layer}")
     readings = layers[str(layer)]
@@ -94,20 +109,33 @@ def read_curve(path: Path, layer: int) -> Curve:
         raise CurveError(f"the pushes in {path} must rise")
     if not squared_length > 0:
         raise CurveError(f"squared_length in {path} must be above zero, got {squared_length!r}")
-    described = raw.get("described")
-    reading = described.get("reading") if type(described) is dict else None
-    return Curve(hashlib.sha256(data).hexdigest()[:16], layer, tuple(values), tuple(readings), squared_length, reading if type(reading) is str else None)
+    return Curve(hashlib.sha256(data).hexdigest()[:16], layer, tuple(values), tuple(readings), squared_length, described)
 
 
-def read_spreads(path: Path, layer: int) -> Curve:
-    """The curve at `layer` in the file at `path`, refused unless its readings are spreads.
+def read_answers(path: Path, layer: int) -> Curve:
+    """The curve at `layer` in the file at `path`, refused if its readings are spreads: what a map is fitted to.
 
-    [LAW:single-enforcer] the one place noise is read from a file. A curve of means, or of answers
-    with no token, reads as a curve like any other, and taken for spreads it would be noise the
-    size of the answer itself, carried and printed as if measured. [LAW:no-silent-failure]
+    [LAW:no-silent-failure] `uni temperature` writes a curve of spreads beside each curve of means,
+    and a series fitted to the one reads as a map as readily as one fitted to the other.
+    """
+    curve = read_curve(path, layer)
+    if curve.reading == "spread":
+        raise CurveError(f"{path} holds spreads, and a map is fitted to answers: a curve `uni response` wrote, or the means `uni temperature` wrote beside it")
+    return curve
+
+
+def read_spreads(path: Path, layer: int, answers: Curve) -> Curve:
+    """The curve at `layer` in the file at `path`, refused unless its readings are spreads of the loop `answers` was read from.
+
+    [LAW:single-enforcer] the one place noise is read from a file. A curve of means or of answers
+    taken for spreads would be noise the size of the answer itself, and spreads read along another
+    direction or prompt noise of some other loop's size, each carried and printed as if measured.
+    [LAW:no-silent-failure]
     """
     curve = read_curve(path, layer)
     if curve.reading != "spread":
         held = "readings it does not name" if curve.reading is None else f"{curve.reading}s"
         raise CurveError(f"{path} holds {held}, and noise is read from the spreads `uni temperature` writes")
+    if curve.source != answers.source or curve.squared_length != answers.squared_length:
+        raise CurveError(f"{path} holds the spreads of another loop than curve {answers.name} was read from: the prompt, knob, model or squared length they record differ")
     return curve

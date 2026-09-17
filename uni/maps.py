@@ -127,11 +127,12 @@ def standard_normal(key: bytes) -> float:
     """A draw of the standard normal fixed by `key`: its quantile at the key's hash, read as a share of one.
 
     No generator and no state, so a key is the same number on every machine and under every build.
-    Fifty-three bits of the hash, which a float holds exactly, with a half added so the share is
-    never 0 or 1, where the quantile is infinite.
+    Fifty-two bits of the hash, with a half added so the share is never 0 or 1, where the quantile
+    is infinite: a float holds 52 bits and their half exactly, where 53 bits and a half round up to
+    1 at the last of them.
     """
-    bits = int.from_bytes(hashlib.sha256(key).digest()[:8], "little") >> 11
-    return NormalDist().inv_cdf((bits + 0.5) / 2**53)
+    bits = int.from_bytes(hashlib.sha256(key).digest()[:8], "little") >> 12
+    return NormalDist().inv_cdf((bits + 0.5) / 2**52)
 
 
 def model_spec(pinned: Pinned, template: Template, knob: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -523,11 +524,22 @@ class SmoothFamily:
     division by the squared length, so a gain here is the gain there.
     """
 
-    curve: str  # the name of the curve fitted, which is its content
-    layer: int
+    fitted: Curve  # what the series is fitted to, which says what loop it is a map of
     degree: int
     series: Series
-    squared_length: float
+
+    @property
+    def curve(self) -> str:
+        """The name of the curve fitted, which is its content."""
+        return self.fitted.name
+
+    @property
+    def layer(self) -> int:
+        return self.fitted.layer
+
+    @property
+    def squared_length(self) -> float:
+        return self.fitted.squared_length
 
     @property
     def spec(self) -> dict[str, Any]:

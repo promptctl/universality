@@ -21,10 +21,14 @@ VARIABLES = ("UNI_REMOTE_HOST", "UNI_REMOTE_USER", "UNI_REMOTE_DIR")
 # Plain characters only, so the path needs no quoting on either side of ssh: rsync
 # versions disagree about whether the remote shell re-splits it.
 REMOTE_DIR = re.compile(r"/[\w./-]+")
-# A directory a command writes into, named from the checkout's root: plain for the same reason, and
-# never the root itself or a climb out of it, at either end. A part that is `.` or `..` is refused:
-# `.` would fetch the host's whole checkout back over this one.
-RETURNED_DIR = re.compile(r"(?!(?:.*/)?\.{1,2}(?:/|$))[\w.-]+(?:/[\w.-]+)*")
+# Where every file a command writes on the host comes back to. [LAW:one-source-of-truth] the sync
+# protects this directory from --delete and the fetch accepts nothing outside it, so a result the
+# host wrote and did not yet send back is never lost to the next sync, wherever it was written.
+RETURNED_ROOT = "curves"
+# A directory a command writes into: RETURNED_ROOT or one inside it, plain for the same reason, and
+# never a climb out of it. A part that is `.` or `..` is refused: `.` alone would fetch the host's
+# whole checkout back over this one.
+RETURNED_DIR = re.compile(rf"(?!(?:.*/)?\.{{1,2}}(?:/|$)){RETURNED_ROOT}(?:/[\w.-]+)*")
 
 # What git ignores stays home (rsync reads .gitignore itself; negated patterns are not
 # understood). .git is not needed to run and .env holds the host's identity. .venv, trajectories/,
@@ -36,8 +40,8 @@ RETURNED_DIR = re.compile(r"(?!(?:.*/)?\.{1,2}(?:/|$))[\w.-]+(?:/[\w.-]+)*")
 # under --delete a local figures/ would delete a picture the host had just spent a GPU pass
 # drawing. Each machine keeps its own orbits, sweeps and pictures.
 #
-# curves/ is sent, because a map the host runs is fitted to a curve here, and it is protected from
-# --delete, because the host writes curves into it too. A curve is named by its own bytes, so one
+# curves/, RETURNED_ROOT, is sent, because a map the host runs is fitted to a curve here, and it is
+# protected from --delete, because the host writes curves into it too. A curve is named by its own bytes, so one
 # the host has and this checkout lacks is never stale: it is a result whose fetch did not happen
 # yet, and the next sync must not be what loses it.
 SYNC_FILTERS = (
@@ -47,7 +51,7 @@ SYNC_FILTERS = (
     "--exclude=/trajectories/",
     "--exclude=/sweeps/",
     "--exclude=/figures/",
-    "--filter=P /curves/**",
+    f"--filter=P /{RETURNED_ROOT}/**",
     "--filter=:- .gitignore",
 )
 
@@ -114,7 +118,7 @@ def returned_dir(directory: Path) -> Path:
     """A directory a command run on the host writes into, as one the fetch can name at both ends, or a refusal."""
     if not RETURNED_DIR.fullmatch(str(directory)):
         raise RemoteConfigError(
-            f"a directory the host writes into comes back into the same place in this checkout, so it is named from the checkout's root in letters, digits, '.', '_', '-' and '/', with no part that is '.' or '..'; got {str(directory)!r}"
+            f"a directory the host writes into comes back into the same place in this checkout, and only {RETURNED_ROOT}/ is kept from the next sync's deletions, so it is {RETURNED_ROOT} or a directory in it, named in letters, digits, '.', '_', '-' and '/', with no part that is '.' or '..'; got {str(directory)!r}"
         )
     return directory
 

@@ -51,9 +51,9 @@ def test_a_returned_directory_comes_back_beside_what_is_here_and_deletes_nothing
     assert command == ["rsync", "--archive", "--ignore-existing", f"{SSH_TARGET}:/srv/uni/curves/", "/work/tree/curves/"]
 
 
-@pytest.mark.parametrize("directory", ["/tmp/curves", "../curves", "curves/../../x", "my curves", "c$HOME", "."])
+@pytest.mark.parametrize("directory", ["/tmp/curves", "../curves", "curves/../../x", "my curves", "c$HOME", ".", "results/temperature", "curves2"])
 def test_a_returned_directory_is_named_plainly_from_the_checkout_s_root(directory):
-    with pytest.raises(RemoteConfigError, match="named from the checkout's root"):
+    with pytest.raises(RemoteConfigError, match="comes back into the same place in this checkout"):
         returned_dir(Path(directory))
     assert returned_dir(Path("curves/..x/a.b")) == Path("curves/..x/a.b")
 
@@ -76,7 +76,7 @@ def test_temperature_on_the_host_is_refused_before_it_runs_when_its_curves_could
     monkeypatch.setattr(subprocess, "run", lambda command: pytest.fail("nothing is synced or run"))
     argv = ["--remote", "temperature", "--template", "rewrite", "--knob", "formality", "--start", "a", "--grid", "0:0:1", "--layer", "23", "--temperature", "1", "--curves", "/tmp/elsewhere"]
     assert main(argv, ENV, checkout) == EXIT_CONFIG
-    assert "named from the checkout's root" in capsys.readouterr().err
+    assert "comes back into the same place in this checkout" in capsys.readouterr().err
 
 
 def test_sync_mirrors_the_working_tree_as_git_sees_it_and_creates_the_dir():

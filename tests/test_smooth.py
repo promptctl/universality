@@ -23,6 +23,7 @@ PUSHES = [index / 200 for index in range(201)]
 # by |v|^2 and multiplies by the gain, so at gain r the fitted map is x -> r x (1 - x) itself, and
 # its superstable values are the ones tests/test_cascade.py takes from mpmath.
 LOGISTIC = {7: [SQUARED_LENGTH * x * (1 - x) for x in PUSHES]}
+LOGISTIC_DESCRIBED = {"what": "the logistic map"}
 GRIDS = ("3.2355:3.2365:11", "3.4981:3.4991:11", "3.5544:3.5549:11", "3.56655:3.56675:11", "3.5692:3.5693:11")
 
 
@@ -32,7 +33,7 @@ def command(argv):
 
 @pytest.fixture
 def logistic(tmp_path):
-    return write_curves({"what": "the logistic map"}, PUSHES, LOGISTIC, SQUARED_LENGTH, tmp_path)
+    return write_curves(LOGISTIC_DESCRIBED, PUSHES, LOGISTIC, SQUARED_LENGTH, tmp_path)
 
 
 def flags(curve, degree=2):
@@ -52,7 +53,7 @@ def test_the_logistic_map_fitted_as_a_curve_has_the_logistic_cascade(logistic, c
 def test_noise_read_in_the_answer_is_carried_to_each_return_at_the_gain_s_share_of_it(logistic, tmp_path, capsys):
     # A spread of 0.25 in an answer of the logistic curve is 0.25 r / 2.5 in the push: noise of a
     # size that does not depend on the push, so what reaches the return is that times the noise gain.
-    spreads = write_curves({"reading": "spread"}, PUSHES, {7: [0.25] * len(PUSHES)}, SQUARED_LENGTH, tmp_path)
+    spreads = write_curves({**LOGISTIC_DESCRIBED, "reading": "spread"}, PUSHES, {7: [0.25] * len(PUSHES)}, SQUARED_LENGTH, tmp_path)
     argv = ["cascade", *flags(logistic), "--critical", "0.5", "--period", "2", "--noise", str(spreads)] + [flag for grid in GRIDS[:3] for flag in ("--grid", grid)]
     assert command(argv) == 0
     header, *rows = capsys.readouterr().out.splitlines()[:4]
@@ -62,12 +63,12 @@ def test_noise_read_in_the_answer_is_carried_to_each_return_at_the_gain_s_share_
 
 
 def spreads(tmp_path, size):
-    return write_curves({"reading": "spread"}, PUSHES, {7: [size] * len(PUSHES)}, SQUARED_LENGTH, tmp_path / str(size))
+    return write_curves({**LOGISTIC_DESCRIBED, "reading": "spread"}, PUSHES, {7: [size] * len(PUSHES)}, SQUARED_LENGTH, tmp_path / str(size))
 
 
 def noisy(logistic, spread, seed):
     curve = read_curve(logistic, 7)
-    series = SmoothFamily(curve.name, 7, 2, smooth(curve, 2).series, SQUARED_LENGTH)
+    series = SmoothFamily(curve, 2, smooth(curve, 2).series)
     return series, NoisyFamily(series, read_curve(spread, 7), seed)
 
 
@@ -85,7 +86,7 @@ def test_its_noise_is_the_spread_times_a_normal_draw_the_seed_the_gain_and_the_s
 
 
 def test_a_normal_draw_is_the_same_number_for_a_key_everywhere_and_draws_are_standard_normal():
-    assert standard_normal(b"key") == 1.9385964400148743
+    assert standard_normal(b"key") == 1.938596440014876
     draws = [standard_normal(str(index).encode()) for index in range(20000)]
     mean = math.fsum(draws) / len(draws)
     assert abs(mean) < 0.025 and math.sqrt(math.fsum((draw - mean) ** 2 for draw in draws) / len(draws)) == pytest.approx(1, abs=0.015)
@@ -146,6 +147,21 @@ def test_noise_is_read_only_from_a_curve_of_spreads(logistic, tmp_path, capsys, 
     for argv in (noisy, cascade):
         assert command(argv) == EXIT_CONFIG
         assert f"holds {held}, and noise is read from the spreads `uni temperature` writes" in capsys.readouterr().err
+
+
+def test_noise_is_read_only_from_the_spreads_of_the_loop_the_map_was_fitted_to(logistic, tmp_path, capsys):
+    other_loop = write_curves({"what": "another prompt", "reading": "spread"}, PUSHES, {7: [0.1] * len(PUSHES)}, SQUARED_LENGTH, tmp_path / "loop")
+    other_length = write_curves({**LOGISTIC_DESCRIBED, "reading": "spread"}, PUSHES, {7: [0.1] * len(PUSHES)}, 2 * SQUARED_LENGTH, tmp_path / "length")
+    for spreads in (other_loop, other_length):
+        argv = ["cascade", *flags(logistic), "--critical", "0.5", "--period", "2", "--grid", GRIDS[0], "--noise", str(spreads)]
+        assert command(argv) == EXIT_CONFIG
+        assert f"holds the spreads of another loop than curve {logistic.stem} was read from" in capsys.readouterr().err
+
+
+def test_a_map_is_not_fitted_to_a_curve_of_spreads(tmp_path, capsys):
+    spreads_only = write_curves({**LOGISTIC_DESCRIBED, "reading": "spread"}, PUSHES, LOGISTIC, SQUARED_LENGTH, tmp_path)
+    assert command(["loop", *flags(spreads_only), "--start", "0.5", "--steps", "1", "--value", "3"]) == EXIT_CONFIG
+    assert "holds spreads, and a map is fitted to answers" in capsys.readouterr().err
 
 
 def test_a_noisy_map_needs_its_spreads_and_seed_and_the_smooth_map_reads_neither(logistic, tmp_path, capsys):

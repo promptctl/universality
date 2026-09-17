@@ -318,7 +318,7 @@ def sampled_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
 
 def smooth_family(args: argparse.Namespace, name: str, reads: Sequence[str]) -> SmoothFamily:
     """The series the `name` map is built on, from the flags that describe it and the `reads` the map adds to them."""
-    from uni.curve import read_curve
+    from uni.curve import read_answers
     from uni.maps import MapError, SmoothFamily
     from uni.smooth import smooth
 
@@ -327,8 +327,8 @@ def smooth_family(args: argparse.Namespace, name: str, reads: Sequence[str]) -> 
     missing = [f"--{flag}" for flag in ("curve", "layer", "degree", *reads) if getattr(args, flag) is None]
     if missing:
         raise MapError(f"the {name} map is a series of some degree fitted to a curve's readings at a layer; pass {', '.join(missing)}")
-    curve = read_curve(args.curve, args.layer)
-    return SmoothFamily(curve.name, curve.layer, args.degree, smooth(curve, args.degree).series, curve.squared_length)
+    curve = read_answers(args.curve, args.layer)
+    return SmoothFamily(curve, args.degree, smooth(curve, args.degree).series)
 
 
 def smooth_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
@@ -342,7 +342,7 @@ def noisy_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
     from uni.maps import NoisyFamily
 
     series = smooth_family(args, "noisy", ("spreads", "seed"))
-    return NoisyFamily(series, read_spreads(args.spreads, args.layer), args.seed)
+    return NoisyFamily(series, read_spreads(args.spreads, args.layer, series.fitted), args.seed)
 
 
 def model_value(given: float | None) -> float:
@@ -731,7 +731,8 @@ def run_cascade(args: argparse.Namespace) -> int:
     from uni.cascade import CascadeError, amplification, evaluated, growths, nearest, quotients, ratios, reaches, returns, superstable, unit
     from uni.curve import read_spreads
     from uni.fit import crossing
-    from uni.loop import Answering, Sloped
+    from uni.loop import Sloped
+    from uni.maps import SmoothFamily, SmoothMap
     from uni.sweep import grid
 
     grids = tuple(grid(text) for text in args.grid)
@@ -743,11 +744,13 @@ def run_cascade(args: argparse.Namespace) -> int:
     sloped = isinstance(first, Sloped)
     # [LAW:dataflow-not-control-flow] noise of size one unless a curve of spreads says otherwise; the
     # same carrying either way, and the columns say which it was.
-    if args.noise is not None and not (sloped and isinstance(first, Answering)):
+    # Asked of the family and not of its maps' protocols, because the spreads have to be of the loop
+    # the family was fitted to, and only a smooth family holds the curve that says which loop that is.
+    if args.noise is not None and not isinstance(family, SmoothFamily):
         raise CascadeError("--noise is a spread in the answer a map turns into its next push, carried by the map's slopes; the smooth map has both, and this one does not")
-    spreads = None if args.noise is None else read_spreads(args.noise, args.layer)
+    spreads = None if args.noise is None else read_spreads(args.noise, args.layer, family.fitted)
 
-    def noise_at(map: Answering) -> Callable[[float], float]:
+    def noise_at(map: SmoothMap) -> Callable[[float], float]:
         return unit if spreads is None else lambda push: map.push(spreads.at(push))
 
     carried = "noise gain" if spreads is None else "noise"
