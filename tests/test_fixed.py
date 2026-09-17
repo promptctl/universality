@@ -59,7 +59,7 @@ def test_the_command_finds_the_logistic_flip_at_three(capsys):
 def test_a_map_whose_states_are_texts_has_no_fixed_point_to_find(capsys, monkeypatch):
     monkeypatch.setattr("uni.maps.ModelFamily.model", property(lambda self: pytest.fail("a checkpoint was read")))
     assert command(["fixed", "--map", "model", "--template", "rewrite", "--grid", "0:0:1", "--bracket", "0:1", "--step", "0.1"]) == EXIT_CONFIG
-    assert "the model map's are not; the maps whose are: logistic, response, smooth" in capsys.readouterr().err
+    assert "the model map's are not; the maps whose are: logistic, response, sampled, smooth, noisy" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("text", ["1", "1:0", "a:1", "0:nan", "0:1:2"])
