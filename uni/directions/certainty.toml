@@ -1,5 +1,5 @@
 # The certainty direction: confident rewrites minus hedged rewrites of the same texts.
-# The formality contrast's template, layer and texts, with the quality changed and nothing else.
+# The formality contrast's template, layer and texts, with the quality changed.
 # Each pair is read as the model's own reply to the template; `uni direction certainty` derives certainty.json from this file.
 
 template = "rewrite"

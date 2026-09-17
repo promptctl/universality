@@ -1,6 +1,6 @@
 # The positivity direction: upbeat rewrites minus gloomy rewrites of the same texts.
-# The formality contrast's template, layer and texts, with the quality changed and nothing else, so a
-# second knob on the same loop differs from the first only in what it pushes toward.
+# The formality contrast's template, layer and texts, with the quality changed. Some pairs change a
+# detail of the text along with it, as a hopeful rewrite does.
 # Each pair is read as the model's own reply to the template; `uni direction positivity` derives positivity.json from this file.
 
 template = "rewrite"

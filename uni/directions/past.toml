@@ -1,5 +1,6 @@
 # The past direction: past-tense rewrites minus future-tense rewrites of the same texts.
-# The formality contrast's template, layer and texts, with the quality changed and nothing else.
+# The formality contrast's template, layer and texts, with the quality changed. Moving a text in time
+# changes its time words too: this week becomes last week and next week.
 # Each pair is read as the model's own reply to the template; `uni direction past` derives past.json from this file.
 
 template = "rewrite"

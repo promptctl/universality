@@ -1331,7 +1331,8 @@ the colder mean maps are not smooth enough to check it on.
 
 Everything above turns one knob, `formality`. PROJECT.md's Rung 5 asks whether the constants move
 when the knob does. Four more contrasts in `uni/directions/` use the formality contrast's
-template, layer and texts, and change only the quality: `positivity` (upbeat minus gloomy),
+template, layer and texts, and change the quality (some positivity and past pairs change a detail of
+the text with it): `positivity` (upbeat minus gloomy),
 `certainty` (confident minus hedged), `brevity` (terse minus wordy) and `past` (past tense minus
 future). Each is derived as formality was:
 

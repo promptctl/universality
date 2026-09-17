@@ -1,5 +1,5 @@
 # The brevity direction: terse rewrites minus wordy rewrites of the same texts.
-# The formality contrast's template, layer and texts, with the quality changed and nothing else.
+# The formality contrast's template, layer and texts, with the quality changed.
 # Each pair is read as the model's own reply to the template; `uni direction brevity` derives brevity.json from this file.
 
 template = "rewrite"
