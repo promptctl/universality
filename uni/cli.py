@@ -828,19 +828,21 @@ def sweep_name(text: str) -> str:
 
 def run_fetch(args: argparse.Namespace) -> int:
     """Bring one sweep's directory home from the host, adding the cells not yet here, and say how many are."""
-    from uni.remote import fetch_command, run_steps
+    from uni.remote import fetch
     from uni.sweep import MANIFEST, described, pending, read_sweep
 
-    target, tree = args.host()
+    target, _ = args.host()
+    # Into sweeps/ where uni runs, which is where `uni sweep` and `uni plot` look for it, from the
+    # sweeps/ at the root of the host's checkout, which is where every command there runs.
     home = SWEEPS / args.sweep
     # Adding and never mirroring: a cell is a file written whole and named by what fixed it, so one
     # already here is that cell, and a fetch cut short is finished by running it again, as a sweep is.
-    code = run_steps((fetch_command(target, tree, home),))
+    code = fetch(target, home, home)
     if code:
         return code
-    sweep = read_sweep(tree / home / MANIFEST)
+    sweep = read_sweep(home / MANIFEST)
     print(f"sweep {home}")
-    print(described(sweep, pending(sweep, tree / home)))
+    print(described(sweep, pending(sweep, home)))
     return 0
 
 

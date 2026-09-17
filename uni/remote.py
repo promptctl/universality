@@ -123,7 +123,8 @@ def returned_dir(directory: Path) -> Path:
     return directory
 
 
-def fetch_command(target: RemoteTarget, tree: Path, directory: Path) -> list[str]:
+def fetch_command(target: RemoteTarget, directory: Path, destination: Path) -> list[str]:
+    """Bring `directory`, named from the host's checkout root where every command there runs, into `destination` here."""
     # The files come back beside the ones already here and never over them, and nothing here is
     # deleted: what returns is named by its own content, so a name already here is those bytes.
     # A file the host is still writing is a scratch file beside its name (uni.atomic), and fetched
@@ -135,8 +136,18 @@ def fetch_command(target: RemoteTarget, tree: Path, directory: Path) -> list[str
         "--ignore-existing",
         "--exclude=*.partial",
         f"{target.ssh_target}:{target.dir}/{directory}/",
-        f"{tree}/{directory}/",
+        f"{destination}/",
     ]
+
+
+def fetch(target: RemoteTarget, directory: Path, destination: Path) -> int:
+    """Fetch `directory` from the host into `destination`, made here first, and return rsync's exit code.
+
+    Made here and not left to rsync: rsync before 3.2.3 makes only the last missing directory of
+    its destination, so a checkout that never held a sweeps/ would refuse the first sweep fetched into it.
+    """
+    destination.mkdir(parents=True, exist_ok=True)
+    return run_steps((fetch_command(target, directory, destination),))
 
 
 def run_remote(target: RemoteTarget, argv: Sequence[str], tree: Path, returned: Sequence[Path] = ()) -> int:
@@ -145,7 +156,10 @@ def run_remote(target: RemoteTarget, argv: Sequence[str], tree: Path, returned: 
     Returns the exit code of the first step that fails, else the remote command's. A command that
     failed brings nothing back.
     """
-    return run_steps((sync_command(target, tree), run_command(target, argv), *(fetch_command(target, tree, directory) for directory in returned)))
+    code = run_steps((sync_command(target, tree), run_command(target, argv)))
+    for directory in returned:
+        code = code or fetch(target, directory, tree / directory)
+    return code
 
 
 def run_steps(commands: Iterable[Sequence[str]]) -> int:

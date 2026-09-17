@@ -47,7 +47,7 @@ def test_a_step_killed_by_a_signal_exits_as_a_shell_would_say_it(monkeypatch):
 
 
 def test_a_returned_directory_comes_back_beside_what_is_here_and_deletes_nothing():
-    command = fetch_command(remote_target_from_env(ENV), Path("/work/tree"), Path("curves"))
+    command = fetch_command(remote_target_from_env(ENV), Path("curves"), Path("/work/tree/curves"))
     assert command == ["rsync", "--archive", "--ignore-existing", "--exclude=*.partial", f"{SSH_TARGET}:/srv/uni/curves/", "/work/tree/curves/"]
 
 
@@ -143,23 +143,30 @@ def test_fetch_brings_a_sweep_home_adding_cells_and_says_how_much_of_it_is_here(
 
     ran = []
 
+    # Fetched from a directory below the checkout's root, where `uni plot` would then be run.
+    below = checkout / "analysis"
+    below.mkdir()
+    monkeypatch.chdir(below)
+
     def rsync(command):
-        # Cut short after the manifest and one cell, as a dropped connection would leave it.
+        # Cut short after the manifest and one cell, as a dropped connection would leave it; the
+        # directory it lands in is made before rsync runs, as an old rsync would not make it.
         ran.append(command)
-        home = checkout / "sweeps" / name
-        home.mkdir(parents=True, exist_ok=True)
+        home = below / "sweeps" / name
+        assert home.is_dir()
         for file in ("sweep.json", cells[0]):
             shutil.copy(host / "sweeps" / name / file, home / file)
         return subprocess.CompletedProcess(command, 0)
 
     monkeypatch.setattr(subprocess, "run", rsync)
     monkeypatch.setattr("uni.cli.checkout_root", lambda cwd: checkout)
-    assert main(["fetch", name], ENV, checkout) == 0
-    assert ran == [["rsync", "--archive", "--ignore-existing", "--exclude=*.partial", f"{SSH_TARGET}:/srv/uni/sweeps/{name}/", f"{checkout}/sweeps/{name}/"]]
+    assert main(["fetch", name], ENV, below) == 0
+    assert ran == [["rsync", "--archive", "--ignore-existing", "--exclude=*.partial", f"{SSH_TARGET}:/srv/uni/sweeps/{name}/", f"sweeps/{name}/"]]
     assert capsys.readouterr().out.splitlines() == [f"sweep sweeps/{name}", f"1 of {len(cells)} cells done, {len(cells) - 1} to run"]
 
 
 def test_a_fetch_that_fails_says_only_what_rsync_said_and_exits_with_its_code(checkout, monkeypatch, capsys):
+    monkeypatch.chdir(checkout)
     monkeypatch.setattr(subprocess, "run", lambda command: subprocess.CompletedProcess(command, 23))
     monkeypatch.setattr("uni.cli.checkout_root", lambda cwd: checkout)
     assert main(["fetch", "0123456789abcdef"], ENV, checkout) == 23
@@ -182,6 +189,6 @@ def test_a_fetch_leaves_behind_a_file_the_host_is_still_writing(tmp_path):
     host.mkdir()
     (host / "a.json").write_text("whole")
     (host / "b.json.4242.partial").write_text("half")
-    command = fetch_command(remote_target_from_env(ENV), here, Path("curves"))
+    command = fetch_command(remote_target_from_env(ENV), Path("curves"), here)
     subprocess.run([*command[:-2], f"{host}/", f"{here}/"], check=True)
     assert sorted(path.name for path in here.iterdir()) == ["a.json"]
