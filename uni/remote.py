@@ -21,6 +21,14 @@ VARIABLES = ("UNI_REMOTE_HOST", "UNI_REMOTE_USER", "UNI_REMOTE_DIR")
 # Plain characters only, so the path needs no quoting on either side of ssh: rsync
 # versions disagree about whether the remote shell re-splits it.
 REMOTE_DIR = re.compile(r"/[\w./-]+")
+# Where every file a command writes on the host comes back to. [LAW:one-source-of-truth] the sync
+# protects this directory from --delete and the fetch accepts nothing outside it, so a result the
+# host wrote and did not yet send back is never lost to the next sync, wherever it was written.
+RETURNED_ROOT = "curves"
+# A directory a command writes into: RETURNED_ROOT or one inside it, plain for the same reason, and
+# never a climb out of it. A part that is `.` or `..` is refused: `.` alone would fetch the host's
+# whole checkout back over this one.
+RETURNED_DIR = re.compile(rf"(?!(?:.*/)?\.{{1,2}}(?:/|$)){RETURNED_ROOT}(?:/[\w.-]+)*")
 
 # What git ignores stays home (rsync reads .gitignore itself; negated patterns are not
 # understood). .git is not needed to run and .env holds the host's identity. .venv, trajectories/,
@@ -31,6 +39,11 @@ REMOTE_DIR = re.compile(r"/[\w./-]+")
 # excluded for the same reason rather than in spite of it: nothing on the host reads a figure, and
 # under --delete a local figures/ would delete a picture the host had just spent a GPU pass
 # drawing. Each machine keeps its own orbits, sweeps and pictures.
+#
+# curves/, RETURNED_ROOT, is sent, because a map the host runs is fitted to a curve here, and it is
+# protected from --delete, because the host writes curves into it too. A curve is named by its own bytes, so one
+# the host has and this checkout lacks is never stale: it is a result whose fetch did not happen
+# yet, and the next sync must not be what loses it.
 SYNC_FILTERS = (
     "--exclude=.git",
     "--exclude=.env",
@@ -38,6 +51,7 @@ SYNC_FILTERS = (
     "--exclude=/trajectories/",
     "--exclude=/sweeps/",
     "--exclude=/figures/",
+    f"--filter=P /{RETURNED_ROOT}/**",
     "--filter=:- .gitignore",
 )
 
@@ -100,12 +114,34 @@ def run_command(target: RemoteTarget, argv: Sequence[str]) -> list[str]:
     return ["ssh", target.ssh_target, remote]
 
 
-def run_remote(target: RemoteTarget, argv: Sequence[str], tree: Path) -> int:
-    """Sync `tree` to the host and run `uni argv` there, streaming its output here.
+def returned_dir(directory: Path) -> Path:
+    """A directory a command run on the host writes into, as one the fetch can name at both ends, or a refusal."""
+    if not RETURNED_DIR.fullmatch(str(directory)):
+        raise RemoteConfigError(
+            f"a directory the host writes into comes back into the same place in this checkout, and only {RETURNED_ROOT}/ is kept from the next sync's deletions, so it is {RETURNED_ROOT} or a directory in it, named in letters, digits, '.', '_', '-' and '/', with no part that is '.' or '..'; got {str(directory)!r}"
+        )
+    return directory
 
-    Returns the exit code of the first step that fails, else the remote command's.
+
+def fetch_command(target: RemoteTarget, tree: Path, directory: Path) -> list[str]:
+    # The files come back beside the ones already here and never over them, and nothing here is
+    # deleted: what returns is named by its own content, so a name already here is those bytes.
+    return [
+        "rsync",
+        "--archive",
+        "--ignore-existing",
+        f"{target.ssh_target}:{target.dir}/{directory}/",
+        f"{tree}/{directory}/",
+    ]
+
+
+def run_remote(target: RemoteTarget, argv: Sequence[str], tree: Path, returned: Sequence[Path] = ()) -> int:
+    """Sync `tree` to the host, run `uni argv` there streaming its output here, and bring back each of the `returned` directories it wrote into.
+
+    Returns the exit code of the first step that fails, else the remote command's. A command that
+    failed brings nothing back.
     """
-    for command in (sync_command(target, tree), run_command(target, argv)):
+    for command in (sync_command(target, tree), run_command(target, argv), *(fetch_command(target, tree, directory) for directory in returned)):
         # [LAW:no-silent-failure] ssh and rsync speak for themselves on stderr; stop at the first miss.
         returncode = subprocess.run(command).returncode
         # A step killed by a signal - rsync or ssh on a Ctrl-C, say - comes back as minus the

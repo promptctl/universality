@@ -1,12 +1,13 @@
 """uni cascade: the superstable values of a cascade and the ratios of their spacings, on the map whose are known."""
 
 import math
+import random
 from pathlib import Path
 
 import pytest
 
 from uni import cascade
-from uni.cascade import Reading, amplification, evaluated, growths, nearest, quotients, ratios, returns
+from uni.cascade import Reading, Spread, amplification, evaluated, growths, measured, nearest, quotients, ratios, reaches, returns, spread
 from uni.fit import Estimate, FitError, crossing, fit
 from uni.cli import EXIT_CONFIG, main
 from uni.maps import NUMBERS, Logistic
@@ -76,11 +77,30 @@ def test_unit_noise_after_one_step_is_one_and_after_two_is_carried_by_the_slope_
     assert amplification(Logistic(3.0), NUMBERS["logistic"]({}), "0.5", 2) == pytest.approx(math.sqrt(1 + 1.5**2))
 
 
+def test_noise_that_depends_on_where_it_is_put_in_is_carried_at_its_own_size():
+    # From 0.5 at r = 3 to 0.75: the step from 0.75 puts in 0.75 as it is, and the step from the
+    # top puts in 0.5, carried by the slope at 0.75, -1.5.
+    found = amplification(Logistic(3.0), NUMBERS["logistic"]({}), "0.5", 2, lambda x: x)
+    assert found == pytest.approx(math.sqrt(0.75**2 + (0.5 * 1.5) ** 2))
+
+
+def lines(printed, prefix):
+    return [line.removeprefix(prefix) for line in printed if line.startswith(prefix)]
+
+
 def test_a_growth_is_the_noise_ratio_times_the_distance_ratio_with_four_relative_errors():
     zero, later = Estimate(3.5, 0.01), Estimate(3.55, 0.01)
     noises = (Reading(2.0, 0.02, 0.0, zero), Reading(5.0, 0.1, 0.0, later))
-    (found,) = growths(noises, (Reading(0.3, 0.003, 0.0, zero), Reading(-0.12, 0.0024, 0.0, later)))
+    (found,) = growths(reaches(noises, (Reading(0.3, 0.003, 0.0, zero), Reading(-0.12, 0.0024, 0.0, later))))
     assert (found.value, found.error) == pytest.approx((6.25, 6.25 * math.sqrt(2 * 0.01**2 + 2 * 0.02**2)))
+
+
+def test_a_reach_is_the_noise_over_the_distance_s_size_with_the_value_s_error_through_their_relative_slopes():
+    # The noise moves by twice itself per unit of gain and the distance by once, so the value's
+    # error of 0.01 moves the reach by 0.01 of itself; the parabolas' own errors add 0.01 and 0.02.
+    zero = Estimate(3.5, 0.01)
+    (reach,) = reaches((Reading(2.0, 0.02, 4.0, zero),), (Reading(-0.4, 0.008, -0.4, zero),))
+    assert (reach.value, reach.error) == pytest.approx((5.0, 5.0 * math.sqrt(0.01**2 + 0.02**2 + 0.01**2)))
 
 
 def test_a_superstable_value_s_error_reaches_a_growth_once_through_the_difference_of_its_readings_relative_slopes():
@@ -88,8 +108,26 @@ def test_a_superstable_value_s_error_reaches_a_growth_once_through_the_differenc
     # moves the growth not at all; at the second, the noise by twice and the distance by once.
     zero, later = Estimate(3.5, 0.01), Estimate(3.55, 0.01)
     noises = (Reading(2.0, 0.0, 4.0, zero), Reading(5.0, 0.0, 10.0, later))
-    (found,) = growths(noises, (Reading(0.3, 0.0, 0.6, zero), Reading(-0.12, 0.0, -0.12, later)))
+    (found,) = growths(reaches(noises, (Reading(0.3, 0.0, 0.6, zero), Reading(-0.12, 0.0, -0.12, later))))
     assert (found.value, found.error) == pytest.approx((6.25, 6.25 * 0.01))
+
+
+def test_a_spread_is_the_draws_mean_and_deviation_and_the_deviation_s_error_follows_their_tails():
+    four = spread([1.0, 2.0, 3.0, 4.0])
+    assert (four.mean.value, four.deviation.value) == (2.5, pytest.approx(math.sqrt(5 / 3)))
+    assert four.mean.error == pytest.approx(math.sqrt(5 / 3) / 2)
+    assert spread([1.5, 1.5, 1.5]) == Spread(Estimate(1.5, 0.0), Estimate(0.0, 0.0))
+    # A normal draw's deviation is uncertain by itself over sqrt(2 n); a draw with a heavier tail, by more.
+    noise = random.Random(3)
+    normal = spread([noise.gauss(0, 2) for _ in range(20000)])
+    assert normal.deviation.error == pytest.approx(2 / math.sqrt(40000), rel=0.05)
+    tailed = spread([noise.gauss(0, 2) * (10 if noise.random() < 0.01 else 1) for _ in range(20000)])
+    assert tailed.deviation.error > 3 * tailed.deviation.value / math.sqrt(40000)
+
+
+def test_a_measured_reach_is_the_return_s_deviation_over_the_mean_nearest_point_s_size_with_both_errors():
+    reach = measured(Spread(Estimate(0.0, 1.0), Estimate(0.3, 0.01)), Spread(Estimate(-1.5, 0.05), Estimate(9.0, 9.0)))
+    assert reach.value == pytest.approx(0.2) and reach.error == pytest.approx(0.2 * math.hypot(0.01 / 0.3, 0.05 / 1.5))
 
 
 def test_a_quotient_s_error_is_its_two_values_relative_errors_added_in_quadrature():
@@ -130,9 +168,11 @@ def test_the_command_reads_the_logistic_cascade_and_its_ratios(capsys):
     assert [line.split(": ")[0] for line in spacings] == [f"spacing ratio over periods {p}" for p in ("2, 4, 8", "4, 8, 16", "8, 16, 32")]
     assert [float(line.split(": ")[1].split()[0]) for line in spacings] == pytest.approx([4.6808, 4.6630, 4.6684], abs=1e-4)
     assert [float(line.split()[6]) for line in printed[1:6]] == pytest.approx(list(NOISE.values()), rel=1e-6)
-    nearests, noises = printed[9:13], printed[13:]
+    nearests, reached, noises = printed[9:13], printed[13:18], printed[18:]
     assert [line.split(": ")[0] for line in nearests] == [f"nearest-point ratio over periods {p}" for p in ("2, 4", "4, 8", "8, 16", "16, 32")]
     assert [float(line.split(": ")[1].split()[0]) for line in nearests] == pytest.approx([-2.6547, -2.5318, -2.5087, -2.5041], abs=1e-4)
+    assert [line.split(": ")[0] for line in reached] == [f"noise gain over nearest distance at period {p}" for p in NOISE]
+    assert [float(line.split(": ")[1].split()[0]) for line in reached] == pytest.approx([NOISE[p] / abs(NEAREST[p]) for p in NOISE], rel=1e-6)
     assert [line.split(": ")[0] for line in noises] == [f"noise growth over periods {p}" for p in ("2, 4", "4, 8", "8, 16", "16, 32")]
     assert [float(line.split(": ")[1].split()[0]) for line in noises] == pytest.approx([6.8839697, 6.660634, 6.627796, 6.620746], abs=1e-5)
 
@@ -141,8 +181,14 @@ def test_a_cascade_from_an_odd_period_has_no_nearest_point_on_its_first_row(caps
     assert command(["cascade", "--map", "logistic", "--critical", "0.5", "--period", "1", "--grid", "1.9:2.1:11", "--grid", GRIDS[2], "--grid", GRIDS[4]]) == 0
     printed = capsys.readouterr().out.splitlines()
     assert [len(line.split()) for line in printed[1:4]] == [4, 8, 8]
-    assert printed[-2].startswith("nearest-point ratio over periods 2, 4: -2.654744")
-    assert printed[-1].startswith("noise growth over periods 2, 4: 6.88396")
+    assert lines(printed, "nearest-point ratio over periods ")[0].startswith("2, 4: -2.654744")
+    assert lines(printed, "noise growth over periods ")[0].startswith("2, 4: 6.88396")
+
+
+def test_noise_read_in_an_answer_is_refused_for_a_map_that_answers_nothing(capsys, tmp_path):
+    argv = ["cascade", "--map", "logistic", "--critical", "0.5", "--period", "2", "--grid", GRIDS[2], "--noise", str(tmp_path / "spreads.json")]
+    assert command(argv) == EXIT_CONFIG
+    assert "--noise is a spread in the answer a map turns into its next push" in capsys.readouterr().err
 
 
 def test_a_line_through_exact_readings_crosses_where_it_should_with_no_error():

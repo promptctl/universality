@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from functools import cached_property, partial
-from typing import TYPE_CHECKING, Any, Protocol
+from statistics import NormalDist
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from uni.parse import ConfigError
 from uni.template import Template
 
 if TYPE_CHECKING:  # a family reads its own checkpoint; everything else here is handed what it holds
+    from uni.curve import Curve
     from uni.loop import Map
     from uni.model import Model, ResidualAdd
     from uni.pinned import Pinned
@@ -95,6 +99,40 @@ class Family(Protocol):
     def at(self, value: float) -> Map:
         """This map with its parameter set, at exactly that value: `at(v).value == v`."""
         ...
+
+
+@runtime_checkable
+class Drawing(Family, Protocol):
+    """A family whose maps draw something at every step, the draws fixed by a seed: one seed is one run, and another is an independent one."""
+
+    @property
+    def seed(self) -> int: ...
+
+    def reseeded(self, seed: int) -> Drawing:
+        """This family drawing with `seed` instead, and the same in everything else."""
+        ...
+
+
+def drawn_key(seed: int, value: float, state: str) -> bytes:
+    """What a drawing map holds one step's draw to: its seed, its value and the state it steps.
+
+    [LAW:one-source-of-truth] the one key every drawing map's step is fixed by. So the map is a
+    function of its state and a rerun is the same orbit, while no two values of a grid, and no two
+    states of an orbit, share a draw.
+    """
+    return json.dumps([seed, value, state]).encode()
+
+
+def standard_normal(key: bytes) -> float:
+    """A draw of the standard normal fixed by `key`: its quantile at the key's hash, read as a share of one.
+
+    No generator and no state, so a key is the same number on every machine and under every build.
+    Fifty-two bits of the hash, with a half added so the share is never 0 or 1, where the quantile
+    is infinite: a float holds 52 bits and their half exactly, where 53 bits and a half round up to
+    1 at the last of them.
+    """
+    bits = int.from_bytes(hashlib.sha256(key).digest()[:8], "little") >> 12
+    return NormalDist().inv_cdf((bits + 0.5) / 2**52)
 
 
 def model_spec(pinned: Pinned, template: Template, knob: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -399,12 +437,68 @@ class ResponseMap:
     def spec(self) -> dict[str, Any]:
         return self.family.spec
 
+    def push(self, answer: float) -> float:
+        return self.gain * answer / self.family.steer.direction.squared_length
+
     def step(self, state: str) -> str:
         from uni.response import response
 
         family = self.family
         answer = response(family.model, family.prompt, family.steer, response_state(state, family.decimals), family.layer)
-        return response_text(self.gain * answer / family.steer.direction.squared_length, family.decimals)
+        return response_text(self.push(answer), family.decimals)
+
+
+@dataclass(frozen=True)
+class SampledFamily:
+    """The push-response loop with the token after the prompt drawn at a temperature and read with it, with the gain still to come.
+
+    The response map is the same loop drawing nothing. Drawing is what a loop that generates does,
+    and one token is the least it can: its answer is then a sample, and the loop a noisy one.
+    """
+
+    response: ResponseFamily
+    temperature: float
+    seed: int  # which of the draws the map makes; another seed is an independent run
+
+    @property
+    def spec(self) -> dict[str, Any]:
+        return {**self.response.spec, "kind": "sampled", "temperature": self.temperature, "seed": self.seed}
+
+    def holds(self, states: Sequence[str]) -> None:
+        self.response.holds(states)
+
+    def reseeded(self, seed: int) -> SampledFamily:
+        return replace(self, seed=seed)
+
+    def at(self, value: float) -> Map:
+        return SampledMap(self, self.response.at(value))
+
+
+@dataclass(frozen=True)
+class SampledMap:
+    """x -> gain * a(x, t) / |v|^2, a the answer read with a token t drawn after the prompt, as the response map turns its answer."""
+
+    family: SampledFamily
+    response: ResponseMap
+
+    @property
+    def value(self) -> float:
+        return self.response.value
+
+    @property
+    def spec(self) -> dict[str, Any]:
+        return self.family.spec
+
+    def push(self, answer: float) -> float:
+        return self.response.push(answer)
+
+    def step(self, state: str) -> str:
+        from uni.temperature import sampled
+
+        family = self.family.response
+        key = drawn_key(self.family.seed, self.value, state)
+        answer = sampled(family.model, family.prompt, family.steer, response_state(state, family.decimals), family.layer, self.family.temperature, key)
+        return response_text(self.push(answer), family.decimals)
 
 
 def smooth_state(state: str) -> float:
@@ -430,11 +524,22 @@ class SmoothFamily:
     division by the squared length, so a gain here is the gain there.
     """
 
-    curve: str  # the name of the curve fitted, which is its content
-    layer: int
+    fitted: Curve  # what the series is fitted to, which says what loop it is a map of
     degree: int
     series: Series
-    squared_length: float
+
+    @property
+    def curve(self) -> str:
+        """The name of the curve fitted, which is its content."""
+        return self.fitted.name
+
+    @property
+    def layer(self) -> int:
+        return self.fitted.layer
+
+    @property
+    def squared_length(self) -> float:
+        return self.fitted.squared_length
 
     @property
     def spec(self) -> dict[str, Any]:
@@ -451,11 +556,16 @@ class SmoothFamily:
         if not self.series.low <= push <= self.series.high:
             raise MapError(f"a push of {push!r} lies outside the curve's pushes, {self.series.low:g} to {self.series.high:g}, and a series says nothing past the readings it was fitted to")
 
+    def answer(self, push: float) -> float:
+        """The series at a push it admits: the answer the map turns into its next push."""
+        self.admit(push)
+        return self.series.at(push)
+
     def holds(self, states: Sequence[str]) -> None:
         for state in states:
             self.admit(smooth_state(state))
 
-    def at(self, value: float) -> Map:
+    def at(self, value: float) -> SmoothMap:
         return SmoothMap(self, value)
 
 
@@ -474,13 +584,67 @@ class SmoothMap:
     def spec(self) -> dict[str, Any]:
         return self.family.spec
 
+    def push(self, answer: float) -> float:
+        return self.gain * answer / self.family.squared_length
+
     def slope(self, x: float) -> float:
-        return self.gain * self.family.series.slope.at(x) / self.family.squared_length
+        return self.push(self.family.series.slope.at(x))
+
+    def step(self, state: str) -> str:
+        return repr(self.push(self.family.answer(smooth_state(state))))
+
+
+@dataclass(frozen=True)
+class NoisyFamily:
+    """A smooth map whose answer is read with noise of a measured size, with the gain still to come.
+
+    The series plus a normal draw of the spread a curve of spreads gives at the push: noise of the
+    size `uni temperature` measured a drawn token puts into the answer, without that noise's shape.
+    So the same loop can be run with the token's noise itself, as the sampled map, and with a
+    normal noise of its size, and what the size alone accounts for told apart from the rest.
+    """
+
+    smooth: SmoothFamily
+    spreads: Curve
+    seed: int
+
+    @property
+    def spec(self) -> dict[str, Any]:
+        return {**self.smooth.spec, "kind": "noisy", "spreads": self.spreads.name, "seed": self.seed}
+
+    def holds(self, states: Sequence[str]) -> None:
+        self.smooth.holds(states)
+
+    def reseeded(self, seed: int) -> NoisyFamily:
+        return replace(self, seed=seed)
+
+    def at(self, value: float) -> Map:
+        return NoisyMap(self, self.smooth.at(value))
+
+
+@dataclass(frozen=True)
+class NoisyMap:
+    """x -> gain * (C(x) + s(x) z) / |v|^2, where z is a standard normal drawn for the seed, the gain and x."""
+
+    family: NoisyFamily
+    smooth: SmoothMap
+
+    @property
+    def value(self) -> float:
+        return self.smooth.value
+
+    @property
+    def spec(self) -> dict[str, Any]:
+        return self.family.spec
+
+    def push(self, answer: float) -> float:
+        return self.smooth.push(answer)
 
     def step(self, state: str) -> str:
         push = smooth_state(state)
-        self.family.admit(push)
-        return repr(self.gain * self.family.series.at(push) / self.family.squared_length)
+        answer = self.family.smooth.answer(push)  # first, so a push past the series is refused as the smooth map refuses it
+        noise = self.family.spreads.at(push) * standard_normal(drawn_key(self.family.seed, self.value, state))
+        return repr(self.push(answer + noise))
 
 
 @dataclass(frozen=True)
@@ -508,5 +672,7 @@ def response_numbers(spec: Mapping[str, Any]) -> Numbers:
 NUMBERS: Mapping[str, Callable[[Mapping[str, Any]], Numbers]] = {
     "logistic": lambda spec: Numbers(logistic_state, repr),
     "response": response_numbers,
+    "sampled": response_numbers,
     "smooth": lambda spec: Numbers(smooth_state, repr),
+    "noisy": lambda spec: Numbers(smooth_state, repr),
 }

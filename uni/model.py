@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import math
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from typing import Literal
@@ -14,6 +15,11 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from uni.parse import ConfigError
 from uni.pinned import Pinned
+
+
+# How many candidates for the token after a prompt are read in one forward pass. Each carries its own
+# copy of the prompt's keys and values, so this is what bounds the memory a pass takes, about 5 GB here.
+CANDIDATES = 8192
 
 
 class ModelError(ConfigError):
@@ -156,6 +162,49 @@ class Model:
             finally:
                 handle.remove()
         return captured[0][0]
+
+    @torch.inference_mode()
+    def next_tokens(
+        self, prompt: str, additions: Sequence[ResidualAdd], layer: int, candidates: Callable[[torch.Tensor], torch.Tensor], read: Callable[[torch.Tensor], torch.Tensor]
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """What the model makes of the prompt, and of tokens it could write next, with `additions` made.
+
+        Three things: the residual stream leaving decoder `layer` at each of the prompt's tokens,
+        shape (tokens, hidden_size), as `prompt_residual` reads it; the log-probability of each token
+        in the vocabulary coming next, in float64 on the CPU, shape (vocabulary,); and, for each
+        token `candidates` picks from those log-probabilities, `read` of the stream leaving `layer`
+        at that token when it is appended, one number a candidate, in the order picked.
+
+        The prompt is run once and its keys and values kept, so each candidate costs one position
+        and not the prompt again: no position of the prompt sees what comes after it. `read` is
+        applied a pass at a time, because the whole vocabulary's streams are half a gigabyte.
+        """
+        ids = self.encode(prompt)
+        self.fits(torch.cat([ids, ids[:, :1]], dim=1), "the prompt's tokens and one more")
+        captured: list[torch.Tensor] = []
+        readings = []
+        with self._residual(additions):
+            handle = self.layers[self._layer(layer)].register_forward_hook(lambda _m, _i, hidden: captured.append(hidden))
+            try:
+                out = self.model(input_ids=ids, use_cache=True, logits_to_keep=1)
+                stream = captured.pop()[0]
+                logprobs = torch.log_softmax(out.logits[0, -1].cpu().double(), dim=-1)
+                # [LAW:no-silent-failure] as in generate: a collapsed pass gives nan weights, and a
+                # mean over nan weights is printed as one more number.
+                if not bool(torch.isfinite(logprobs).all()):
+                    raise ModelError("the prompt has no finite logits for the token after it; the residual additions overflow this model's arithmetic")
+                picked = candidates(logprobs)
+                for start in range(0, len(picked), CANDIDATES):
+                    batch = picked[start : start + CANDIDATES].to(self.device)
+                    cache = copy.deepcopy(out.past_key_values)
+                    cache.batch_repeat_interleave(len(batch))
+                    # The decoder without its head: the logits after a candidate are not wanted, and
+                    # for 8192 candidates they would be 5 GB.
+                    self.model.model(input_ids=batch.unsqueeze(1), past_key_values=cache, use_cache=True)
+                    readings.append(read(captured.pop()[:, -1]))
+            finally:
+                handle.remove()
+        return stream, logprobs, torch.cat(readings)
 
     @torch.inference_mode()
     def reply_logprob(self, prompt: str, reply: str, additions: Sequence[ResidualAdd]) -> float:

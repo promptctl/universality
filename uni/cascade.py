@@ -13,13 +13,14 @@ factor, -alpha, whatever the map's shape: the cycles shrink in space as the valu
 
 And its second. Noise put in at every step of a superstable cycle moves where the cycle returns,
 by an amount that grows at each doubling faster than the cycle shrinks: measured against the cycle's
-own size, by kappa. So each doubling more that noise lets through needs it smaller by kappa.
+own size, by kappa. So each doubling more that noise lets through needs it smaller by kappa, and a
+noise of a given size - a temperature's - lets through the doublings it reaches less than one of.
 """
 
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from itertools import islice
 from typing import TYPE_CHECKING
@@ -72,19 +73,25 @@ def superstable(values: Sequence[float], returned: Sequence[Mapping[int, float]]
     return fit(values, [landed[period] for landed in returned], 2)
 
 
-def amplification(map: Sloped, numbers: Numbers, critical: str, period: int) -> float:
-    """How far noise of unit size put in at each of `period` steps from the top moves where the orbit lands, as a standard deviation.
+def unit(state: float) -> float:
+    """Noise of size one at every state: what makes `amplification` the noise gain."""
+    return 1.0
 
-    Noise landing at x_k is carried to the end by the slopes at x_k .. x_(p-1), so the variance
-    after p steps is the sum over k of those products squared: 1 for the noise of the last step, and
-    each earlier one carried by one slope more. The top's own slope, which is zero, carries nothing,
-    since noise put in before the first step is noise in the start.
+
+def amplification(map: Sloped, numbers: Numbers, critical: str, period: int, noise: Callable[[float], float] = unit) -> float:
+    """How far noise put in at each of `period` steps from the top moves where the orbit lands, as a standard deviation.
+
+    The step from x_k puts in noise of size `noise(x_k)`, and it is carried to the end by the slopes
+    at x_(k+1) .. x_(p-1), so the variance after p steps is the sum over k of its square times those
+    slopes' product squared: the last step's noise as it is, and each earlier one carried by one
+    slope more. Noise of size one at every state is the noise gain, the number a noise that does
+    not depend on where it is put in is multiplied by.
     """
-    slopes = [map.slope(numbers.read(state)) for state in islice(orbit(map, critical), period - 1)]
-    variance = carried = 1.0
-    for slope in reversed(slopes):
-        carried *= slope * slope
-        variance += carried
+    states = [numbers.read(critical), *(numbers.read(state) for state in islice(orbit(map, critical), period - 1))]
+    variance, carried = 0.0, 1.0
+    for state in reversed(states):
+        variance += noise(state) ** 2 * carried
+        carried *= map.slope(state) ** 2
     return math.sqrt(variance)
 
 
@@ -131,21 +138,63 @@ def quotients(values: Sequence[Estimate]) -> tuple[Estimate, ...]:
     return tuple(Estimate(first.value / after.value, abs(first.value / after.value) * math.hypot(first.error / first.value, after.error / after.value)) for first, after in zip(values, values[1:]))
 
 
-def growths(noises: Sequence[Reading], distances: Sequence[Reading]) -> tuple[Estimate, ...]:
-    """How much more the noise moves each cycle than the one before, measured against each cycle's nearest distance: the ratios that run to kappa.
+def reaches(noises: Sequence[Reading], distances: Sequence[Reading]) -> tuple[Estimate, ...]:
+    """How far the noise moves each cycle's return, in the cycle's nearest distance: past one, the noise carries the return past the point half a period round.
 
-    A period's noise gain and distance are read at its one superstable value, and an error in that
-    value moves both along their slopes at once. The growth divides one by the other, so the error
-    reaches it through the difference of their relative slopes, counted once, as `ratios` counts the
-    value two spacings share. The four parabolas' own errors, and the two periods' values, are independent.
+    A period's noise and distance are read at its one superstable value, and an error in that value
+    moves both along their slopes at once. The reach divides one by the other, so the error reaches
+    it through the difference of their relative slopes, counted once, as `ratios` counts the value
+    two spacings share. The two parabolas' own errors are independent.
     """
     found = []
-    for (noise, distance), (after, closer) in zip(zip(noises, distances), zip(noises[1:], distances[1:])):
-        growth = abs(after.value / noise.value * distance.value / closer.value)
-        shared = ((distance.slope / distance.value - noise.slope / noise.value) * noise.zero.error, (after.slope / after.value - closer.slope / closer.value) * after.zero.error)
-        relative = math.hypot(noise.error / noise.value, after.error / after.value, distance.error / distance.value, closer.error / closer.value, *shared)
-        found.append(Estimate(growth, growth * relative))
+    for noise, distance in zip(noises, distances):
+        reach = abs(noise.value / distance.value)
+        shared = (noise.slope / noise.value - distance.slope / distance.value) * noise.zero.error
+        found.append(Estimate(reach, reach * math.hypot(noise.error / noise.value, distance.error / distance.value, shared)))
     return tuple(found)
+
+
+@dataclass(frozen=True)
+class Spread:
+    """Where independent draws of one reading land: their mean, and their standard deviation about it, each with its error."""
+
+    mean: Estimate
+    deviation: Estimate
+
+
+def spread(readings: Sequence[float]) -> Spread:
+    """The mean and standard deviation of independent draws, with the errors the draws themselves give them.
+
+    The deviation's error comes from the draws' own fourth moment and not from a normal
+    distribution's. A drawn token's answer need not be normal: a token drawn rarely can answer far
+    from the rest, and a tail like that leaves a deviation less certain than a normal one of its size.
+    """
+    count = len(readings)
+    mean = math.fsum(readings) / count
+    variance = math.fsum((reading - mean) ** 2 for reading in readings) / (count - 1)
+    fourth = math.fsum((reading - mean) ** 4 for reading in readings) / count
+    # The sample variance's own standard error, to first order in 1 / count; half of it relative to the
+    # variance is the deviation's. The difference is never below zero but can round there, and draws
+    # that all land in one place have no spread and nothing to be uncertain of in it.
+    uncertainty = math.sqrt(max(fourth - variance**2 * (count - 3) / (count - 1), 0.0) / count)
+    deviation = math.sqrt(variance)
+    return Spread(Estimate(mean, deviation / math.sqrt(count)), Estimate(deviation, uncertainty / (2 * deviation) if deviation else 0.0))
+
+
+def measured(returned: Spread, nearest: Spread) -> Estimate:
+    """How far the draws' spread at the return reaches in the distance their mean puts the point half a period round at: a reach, measured where `reaches` predicts one.
+
+    The two are read off the same draws. A mean and a deviation of draws symmetric about their
+    mean are uncorrelated, and these are counted as independent.
+    """
+    distance = abs(nearest.mean.value)
+    reach = returned.deviation.value / distance
+    return Estimate(reach, math.hypot(returned.deviation.error / distance, reach * nearest.mean.error / distance))
+
+
+def growths(reaches: Sequence[Estimate]) -> tuple[Estimate, ...]:
+    """How much further the noise reaches each cycle than the one before: the ratios that run to kappa, each the inverse of a quotient of the reaches."""
+    return tuple(Estimate(1 / quotient.value, quotient.error / quotient.value**2) for quotient in quotients(reaches))
 
 
 def ratios(values: Sequence[Estimate]) -> tuple[Estimate, ...]:

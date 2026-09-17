@@ -45,6 +45,16 @@ class Sloped(Map, Protocol):
     def slope(self, x: float) -> float: ...
 
 
+@runtime_checkable
+class Answering(Map, Protocol):
+    """A map whose next push is an answer turned into one, as the response map's and the smooth map's are.
+
+    So noise read in the answer, such as a sampled token's, is noise in the next push by the same turn.
+    """
+
+    def push(self, answer: float) -> float: ...
+
+
 def orbit(map: Map, start: str) -> Iterator[str]:
     """The states after each step, without end; the caller takes as many as it wants."""
     # [LAW:composability] the runner knows only the Map protocol, never which map it iterates.

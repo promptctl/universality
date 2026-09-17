@@ -1066,14 +1066,272 @@ all start from the one push x_c and take their second step from pushes within 0.
 so most of their roughness is shared and shifts the return instead of scattering it. So the model's
 float32 roughness is noise the cascade carries, and at period 64 it moves the return by 1e-3. That
 is the size of the gap between the model's d_64 and the fits'. Whether that roughness is what makes
-the gap is a question about a bias rather than a scatter, and it is left to the measurement of what
-temperature's noise does to this loop.
+the gap is a question about a bias rather than a scatter. On the noisy map of the next section,
+noise independent from one step to the next leaves the mean half-period point where the cycle's is
+until its reach is past one, and the roughness reaches 1.2e-3 in a distance of 0.119. So a roughness
+that biases d_64 would have to be shared between neighbouring pushes, which is not read here.
+
+### Temperature: how many doublings a drawn token lets through
+
+Every map above reads the model's answer with no token written. A loop that generates draws its
+tokens, and the least it can draw is one: the token after the prompt, under the push, drawn at a
+temperature T with probability proportional to p^(1/T). The answer is then read over the prompt
+and that token together, as `uni response` reads it over the prompt, so it depends on which token
+came up. Over the draw it has a mean, which is a map, and a spread, which is noise that map is read
+with at every step.
+
+    uv run uni temperature --template rewrite --knob formality \
+        --start "The meeting moved to Thursday because the room was booked." \
+        --grid=-19:10:291 --layer 23 \
+        --temperature 1 --temperature 0.7 --temperature 0.5 --temperature 0.3 \
+        --temperature 0.2 --temperature 0.1 --temperature 0.05 --temperature 0.02
+
+reads, at each push, the answer with each of the 151,936 tokens in the vocabulary appended, and
+weighs them at each temperature. So the mean and the spread carry no sampling error. That is a
+forward pass per token, and it took three hours here. It writes a curve of means and one of
+spreads for each temperature:
+
+| T | means | spreads |
+| -: | :---- | :------ |
+| 1 | `curves/2a1a49bcd3238c74.json` | `curves/16428756a7f5c3a6.json` |
+| 0.7 | `curves/0509861b3e600267.json` | `curves/87f60bd9cf796196.json` |
+| 0.5 | `curves/d0ad9e1cb35460f9.json` | `curves/36247784fe751616.json` |
+| 0.3 | `curves/507a6f83ebd66ffd.json` | `curves/007dac775ef90de2.json` |
+| 0.2 | `curves/3b9549a3116a9bf1.json` | `curves/f2932e16848f3c1a.json` |
+| 0.1 | `curves/9586920052d4640b.json` | `curves/dd49428b0fab9882.json` |
+| 0.05 | `curves/30c1551d63d2bc85.json` | `curves/6b23efc1a2322b3f.json` |
+| 0.02 | `curves/edbaf45599bbc1f2.json` | `curves/9387ab2dbfe7bbfd.json` |
+
+The same command with `--remote` read the other sixteen curves in `curves/` on the host, and its
+table agrees with this one to every digit printed.
+
+The spread, from the table it prints:
+
+| push | T = 1 | 0.7 | 0.5 | 0.3 | 0.2 | 0.1 | 0.05 | 0.02 |
+| ---: | ----: | --: | --: | --: | --: | --: | ---: | ---: |
+| -19 | 8.6e-02 | 8.9e-02 | 8.4e-02 | 7.3e-02 | 6.6e-02 | 5.2e-02 | 3.0e-02 | 6.5e-03 |
+| -8.6 | 9.9e-02 | 9.4e-02 | 8.4e-02 | 6.6e-02 | 4.7e-02 | 1.1e-02 | 6.6e-04 | 3.4e-07 |
+| -3 | 6.5e-02 | 2.7e-02 | 8.8e-03 | 8.4e-04 | 5.2e-05 | 1.4e-08 | 1.1e-15 | 4.8e-37 |
+| 0 | 2.7e-02 | 7.9e-03 | 1.6e-03 | 5.0e-05 | 7.8e-07 | 5.4e-12 | 3.7e-22 | 1.3e-52 |
+| 5.5 | 5.1e-02 | 1.5e-02 | 5.8e-03 | 1.7e-03 | 3.9e-04 | 4.7e-06 | 6.8e-10 | 2.1e-21 |
+| 10 | 9.2e-02 | 4.3e-02 | 1.5e-02 | 1.8e-03 | 1.4e-04 | 6.9e-08 | 2.0e-14 | 6.4e-34 |
+
+It is largest at the top, -8.6, which every superstable cycle passes through. There the next token
+is spread thin enough that cooling to 0.2 halves the spread and no more. Where one token dominates,
+at 0 and -3, cooling removes it within a few steps of T. And the draw moves the map as well as
+spreading it: the mean at the top is 15.9966 at T = 1, 16.0179 at 0.5 and 16.0866 at 0.05, where the
+answer with no token is 16.0178.
+
+#### The prediction
+
+A spread s in the answer is noise gain * s / |v|^2 in the next push, and the Kappa section says
+how noise at every step is carried to the return. Here its size depends on where it is put in, so
+each step's noise is taken at its own push and carried by the slopes after it:
+
+    S_p = sqrt(sum over k of (gain * s(x_k) / |v|^2)^2 (F'(x_(k+1)) ... F'(x_(p-1)))^2)
+
+`uni cascade --noise SPREADS` prints S_p in place of G_p, reading s between the curve's pushes on
+the straight line through the two either side, and prints for each period how far it reaches in the
+cycle's nearest distance:
+
+    noise over nearest distance at period 8: 2.5053677e-01 +- 9.8e-08
+
+Below one, the noise moves a run's return by less than the cycle's half-period point lies from the
+top. Past one it moves it further, and in a single run the doubling can no longer be told from
+the noise. Carried along the
+cycles of the degree-150 fit, with the grids of the section on it and `--noise` added:
+
+    uv run uni cascade --map smooth --curve curves/1bb8e39470dc1a00.json --layer 23 \
+        --degree 150 --critical=-8.614027438063532 --period 2 \
+        --grid 3.06727:3.07527:21 --grid 4.1438:4.1876:21 --grid 4.46037:4.47239:21 \
+        --grid 4.53008:4.53268:21 --grid 4.545166:4.545728:21 --grid 4.5484020:4.5485226:21 \
+        --grid 4.5490954:4.5491212:21 --grid 4.54924390:4.54924943:21 \
+        --grid 4.549275708:4.549276894:21 --noise curves/16428756a7f5c3a6.json
+
+and the same with each temperature's spreads:
+
+| T | period 2 | 4 | 8 | 16 | 32 | 64 | 128 | last period below one |
+| -: | -------: | -: | -: | -: | -: | -: | --: | --------------------: |
+| 1 | 3.7e-03 | 0.023 | 0.25 | 1.48 | 10.4 | 67 | 450 | 8 |
+| 0.7 | 3.3e-03 | 0.020 | 0.23 | 1.34 | 9.4 | 61 | 408 | 8 |
+| 0.5 | 3.0e-03 | 0.018 | 0.20 | 1.20 | 8.5 | 55 | 367 | 8 |
+| 0.3 | 2.3e-03 | 0.015 | 0.17 | 0.97 | 6.9 | 44 | 297 | 16 |
+| 0.2 | 1.6e-03 | 0.012 | 0.13 | 0.75 | 5.4 | 35 | 234 | 16 |
+| 0.1 | 3.9e-04 | 8.7e-03 | 0.052 | 0.35 | 2.6 | 17 | 115 | 16 |
+| 0.05 | 2.2e-05 | 7.9e-03 | 9.0e-03 | 0.078 | 0.64 | 4.3 | 29 | 32 |
+| 0.02 | 1.1e-08 | 5.8e-03 | 1.8e-03 | 5.0e-03 | 0.10 | 0.77 | 5.3 | 64 |
+
+Past the period where the reach passes one it grows by about 6.6 a doubling, as kappa says it must,
+so cooling lets through a doubling for each factor of 6.6 it takes off the noise the cycle collects.
+From T = 1 to 0.02 that is three doublings more, from period 8 to period 64. The early columns
+are not monotone at the coldest temperatures. The period-4 cycle's point half a period round is
+at -15.1, toward the lowest pushes, where the spread survives cooling longest, and its reach stays
+near 6e-3 while period 2's, whose other point is at 5.5, collapses.
+
+#### The check
+
+The prediction is carried along the cycles of a map, and the loop that draws a token runs on its
+mean, which is not the map with no token: at T = 1 its superstable gain of period 64 is 4.5098,
+against 4.5485 with none. So each temperature is checked on its own mean. `uni smooth` fits the
+curves of means as it fits the answer with no token:
+
+| T | jitter | degree 140: rms residual | largest |
+| -: | -----: | ----------------------: | ------: |
+| 1 | 2.93e-05 | 1.37e-05 | 5.09e-05 |
+| 0.7 | 2.96e-05 | 1.41e-05 | 5.09e-05 |
+| 0.5 | 3.18e-05 | 1.68e-05 | 6.39e-05 |
+| 0.3 | 6.12e-05 | 6.24e-05 | 4.88e-04 |
+| 0.2 | 1.48e-04 | 1.54e-04 | 1.43e-03 |
+| 0.1 | 4.62e-04 | 3.91e-04 | 4.07e-03 |
+| 0.05 | 7.53e-04 | 6.32e-04 | 6.06e-03 |
+| 0.02 | 1.05e-03 | 9.15e-04 | 7.01e-03 |
+
+Degree 150 is refused on 291 readings, and a curve read every 0.1 has fourth differences that see
+some of its shape, so this jitter overstates its scatter. From T = 1 to 0.5 the fit comes down to
+1.4e-5 to 1.7e-5, about the answer's own roughness read every 0.01. Colder, the curve itself
+roughens: its jitter grows from 6.1e-5 at 0.3 to 1.05e-3 at 0.02, and the largest miss to 7e-3.
+Down to 0.2 the largest miss, 1.4e-3, is 3% of the spread at the top it is checked against. At 0.1
+it is 4.1e-3 against a spread there of 1.1e-2, and a map fitted that loosely would test the fit
+rather than the noise. So the check is made from T = 1 down to 0.2.
+
+Each mean map's top and superstable gains are found as the smooth map's were:
+
+    uv run uni critical --map smooth --curve curves/2a1a49bcd3238c74.json --layer 23 \
+        --degree 140 --value 4.5 --grid=-8.608:-8.588:51
+
+    the map at 4.5 turns at -8.5979469 +- 4.9e-08 (a cubic through 51 states, scatter 3.2e-10), written -8.59794690133104
+
+    uv run uni cascade --map smooth --curve curves/2a1a49bcd3238c74.json --layer 23 \
+        --degree 140 --critical=-8.59794690133104 --period 2 \
+        --grid 3.06363:3.07163:21 --grid 4.1094:4.1519:21 --grid 4.42299:4.43492:21 \
+        --grid 4.49174:4.49430:21 --grid 4.506542:4.507094:21 --grid 4.5097277:4.5098464:21 \
+        --noise curves/16428756a7f5c3a6.json
+
+and the others with the grids below. That command is the prediction on the mean map. Its
+superstable values are where the check is read:
+
+<details>
+<summary>The tops and grids at 0.7, 0.5, 0.3 and 0.2</summary>
+
+| T | means | top grid | top | cascade grids |
+| -: | :---- | :------- | :-- | :------------ |
+| 0.7 | `0509861b3e600267` | -8.61:-8.59 | -8.599686762143579 | 3.06223:3.07023 4.1049:4.1473 4.41700:4.42888 4.48559:4.48815 4.500339:4.500888 4.5035104:4.5036287 |
+| 0.5 | `d0ad9e1cb35460f9` | -8.621:-8.601 | -8.610080566092575 | 3.06292:3.07092 4.1013:4.1435 4.41529:4.42724 4.48352:4.48606 4.498166:4.498712 4.5013150:4.5014324 |
+| 0.3 | `507a6f83ebd66ffd` | -8.653:-8.633 | -8.642651123903905 | 3.06643:3.07443 4.0912:4.1329 4.41247:4.42473 4.47807:4.48050 4.492471:4.493009 4.4955928:4.4957093 |
+| 0.2 | `3b9549a3116a9bf1` | -8.657:-8.637 | -8.646836247852228 | 3.06499:3.07299 4.0873:4.1288 4.40656:4.41875 4.47017:4.47252 4.484394:4.484927 4.4875143:4.4876308 |
+
+Each top grid is 51 states and each cascade grid 21 gains, with the temperature's spreads as
+`--noise`.
+
+</details>
+
+Two loops are run at those gains. `--map noisy` is the smooth mean map with a normal draw of the
+measured spread added to its answer at each step: noise of the size the prediction assumes and
+of no other shape. `--map sampled` is the model itself: the response map with the token after the
+prompt drawn at T and the answer read with it, the push written to six decimals. Both take
+`--seed`, and their draws are fixed by it, by the gain and by the state, so a run is the same run
+when it is repeated. `uni spread` runs the orbit of the top many times at each gain, from seeds
+counted up from `--seed`, and prints where the draws land half a period round and after a period,
+and how far the spread of the return reaches in the distance of the mean half-period point:
+
+    uv run uni spread --map noisy --curve curves/2a1a49bcd3238c74.json --layer 23 \
+        --degree 140 --spreads curves/16428756a7f5c3a6.json --seed 0 \
+        --critical=-8.59794690133104 --period 2 --draws 2000 \
+        --value 3.067628676 --value 4.130639374 --value 4.428954633 \
+        --value 4.49301896 --value 4.506817811 --value 4.509787049
+
+    uv run uni spread --map sampled --template rewrite --knob formality \
+        --text "The meeting moved to Thursday because the room was booked." \
+        --layer 23 --decimals 6 --temperature 1 --seed 0 \
+        --critical=-8.597947 --period 2 --draws 300 \
+        --value 3.067628676 --value 4.130639374 --value 4.428954633 \
+        --value 4.49301896 --value 4.506817811 --value 4.509787049
+
+The noisy map runs in seconds. The sampled one is two forward passes a step, the prompt's and the
+token's, for 37,800 steps at 300 draws, and took from 25 minutes to under an hour a temperature on the machines it ran on.
+The other temperatures are the same commands with their curves, tops and superstable values.
+
+The reach, predicted on each mean map by `uni cascade --noise` and measured by `uni spread` on the
+two loops, with the measured errors:
+
+| T | period | predicted | noisy, 2000 draws | sampled, 300 draws |
+| -: | -----: | --------: | ----------------: | -----------------: |
+| 1 | 2 | 3.77e-03 | 3.76e-03 +- 5.9e-05 | 3.41e-03 +- 2.1e-04 |
+| | 4 | 0.0234 | 0.0233 +- 3.6e-04 | 0.0235 +- 1.1e-03 |
+| | 8 | 0.250 | 0.248 +- 4.2e-03 | 0.251 +- 1.1e-02 |
+| | 16 | 1.485 | 1.218 +- 0.027 | 1.116 +- 0.059 |
+| 0.7 | 2 | 3.39e-03 | 3.31e-03 +- 5.3e-05 | 3.29e-03 +- 1.9e-04 |
+| | 4 | 0.0209 | 0.0206 +- 3.3e-04 | 0.0201 +- 1.1e-03 |
+| | 8 | 0.225 | 0.227 +- 3.8e-03 | 0.219 +- 9.5e-03 |
+| | 16 | 1.340 | 1.137 +- 0.023 | 1.154 +- 0.063 |
+| 0.5 | 2 | 3.00e-03 | 2.97e-03 +- 4.5e-05 | 2.98e-03 +- 1.8e-04 |
+| | 4 | 0.0188 | 0.0185 +- 3.0e-04 | 0.0184 +- 1.0e-03 |
+| | 8 | 0.200 | 0.196 +- 3.2e-03 | 0.211 +- 1.0e-02 |
+| | 16 | 1.207 | 1.027 +- 0.020 | 0.950 +- 0.051 |
+| 0.3 | 2 | 2.34e-03 | 2.37e-03 +- 3.9e-05 | 2.24e-03 +- 1.3e-04 |
+| | 4 | 0.0160 | 0.0164 +- 2.6e-04 | 0.0151 +- 6.4e-04 |
+| | 8 | 0.160 | 0.159 +- 2.5e-03 | 0.149 +- 6.4e-03 |
+| | 16 | 1.009 | 0.900 +- 0.017 | 0.884 +- 0.044 |
+| 0.2 | 2 | 1.60e-03 | 1.57e-03 +- 2.4e-05 | 1.51e-03 +- 1.4e-04 |
+| | 4 | 0.0128 | 0.0127 +- 2.0e-04 | 0.0122 +- 5.6e-04 |
+| | 8 | 0.122 | 0.124 +- 1.9e-03 | 0.115 +- 5.8e-03 |
+| | 16 | 0.790 | 0.720 +- 0.013 | 0.753 +- 0.040 |
+
+Through period 8, where the reach is at most a quarter, every measurement on either loop lies
+within 1.7 of its errors of the prediction. Twelve of the fifteen on the sampled loop lie below it,
+by up to 10%. So the token's noise at these temperatures is what its spread says, carried by the
+mean map's slopes, and its shape changes that by no more than a few percent the draws can resolve.
+
+At period 16 the prediction runs from 0.79 to 1.49, and both loops fall short of it by up to a
+quarter, more the larger it is. A reach near one carries the orbit far enough from the cycle that the
+cycle's slopes no longer carry its noise. But where the reach passes one is where it was predicted.
+It is past one at T = 1 and 0.7 on both loops, below it at 0.3 and 0.2 on both, and at 0.5, predicted
+at 1.21, the two loops read 1.03 and 0.95. Cooling from 1 to 0.2 lets period 16 through, and it
+does so between 0.5 and 0.3, where the prediction puts it.
+
+Past one, the reach stops growing. The return's spread settles at 0.8 to 1.3 on every loop, the
+width of the band the orbit now wanders in. What is left of the cycle is where the draws land on
+average, half a period round, beside the distance the mean map's own cycle puts there:
+
+| T | period | cycle | noisy | sampled |
+| -: | -----: | ----: | ----: | ------: |
+| 1 | 16 | -0.764 | -0.780 +- 0.013 | -0.803 +- 0.031 |
+| | 32 | 0.289 | 0.377 +- 0.024 | 0.302 +- 0.060 |
+| | 64 | -0.118 | 0.486 +- 0.028 | 0.482 +- 0.073 |
+| 0.7 | 16 | -0.765 | -0.776 +- 0.012 | -0.764 +- 0.032 |
+| | 32 | 0.290 | 0.347 +- 0.023 | 0.419 +- 0.057 |
+| | 64 | -0.118 | 0.377 +- 0.028 | 0.325 +- 0.072 |
+| 0.5 | 16 | -0.766 | -0.787 +- 0.011 | -0.810 +- 0.026 |
+| | 32 | 0.291 | 0.378 +- 0.021 | 0.388 +- 0.053 |
+| | 64 | -0.119 | 0.317 +- 0.027 | 0.278 +- 0.070 |
+| 0.3 | 16 | -0.739 | -0.759 +- 0.009 | -0.721 +- 0.022 |
+| | 32 | 0.289 | 0.324 +- 0.019 | 0.342 +- 0.048 |
+| | 64 | -0.117 | 0.216 +- 0.025 | 0.291 +- 0.061 |
+| 0.2 | 16 | -0.708 | -0.715 +- 0.006 | -0.708 +- 0.019 |
+| | 32 | 0.272 | 0.305 +- 0.014 | 0.280 +- 0.036 |
+| | 64 | -0.111 | -0.002 +- 0.020 | 0.023 +- 0.054 |
+
+Averaged over hundreds of runs, a cycle survives a doubling past the one a single run can see: at
+period 32 the draws still land on the cycle's side, pushed outward. At period 64 no temperature
+checked keeps it. From T = 1 to 0.3 the draws land on the far side of the top, and at 0.2, whose predicted reach
+there is the smallest, 35 against 45 to 67, on the top itself.
+
+So a drawn token truncates the model's cascade as noise of its spread does, and where the prediction
+said: the temperature sets the spread, kappa sets how fast the cycles outgrow it, and the two
+together say which doubling is the last. What the table of the prediction says about colder
+temperatures, down to period 64 at T = 0.02, rests on the spreads and the fit with no token, since
+the colder mean maps are not smooth enough to check it on.
 
 ## Running on the experiment host
 
 Every `uni` command accepts `--remote`. With it, this working tree, uncommitted edits
 included, is mirrored to a host with rsync and the same command runs there over ssh,
 streaming its output back. Without it, the command runs here.
+
+`uni temperature` writes its curves into this checkout, so on the host the directory it wrote
+them into comes back once it succeeds, beside the curves already here: each file is named by its
+own content, so nothing here is overwritten. `uni plot` and `uni response` write figures, which do
+not come back, and are refused with `--remote`.
 
 The host is described only by three variables, read from a gitignored `.env` at the
 repo root. Copy the example and fill it in:
