@@ -116,15 +116,15 @@ def batched(model: Model, prompt: str, steer: Steer, pushes: Sequence[float], la
 
 def rate(model: Model, prompt: str, steer: Steer, pushes: Sequence[float], layer: int, size: int) -> float:
     """Pushes read a second, `size` rows to a pass: the fastest of `REPEATS` readings of every push, after one to warm the kernels."""
-    batched(model, prompt, steer, pushes[:size], layer, size)
-    fastest = float("inf")
-    for _ in range(REPEATS):
+    def seconds() -> float:
         torch.mps.synchronize()
         began = time.perf_counter()
         batched(model, prompt, steer, pushes, layer, size)
         torch.mps.synchronize()
-        fastest = min(fastest, time.perf_counter() - began)
-    return len(pushes) / fastest
+        return time.perf_counter() - began
+
+    batched(model, prompt, steer, pushes[:size], layer, size)
+    return len(pushes) / min(seconds() for _ in range(REPEATS))
 
 
 @dataclass(frozen=True)
