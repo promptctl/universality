@@ -213,3 +213,10 @@ def test_a_malformed_contrast_is_refused(tmp_path, monkeypatch, text, message):
     (tmp_path / "bad.toml").write_text(text)
     with pytest.raises(SteerError, match=message):
         load_contrast("bad")
+
+
+@pytest.mark.parametrize("name", ["/tmp/formality", "../formality", ".formality", "a/b"])
+def test_a_direction_named_by_anything_but_a_plain_file_name_is_refused(capsys, name):
+    argv = ["loop", "--template", "rewrite", "--start", "x", "--steps", "1", "--knob", name, "--value", "1"]
+    assert main(argv, {}, Path.cwd()) == EXIT_CONFIG
+    assert f"a direction is named by letters, digits, '_', '-' and '.', as a file in uni/directions is; got {name!r}" in capsys.readouterr().err

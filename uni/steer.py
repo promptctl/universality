@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import tomllib
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
@@ -109,8 +110,21 @@ def _contrast(name: str, raw: Mapping[str, Any], template: Template) -> Contrast
     return Contrast(name, template, layer, parsed)
 
 
+# A contrast's name is a file name in uni/directions and nothing more: a slash or a leading dot would
+# make the path it is joined into point somewhere else, and a file found there is not a contrast.
+NAME = re.compile(r"[\w-][\w.-]*")
+
+
+def _path(name: str, *within: str, suffix: str) -> Path:
+    """The file a contrast or direction named `name` is kept in, refused unless the name is a plain one."""
+    # [LAW:parse-dont-validate] [LAW:single-enforcer] every path to a contrast or direction is made here.
+    if not NAME.fullmatch(name):
+        raise SteerError(f"a direction is named by letters, digits, '_', '-' and '.', as a file in uni/directions is; got {name!r}")
+    return DIRECTIONS.joinpath(*within, f"{name}{suffix}")
+
+
 def _read(path: Path, parse: Any, fix: str) -> tuple[dict[str, Any], bytes]:
-    shown = path.relative_to(DIRECTIONS.parent.parent)  # uni/directions/..., as a person finds it
+    shown = Path("uni", "directions", path.relative_to(DIRECTIONS))  # as a person finds it
     try:
         data = path.read_bytes()
         raw = parse(data.decode())
@@ -126,7 +140,7 @@ def _read(path: Path, parse: Any, fix: str) -> tuple[dict[str, Any], bytes]:
 
 
 def load_contrast(name: str) -> Contrast:
-    raw, _ = _read(DIRECTIONS / f"{name}.toml", tomllib.loads, f"write it to describe the {name} direction")
+    raw, _ = _read(_path(name, suffix=".toml"), tomllib.loads, f"write it to describe the {name} direction")
     templates = load_templates()
     template = field(raw, "template", str, SteerError)
     if template not in templates:
@@ -136,7 +150,7 @@ def load_contrast(name: str) -> Contrast:
 
 def read_direction(name: str, pinned: Pinned) -> Direction:
     """The direction named `name`, refused unless it was derived on the `pinned` model."""
-    raw, data = _read(DIRECTIONS / pinned.home / f"{name}.json", json.loads, f"run `uni direction {name}` with this model to derive it")
+    raw, data = _read(_path(name, pinned.home, suffix=".json"), json.loads, f"run `uni direction {name}` with this model to derive it")
     if raw.get("checkpoint") != pinned.checkpoint:
         raise SteerError(f"{name}.json was derived on {raw.get('checkpoint')}, not the pinned checkpoint; run `uni direction {name}` with this model")
     template = field(raw, "template", dict, SteerError)
@@ -168,7 +182,7 @@ def derive(model: Model, contrast: Contrast) -> Direction:
 def write_direction(direction: Direction) -> Path:
     # Whole or absent, as every file here is: a derivation killed mid-write leaves the committed
     # direction standing rather than replacing it with half of the next one.
-    return write_whole(DIRECTIONS / home(direction.checkpoint) / f"{direction.contrast.name}.json", direction.encode())
+    return write_whole(_path(direction.contrast.name, home(direction.checkpoint), suffix=".json"), direction.encode())
 
 
 @dataclass(frozen=True)
