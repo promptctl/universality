@@ -33,6 +33,7 @@ class Curve:
     values: tuple[float, ...]  # the pushes, rising
     readings: tuple[float, ...]
     squared_length: float
+    reading: str | None = None  # what each reading is, as `uni temperature` records it; `uni response` records none
 
     def at(self, push: float) -> float:
         """The reading at `push`, on the straight line between the readings either side of it, refused outside the pushes read."""
@@ -93,4 +94,20 @@ def read_curve(path: Path, layer: int) -> Curve:
         raise CurveError(f"the pushes in {path} must rise")
     if not squared_length > 0:
         raise CurveError(f"squared_length in {path} must be above zero, got {squared_length!r}")
-    return Curve(hashlib.sha256(data).hexdigest()[:16], layer, tuple(values), tuple(readings), squared_length)
+    described = raw.get("described")
+    reading = described.get("reading") if type(described) is dict else None
+    return Curve(hashlib.sha256(data).hexdigest()[:16], layer, tuple(values), tuple(readings), squared_length, reading if type(reading) is str else None)
+
+
+def read_spreads(path: Path, layer: int) -> Curve:
+    """The curve at `layer` in the file at `path`, refused unless its readings are spreads.
+
+    [LAW:single-enforcer] the one place noise is read from a file. A curve of means, or of answers
+    with no token, reads as a curve like any other, and taken for spreads it would be noise the
+    size of the answer itself, carried and printed as if measured. [LAW:no-silent-failure]
+    """
+    curve = read_curve(path, layer)
+    if curve.reading != "spread":
+        held = "readings it does not name" if curve.reading is None else f"{curve.reading}s"
+        raise CurveError(f"{path} holds {held}, and noise is read from the spreads `uni temperature` writes")
+    return curve

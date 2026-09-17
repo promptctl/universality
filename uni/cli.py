@@ -338,11 +338,11 @@ def smooth_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
 
 def noisy_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
     """The smooth map with a normal noise in its answer, of the size a curve of spreads gives at each push, the draws fixed by a seed."""
-    from uni.curve import read_curve
+    from uni.curve import read_spreads
     from uni.maps import NoisyFamily
 
     series = smooth_family(args, "noisy", ("spreads", "seed"))
-    return NoisyFamily(series, read_curve(args.spreads, args.layer), args.seed)
+    return NoisyFamily(series, read_spreads(args.spreads, args.layer), args.seed)
 
 
 def model_value(given: float | None) -> float:
@@ -729,7 +729,7 @@ def run_fixed(args: argparse.Namespace) -> int:
 def run_cascade(args: argparse.Namespace) -> int:
     """Print the superstable value on each grid, one period doubled per grid, and the ratios of their spacings."""
     from uni.cascade import CascadeError, amplification, evaluated, growths, nearest, quotients, ratios, reaches, returns, superstable, unit
-    from uni.curve import read_curve
+    from uni.curve import read_spreads
     from uni.fit import crossing
     from uni.loop import Answering, Sloped
     from uni.sweep import grid
@@ -745,7 +745,7 @@ def run_cascade(args: argparse.Namespace) -> int:
     # same carrying either way, and the columns say which it was.
     if args.noise is not None and not (sloped and isinstance(first, Answering)):
         raise CascadeError("--noise is a spread in the answer a map turns into its next push, carried by the map's slopes; the smooth map has both, and this one does not")
-    spreads = None if args.noise is None else read_curve(args.noise, args.layer)
+    spreads = None if args.noise is None else read_spreads(args.noise, args.layer)
 
     def noise_at(map: Answering) -> Callable[[float], float]:
         return unit if spreads is None else lambda push: map.push(spreads.at(push))

@@ -51,7 +51,7 @@ def test_a_returned_directory_comes_back_beside_what_is_here_and_deletes_nothing
     assert command == ["rsync", "--archive", "--ignore-existing", f"{SSH_TARGET}:/srv/uni/curves/", "/work/tree/curves/"]
 
 
-@pytest.mark.parametrize("directory", ["/tmp/curves", "../curves", "curves/../../x", "my curves", "c$HOME"])
+@pytest.mark.parametrize("directory", ["/tmp/curves", "../curves", "curves/../../x", "my curves", "c$HOME", "."])
 def test_a_returned_directory_is_named_plainly_from_the_checkout_s_root(directory):
     with pytest.raises(RemoteConfigError, match="named from the checkout's root"):
         returned_dir(Path(directory))
@@ -112,3 +112,19 @@ def test_remote_flag_is_not_abbreviable(tmp_path):
 def test_host_runs_locally_without_the_flag(tmp_path, capsys):
     assert main(["host"], {}, tmp_path) == 0
     assert capsys.readouterr().out.startswith(platform.node())
+
+
+def test_the_sync_deletes_what_this_checkout_no_longer_has_but_never_a_curve_the_host_wrote(tmp_path):
+    # The real rsync, between two local directories, with the sync's own filters: a curve the host
+    # wrote and has not yet sent back survives the next sync, and a stale source file does not.
+    from uni.remote import SYNC_FILTERS
+
+    here, host = tmp_path / "here", tmp_path / "host"
+    (here / "curves").mkdir(parents=True)
+    (here / "curves" / "kept.json").write_text("here")
+    (host / "curves").mkdir(parents=True)
+    (host / "curves" / "unfetched.json").write_text("host")
+    (host / "stale.py").write_text("gone")
+    subprocess.run(["rsync", "--archive", "--delete", *SYNC_FILTERS, f"{here}/", f"{host}/"], check=True)
+    assert sorted(path.name for path in (host / "curves").iterdir()) == ["kept.json", "unfetched.json"]
+    assert not (host / "stale.py").exists()

@@ -137,6 +137,17 @@ def test_a_spread_is_read_at_an_even_period_over_two_draws_at_least(logistic, tm
     assert message in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("reading, held", [(None, "readings it does not name"), ("mean", "means")])
+def test_noise_is_read_only_from_a_curve_of_spreads(logistic, tmp_path, capsys, reading, held):
+    described = {} if reading is None else {"reading": reading}
+    other = write_curves(described, PUSHES, {7: [0.1] * len(PUSHES)}, SQUARED_LENGTH, tmp_path / "other")
+    noisy = ["spread", "--map", "noisy", "--curve", str(logistic), "--layer", "7", "--degree", "2", "--spreads", str(other), "--seed", "0", "--critical", "0.5", "--period", "2", "--draws", "2", "--value", "3.2"]
+    cascade = ["cascade", *flags(logistic), "--critical", "0.5", "--period", "2", "--grid", GRIDS[0], "--noise", str(other)]
+    for argv in (noisy, cascade):
+        assert command(argv) == EXIT_CONFIG
+        assert f"holds {held}, and noise is read from the spreads `uni temperature` writes" in capsys.readouterr().err
+
+
 def test_a_noisy_map_needs_its_spreads_and_seed_and_the_smooth_map_reads_neither(logistic, tmp_path, capsys):
     assert command(["loop", *flags(logistic), "--start", "0.5", "--steps", "1", "--value", "3", "--seed", "1"]) == EXIT_CONFIG
     assert "--seed does not describe the smooth map, which reads --curve, --layer, --degree" in capsys.readouterr().err
