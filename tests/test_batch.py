@@ -11,7 +11,7 @@ import pytest
 from pathlib import Path
 
 from uni.batch import BatchError, Sizes, measure
-from uni.cli import EXIT_CONFIG, main
+from uni.cli import BATCH_SIZES, EXIT_CONFIG, main
 from uni.model import Model
 from uni.pinned import load_pinned
 from uni.steer import Steer, read_direction
@@ -41,7 +41,7 @@ def measured(request):
     model = request.getfixturevalue("model") if pinned == load_pinned() else Model(pinned)
     knob, layer, pushes = CURVES[name]
     prompt = load_templates()["rewrite"].render(TEXT)
-    return measure(model, prompt, Steer(read_direction(knob, pinned)), grid(pushes), layer, Sizes.over(grid(pushes), (1, 2, 3, 16)))
+    return measure(model, prompt, Steer(read_direction(knob, pinned)), grid(pushes), layer, Sizes.over(grid(pushes), (1, 2, 4, 16)))
 
 
 def test_one_row_to_a_batched_pass_is_the_reading_alone_to_the_bit(measured):
@@ -58,12 +58,17 @@ def test_no_batch_moves_a_reading_past_the_bound(measured):
         assert size.from_alone.answer <= ANSWER_BOUND and size.from_alone.logprob <= LOGPROB_BOUND, size
 
 
-def test_a_batch_larger_than_the_pushes_is_refused_before_a_model_is_loaded(capsys, monkeypatch):
-    # Run, it would be one short pass printed and timed as a batch of that size.
+def test_sizes_that_do_not_divide_the_pushes_are_refused_before_a_model_is_loaded(capsys, monkeypatch):
+    # Run, a last pass of fewer rows would be printed and timed as the size it is not, and read reversed
+    # it moves to the other end, so the neighbour check would blame the neighbours for a smaller pass.
     monkeypatch.setattr("uni.model.Model.__init__", lambda self, pinned: pytest.fail("the model was loaded"))
-    argv = ["batch", "--template", "rewrite", "--knob", "formality", "--start", TEXT, "--grid=-1:1:10", "--layer", "23", "--size", "2", "--size", "16"]
+    argv = ["batch", "--template", "rewrite", "--knob", "formality", "--start", TEXT, "--grid=-1:1:10", "--layer", "23", "--size", "2", "--size", "4", "--size", "16"]
     assert main(argv, {}, Path.cwd()) == EXIT_CONFIG
-    assert "a batch of 16 rows is more than the 10 pushes can fill" in capsys.readouterr().err
+    assert "10 pushes do not divide into passes of 4, 16 rows" in capsys.readouterr().err
+
+
+def test_the_default_sizes_are_those_that_divide_the_pushes():
+    assert Sizes.among(grid("-1:1:12"), BATCH_SIZES).sizes == (1, 2, 4)
 
 
 def test_sizes_that_never_put_a_row_beside_another_are_refused():

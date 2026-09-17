@@ -168,7 +168,8 @@ def run_batch(args: argparse.Namespace) -> int:
     from uni.sweep import grid
 
     pushes = grid(args.grid)
-    sizes = Sizes.over(pushes, args.size or BATCH_SIZES)
+    # Sizes typed are refused unless they divide the pushes; the default is each of its sizes that does.
+    sizes = Sizes.over(pushes, args.size) if args.size else Sizes.among(pushes, BATCH_SIZES)
     prompt = template(args.template)
     pinned = load_pinned(args.model)
     steer = Steer(read_direction(args.knob, pinned))
@@ -1033,7 +1034,7 @@ def build_parser() -> argparse.ArgumentParser:
     batch.add_argument("--start", required=True, help="the text the prompt is made from; write --start=TEXT when it begins with '-'")
     batch.add_argument("--grid", required=True, help="the pushes, as FROM:TO:COUNT with TO included; write --grid=FROM:TO:COUNT when FROM is negative")
     batch.add_argument("--layer", type=whole, required=True, help="the layer to read the answer at")
-    batch.add_argument("--size", type=positive, action="append", help=f"a batch size, rows to a forward pass; repeat it for each one (default: {' '.join(map(str, BATCH_SIZES))})")
+    batch.add_argument("--size", type=positive, action="append", help=f"a batch size, rows to a forward pass; repeat it for each one; each must divide the number of pushes (default: each of {' '.join(map(str, BATCH_SIZES))} that does)")
     batch.set_defaults(run=run_batch)
     heated = commands.add_parser("temperature", parents=[MODEL_FLAG], help="read the answer to each push with the token after the prompt drawn at each temperature: its mean and spread over every token")
     heated.add_argument("--template", required=True, help="the template the start is rendered into, named in uni/templates.toml")

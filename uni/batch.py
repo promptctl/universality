@@ -31,12 +31,15 @@ class BatchError(ConfigError):
 
 @dataclass(frozen=True)
 class Sizes:
-    """The batch sizes to read the pushes at, each one a pass the pushes can fill, in increasing order.
+    """The batch sizes to read the pushes at, each one dividing the pushes into full passes, in increasing order.
 
-    [LAW:parse-dont-validate] refused here, before a model is loaded: a size above the number of
-    pushes runs one short pass and would be printed and timed as a batch it never was, and a largest
-    size of one puts no row beside another, so reading it reversed is the same passes in another
-    order and could only ever say "identical".
+    [LAW:parse-dont-validate] refused here, before a model is loaded. A size that does not divide the
+    pushes leaves a last pass of fewer rows, and the number of rows in a pass moves readings: that
+    pass's rows would be printed and timed as the size they are not, and reading the pushes reversed
+    would move the short pass to the other end and put rows in a pass of another size, which is a
+    difference the neighbour check would blame on the neighbours. A largest size of one puts no row
+    beside another, so reading it reversed is the same passes in another order and could only ever
+    say "identical".
     """
 
     sizes: tuple[int, ...]
@@ -53,11 +56,16 @@ class Sizes:
 
     @classmethod
     def over(cls, pushes: Sequence[float], sizes: Sequence[int]) -> Sizes:
-        """The sizes asked for, refused unless every one of them is a pass the pushes fill."""
-        over = sorted(size for size in set(sizes) if size > len(pushes))
-        if over:
-            raise BatchError(f"a batch of {', '.join(map(str, over))} rows is more than the {len(pushes)} pushes can fill; pass a size of at most {len(pushes)} or more pushes")
+        """The sizes asked for, refused unless every one of them divides the pushes into full passes."""
+        ragged = sorted(size for size in set(sizes) if len(pushes) % size)
+        if ragged:
+            raise BatchError(f"{len(pushes)} pushes do not divide into passes of {', '.join(map(str, ragged))} rows, and a last pass of fewer rows reads as a smaller batch; pass sizes that divide {len(pushes)}")
         return cls(tuple(sorted(set(sizes))))
+
+    @classmethod
+    def among(cls, pushes: Sequence[float], sizes: Sequence[int]) -> Sizes:
+        """Those of these sizes that divide the pushes into full passes: the ones read when none are asked for by name."""
+        return cls.over(pushes, [size for size in sizes if len(pushes) % size == 0])
 
 
 @dataclass(frozen=True)
@@ -94,7 +102,7 @@ def alone(model: Model, prompt: str, steer: Steer, pushes: Sequence[float], laye
 
 
 def batched(model: Model, prompt: str, steer: Steer, pushes: Sequence[float], layer: int, size: int) -> Readings:
-    """Every push read `size` rows to a forward pass, in order; the last pass takes what is left."""
+    """Every push read `size` rows to a forward pass, in order."""
     answers: list[float] = []
     logprobs = []
     for start in range(0, len(pushes), size):
