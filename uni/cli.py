@@ -161,24 +161,24 @@ BATCH_SIZES = (1, 2, 4, 8, 16, 32, 64)
 
 def run_batch(args: argparse.Namespace) -> int:
     """Read every push alone and at each batch size, and print how far apart the readings are and how fast each size reads."""
-    from uni.batch import measure
+    from uni.batch import Sizes, measure
     from uni.model import Model
     from uni.pinned import load_pinned
     from uni.steer import Steer, read_direction
     from uni.sweep import grid
 
     pushes = grid(args.grid)
+    sizes = Sizes.over(pushes, args.size or BATCH_SIZES)
     prompt = template(args.template)
     pinned = load_pinned(args.model)
     steer = Steer(read_direction(args.knob, pinned))
-    sizes = tuple(sorted(set(args.size or BATCH_SIZES)))
     measured = measure(Model(pinned), prompt.render(args.start), steer, pushes, args.layer, sizes)
 
     def apart(distance: float) -> str:
         # Zero is the same bits, and said so: 0 printed to three figures would also be a difference too small to show.
         return "identical" if distance == 0 else f"{distance:.3g}"
 
-    largest = max(sizes)
+    largest = sizes.largest
     print(f"{len(pushes)} pushes from {pushes[0]:g} to {pushes[-1]:g} along {steer.direction.contrast.name}, the answer read at layer {args.layer}, on {pinned.model_id} at {pinned.dtype}")
     print(f"{'rows':>5}  {'answer from alone':>18}  {'logprob from alone':>18}  {f'answer from {largest}':>16}  {f'logprob from {largest}':>16}  {'pushes/s':>9}")
     for one in measured.sizes:

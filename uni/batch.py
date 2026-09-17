@@ -16,12 +16,48 @@ from dataclasses import dataclass
 import torch
 
 from uni.model import Model, token_logprobs
+from uni.parse import ConfigError
 from uni.response import admit, answered, response
 from uni.steer import Steer
 
 # How many times each batch size reads every push for its rate, the fastest kept: the machine is
 # shared, and the slowest of three is the one another process ran through.
 REPEATS = 3
+
+
+class BatchError(ConfigError):
+    """The batch sizes asked for cannot be measured over the pushes given. The message says why."""
+
+
+@dataclass(frozen=True)
+class Sizes:
+    """The batch sizes to read the pushes at, each one a pass the pushes can fill, in increasing order.
+
+    [LAW:parse-dont-validate] refused here, before a model is loaded: a size above the number of
+    pushes runs one short pass and would be printed and timed as a batch it never was, and a largest
+    size of one puts no row beside another, so reading it reversed is the same passes in another
+    order and could only ever say "identical".
+    """
+
+    sizes: tuple[int, ...]
+
+    def __post_init__(self) -> None:
+        if list(self.sizes) != sorted(set(self.sizes)) or not self.sizes or self.sizes[0] < 1:
+            raise BatchError(f"batch sizes are distinct, positive and increasing, got {self.sizes}")
+        if self.largest < 2:
+            raise BatchError("the largest batch size must be at least 2, so some pass holds a row beside another")
+
+    @property
+    def largest(self) -> int:
+        return self.sizes[-1]
+
+    @classmethod
+    def over(cls, pushes: Sequence[float], sizes: Sequence[int]) -> Sizes:
+        """The sizes asked for, refused unless every one of them is a pass the pushes fill."""
+        over = sorted(size for size in set(sizes) if size > len(pushes))
+        if over:
+            raise BatchError(f"a batch of {', '.join(map(str, over))} rows is more than the {len(pushes)} pushes can fill; pass a size of at most {len(pushes)} or more pushes")
+        return cls(tuple(sorted(set(sizes))))
 
 
 @dataclass(frozen=True)
@@ -99,16 +135,16 @@ class Measured:
     neighbours: Apart  # the largest batch read in reverse order against itself in order: whether a row's reading depends on the rows beside it
 
 
-def measure(model: Model, prompt: str, steer: Steer, pushes: Sequence[float], layer: int, sizes: Sequence[int]) -> Measured:
+def measure(model: Model, prompt: str, steer: Steer, pushes: Sequence[float], layer: int, sizes: Sizes) -> Measured:
     """Every batch size's readings of the pushes against reading each alone, against the largest batch, and against the largest batch reversed."""
     for push in pushes:
         admit(model, steer, push, layer)
     reference = alone(model, prompt, steer, pushes, layer)
-    readings = {size: batched(model, prompt, steer, pushes, layer, size) for size in sizes}
-    largest = readings[max(sizes)]
-    reversed_ = batched(model, prompt, steer, pushes[::-1], layer, max(sizes))
+    readings = {size: batched(model, prompt, steer, pushes, layer, size) for size in sizes.sizes}
+    largest = readings[sizes.largest]
+    reversed_ = batched(model, prompt, steer, pushes[::-1], layer, sizes.largest)
     unreversed = Readings(reversed_.answers[::-1], reversed_.logprobs.flip(0))
     return Measured(
-        tuple(Size(size, apart(readings[size], reference), apart(readings[size], largest), rate(model, prompt, steer, pushes, layer, size)) for size in sizes),
+        tuple(Size(size, apart(readings[size], reference), apart(readings[size], largest), rate(model, prompt, steer, pushes, layer, size)) for size in sizes.sizes),
         apart(unreversed, largest),
     )
