@@ -82,7 +82,7 @@ def run_gen(args: argparse.Namespace) -> int:
     from uni.model import Model
     from uni.pinned import load_pinned
 
-    generation = Model(load_pinned()).generate(args.prompt)
+    generation = Model(load_pinned(args.model)).generate(args.prompt)
     print(generation.text)
     print()
     print(f"sha256 {generation.sha256}")
@@ -140,7 +140,7 @@ def run_determinism(args: argparse.Namespace) -> int:
     from uni.model import Model
     from uni.pinned import load_pinned
 
-    model = Model(load_pinned())
+    model = Model(load_pinned(args.model))
     distinct = {}
     for case in cases(model):
         print(f"{case.name}: {args.runs} runs")
@@ -174,7 +174,7 @@ def run_direction(args: argparse.Namespace) -> int:
     from uni.pinned import load_pinned
     from uni.steer import derive, write_direction
 
-    direction = derive(Model(load_pinned()), args.contrast)
+    direction = derive(Model(load_pinned(args.model)), args.contrast)
     path = write_direction(direction)
     print(f"{path}  layer {args.contrast.layer}  length {math.hypot(*direction.vector):.6f}  sha256 {direction.sha256}")
     return 0
@@ -204,7 +204,11 @@ def turned_at(knob: Knob, values: Sequence[float]) -> Knob:
 # `refuse_unread` refuses the rest, so a flag added here is refused by every map that does not
 # name it without anything else being edited. A flag a map ignores is one a run would accept and
 # quietly drop, which is the failure the refusal exists to prevent. [LAW:one-source-of-truth]
-MAP_FLAGS = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+# Which pinned model a command loads: one flag, shared by every command that reads a checkpoint and
+# by the maps that do, so each says the same thing about it. [LAW:one-source-of-truth]
+MODEL_FLAG = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+MODEL_FLAG.add_argument("--model", help="the pinned model to load, named in uni/pinned.toml (default: its default)")
+MAP_FLAGS = argparse.ArgumentParser(add_help=False, allow_abbrev=False, parents=[MODEL_FLAG])
 MAP_FLAGS.add_argument("--template", help="the model or response map's template, named in uni/templates.toml")
 MAP_FLAGS.add_argument("--knob", help="a direction in uni/directions: what the model map steers along (or none), or what the response map pushes along")
 MAP_FLAGS.add_argument("--text", help="the response map's text, rendered once into its template")
@@ -241,7 +245,7 @@ def model_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
     """
     from uni.maps import MapError, ModelFamily, NoKnob  # torch-free, so a refusal below costs nothing
 
-    refuse_unread(args, "model", ("template", "knob"))
+    refuse_unread(args, "model", ("template", "knob", "model"))
     # [LAW:types-are-the-program] exception: argparse can require a flag for neither --map or for
     # both, so the map that reads a template is the one that refuses a run without it.
     if args.template is None:
@@ -260,9 +264,9 @@ def model_map(args: argparse.Namespace, values: Sequence[float]) -> Family:
     # only one that pays torch to hold a vector.
     if args.knob in (None, "none"):
         knob = turned_at(NoKnob(), values)
-        pinned = load_pinned()
+        pinned = load_pinned(args.model)
     else:
-        pinned = load_pinned()
+        pinned = load_pinned(args.model)
         from uni.steer import Steer, read_direction
 
         knob = turned_at(Steer(read_direction(args.knob, pinned)), values)
@@ -290,7 +294,7 @@ def response_family(args: argparse.Namespace, name: str, reads: Sequence[str]) -
     """The response loop the `name` map is built on, from the flags that describe it and the `reads` the map adds to them."""
     from uni.maps import RESPONSE_DECIMALS, MapError, ResponseFamily
 
-    refuse_unread(args, name, ("template", "knob", "text", "layer", "decimals", *reads))
+    refuse_unread(args, name, ("model", "template", "knob", "text", "layer", "decimals", *reads))
     # [LAW:types-are-the-program] exception: argparse cannot require a flag for one --map only.
     missing = [f"--{flag}" for flag in ("template", "knob", "text", "layer", *reads) if getattr(args, flag) is None]
     if missing or args.knob == "none":
@@ -299,7 +303,7 @@ def response_family(args: argparse.Namespace, name: str, reads: Sequence[str]) -
     from uni.pinned import load_pinned
     from uni.steer import Steer, read_direction
 
-    pinned = load_pinned()
+    pinned = load_pinned(args.model)
     # Every gain is a map: a negative one feeds the answer back reversed, and 0 sends every push to
     # 0. What a gain can carry the orbit into is refused where it happens, by the reading's bound.
     decimals = RESPONSE_DECIMALS if args.decimals is None else args.decimals
@@ -597,7 +601,7 @@ def run_response(args: argparse.Namespace) -> int:
 
     values = grid(args.grid)
     prompt = template(args.template)
-    pinned = load_pinned()
+    pinned = load_pinned(args.model)
     steer = Steer(read_direction(args.knob, pinned))
     model = Model(pinned)
     # Every cell put to the refusals before the first forward pass, rather than met at its turn: a
@@ -638,7 +642,7 @@ def run_temperature(args: argparse.Namespace) -> int:
 
     values = grid(args.grid)
     prompt = template(args.template)
-    pinned = load_pinned()
+    pinned = load_pinned(args.model)
     steer = Steer(read_direction(args.knob, pinned))
     model = Model(pinned)
     # Every push refused before the first forward pass, as `uni response` refuses them: each costs
@@ -922,10 +926,10 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     host = commands.add_parser("host", help="print where uni is running")
     host.set_defaults(run=run_host)
-    gen = commands.add_parser("gen", help="generate greedily from the pinned model")
+    gen = commands.add_parser("gen", parents=[MODEL_FLAG], help="generate greedily from the pinned model")
     gen.add_argument("prompt")
     gen.set_defaults(run=run_gen)
-    determinism = commands.add_parser("determinism", help="generate each gate case many times and check every hash is equal")
+    determinism = commands.add_parser("determinism", parents=[MODEL_FLAG], help="generate each gate case many times and check every hash is equal")
     determinism.add_argument("--runs", type=positive, default=RUNS, help=f"runs per case (default: {RUNS})")
     determinism.set_defaults(run=run_determinism)
     loop = commands.add_parser("loop", parents=[MAP_FLAGS], help="iterate a map from a start state and write the trajectory")
@@ -980,7 +984,7 @@ def build_parser() -> argparse.ArgumentParser:
     critical.add_argument("--value", type=finite, help="the map's parameter to read it at, as `uni loop` takes it")
     critical.add_argument("--grid", required=True, help="the states around the top, as FROM:TO:COUNT with TO included; write --grid=FROM:TO:COUNT when FROM is negative")
     critical.set_defaults(run=run_critical)
-    answer = commands.add_parser("response", help="read how the layers after a steering push answer it, with no token generated")
+    answer = commands.add_parser("response", parents=[MODEL_FLAG], help="read how the layers after a steering push answer it, with no token generated")
     answer.add_argument("--template", required=True, help="the template the start is rendered into, named in uni/templates.toml")
     answer.add_argument("--knob", required=True, help="the direction in uni/directions to push along")
     answer.add_argument("--start", required=True, help="the text the prompt is made from; write --start=TEXT when it begins with '-'")
@@ -989,7 +993,7 @@ def build_parser() -> argparse.ArgumentParser:
     answer.add_argument("--out", type=Path, default=FIGURES, help=f"where to write the figure (default: {FIGURES})")
     answer.add_argument("--curves", type=Path, default=CURVES, help=f"where to write the curves, for `uni smooth` and the smooth map to read (default: {CURVES})")
     answer.set_defaults(run=run_response)
-    heated = commands.add_parser("temperature", help="read the answer to each push with the token after the prompt drawn at each temperature: its mean and spread over every token")
+    heated = commands.add_parser("temperature", parents=[MODEL_FLAG], help="read the answer to each push with the token after the prompt drawn at each temperature: its mean and spread over every token")
     heated.add_argument("--template", required=True, help="the template the start is rendered into, named in uni/templates.toml")
     heated.add_argument("--knob", required=True, help="the direction in uni/directions to push along")
     heated.add_argument("--start", required=True, help="the text the prompt is made from; write --start=TEXT when it begins with '-'")
@@ -1003,7 +1007,7 @@ def build_parser() -> argparse.ArgumentParser:
     smoothed.add_argument("--layer", type=whole, required=True, help="the layer in it to fit")
     smoothed.add_argument("--degree", type=positive, action="append", required=True, help="a degree to fit; repeat it for each one")
     smoothed.set_defaults(run=run_smooth)
-    direction = commands.add_parser("direction", help="derive a steering direction from uni/directions/<name>.toml")
+    direction = commands.add_parser("direction", parents=[MODEL_FLAG], help="derive a steering direction from uni/directions/<name>.toml")
     direction.add_argument("contrast", type=contrast, help="the contrast's name")
     direction.set_defaults(run=run_direction)
     return parser

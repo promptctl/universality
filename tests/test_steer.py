@@ -30,23 +30,37 @@ def test_the_committed_direction_was_derived_from_the_committed_contrast(formali
 
 
 def elsewhere(tmp_path, monkeypatch):
-    """The committed direction and its contrast in a directory a test may edit."""
-    for name in ("formality.json", "formality.toml"):
-        (tmp_path / name).write_bytes((steer.DIRECTIONS / name).read_bytes())
+    """The committed contrast and the default model's direction from it, in a directory a test may edit; the directory the direction is in."""
+    home = tmp_path / load_pinned().home
+    home.mkdir()
+    (tmp_path / "formality.toml").write_bytes((steer.DIRECTIONS / "formality.toml").read_bytes())
+    (home / "formality.json").write_bytes((steer.DIRECTIONS / load_pinned().home / "formality.json").read_bytes())
     monkeypatch.setattr(steer, "DIRECTIONS", tmp_path)
-    return tmp_path
+    return home
+
+
+def test_a_direction_is_kept_under_the_model_it_was_read_from_and_the_contrast_beside_every_model():
+    assert load_pinned().home == "Qwen--Qwen2.5-0.5B-Instruct"
+    assert (steer.DIRECTIONS / "formality.toml").is_file() and (steer.DIRECTIONS / "Qwen--Qwen2.5-0.5B-Instruct" / "formality.json").is_file()
+
+
+def test_a_direction_derived_on_one_model_is_not_looked_for_under_another(capsys):
+    argv = ["loop", "--model", "smollm2-360m", "--template", "rewrite", "--start", "x", "--steps", "1", "--knob", "brevity", "--value", "1"]
+    assert main(argv, {}, Path.cwd()) == EXIT_CONFIG
+    assert "no brevity.json in uni/directions/HuggingFaceTB--SmolLM2-360M-Instruct; there are formality, formality-16" in capsys.readouterr().err
 
 
 def test_a_direction_file_that_was_edited_is_refused(tmp_path, monkeypatch):
     files = elsewhere(tmp_path, monkeypatch)
     (files / "formality.json").write_bytes((files / "formality.json").read_bytes().replace(b"\n  ", b"\n "))
-    with pytest.raises(SteerError, match="re-derive it rather than editing it"):
+    with pytest.raises(SteerError, match="re-derive it with this model rather than editing it"):
         read_direction("formality", load_pinned())
 
 
 def test_a_direction_that_no_longer_matches_its_contrast_is_refused(tmp_path, monkeypatch):
-    files = elsewhere(tmp_path, monkeypatch)
-    (files / "formality.toml").write_text((files / "formality.toml").read_text().replace("layer = 12", "layer = 14"))
+    elsewhere(tmp_path, monkeypatch)
+    contrast = tmp_path / "formality.toml"
+    contrast.write_text(contrast.read_text().replace("layer = 12", "layer = 14"))
     with pytest.raises(SteerError, match="no longer matches the contrast"):
         read_direction("formality", load_pinned())
 
@@ -104,7 +118,7 @@ def test_a_value_that_is_not_finite_is_refused(capsys, value):
 
 
 def test_the_trajectory_names_the_exact_direction_file(formality):
-    file = (steer.DIRECTIONS / "formality.json").read_bytes()
+    file = (steer.DIRECTIONS / load_pinned().home / "formality.json").read_bytes()
     spec = Steer(formality).turn(2.0).spec
     assert spec == {"kind": "steer", "direction": "formality", "layer": 12, "sha256": hashlib.sha256(file).hexdigest()}
 
@@ -178,7 +192,7 @@ def test_an_unknown_direction_is_refused_with_the_known_ones(capsys):
     # `uni: ...` and EXIT_CONFIG, not argparse's exit 2.
     argv = ["loop", "--template", "rewrite", "--start", "x", "--steps", "1", "--knob", "nope"]
     assert main(argv, {}, Path.cwd()) == EXIT_CONFIG
-    assert "no nope.json in uni/directions; there are brevity, certainty, formality, past, positivity" in capsys.readouterr().err
+    assert "no nope.json in uni/directions/Qwen--Qwen2.5-0.5B-Instruct; there are brevity, certainty, formality, past, positivity" in capsys.readouterr().err
 
 
 PAIR = '[[pairs]]\ntext = "a"\ntoward = "b"\naway = "c"\n'

@@ -193,7 +193,7 @@ def test_a_refusal_of_this_map_costs_no_checkpoint(tmp_path, flag, value):
 def test_every_map_flag_is_one_this_map_refuses(capsys):
     # Derived from the parser the map flags are declared in, not copied from it: a flag added
     # there and nowhere else is refused here rather than accepted and silently dropped.
-    assert MAP_OPTIONS == ("template", "knob", "text", "layer", "decimals", "curve", "degree", "spreads", "temperature", "seed")
+    assert MAP_OPTIONS == ("model", "template", "knob", "text", "layer", "decimals", "curve", "degree", "spreads", "temperature", "seed")
     for flag in MAP_OPTIONS:
         argv = ["loop", "--map", "logistic", "--start", "0.5", "--steps", "1", "--value", "3.2", f"--{flag}", "1"]
         assert command(argv) == EXIT_CONFIG

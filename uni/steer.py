@@ -2,9 +2,11 @@
 
 A contrast (uni/directions/<name>.toml) is a template, a layer, and pairs of replies to the same text,
 one toward a quality and one away from it. The direction is the mean, over pairs, of the difference
-between the residual stream averaged over each reply. It is derived once by `uni direction <name>` and
-kept beside its contrast as <name>.json, with the contrast and the checkpoint copied in, so a trajectory
-can name exactly what steered it and a changed checkpoint cannot be steered by a stale direction.
+between the residual stream averaged over each reply. It is derived once for each pinned model by
+`uni direction <name> --model MODEL`, and kept in that model's directory beside the contrasts, as
+<model id>/<name>.json, with the contrast and the checkpoint copied in: a contrast is words and holds
+for any model, a direction is a vector in one model's residual stream. So a trajectory can name exactly
+what steered it, and a changed checkpoint cannot be steered by a stale direction.
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ from uni.atomic import write_whole
 from uni.maps import Turned
 from uni.model import ResidualAdd
 from uni.parse import ConfigError, field
-from uni.pinned import Pinned
+from uni.pinned import Pinned, home
 from uni.template import Template, TemplateError, load_templates, parse_template
 
 if TYPE_CHECKING:
@@ -108,17 +110,18 @@ def _contrast(name: str, raw: Mapping[str, Any], template: Template) -> Contrast
 
 
 def _read(path: Path, parse: Any, fix: str) -> tuple[dict[str, Any], bytes]:
+    shown = path.relative_to(DIRECTIONS.parent.parent)  # uni/directions/..., as a person finds it
     try:
         data = path.read_bytes()
         raw = parse(data.decode())
     except FileNotFoundError as error:
-        known = sorted({other.stem for other in DIRECTIONS.glob("*" + path.suffix)})
+        known = sorted({other.stem for other in path.parent.glob("*" + path.suffix)})
         found = f"; there are {', '.join(known)}" if known else ""
-        raise SteerError(f"no {path.name} in uni/directions{found}. {fix}") from error
+        raise SteerError(f"no {path.name} in {shown.parent}{found}. {fix}") from error
     except (UnicodeDecodeError, tomllib.TOMLDecodeError, json.JSONDecodeError) as error:
-        raise SteerError(f"uni/directions/{path.name} does not parse: {error}") from error
+        raise SteerError(f"{shown} does not parse: {error}") from error
     if type(raw) is not dict:
-        raise SteerError(f"uni/directions/{path.name} must hold a table")
+        raise SteerError(f"{shown} must hold a table")
     return raw, data
 
 
@@ -133,9 +136,9 @@ def load_contrast(name: str) -> Contrast:
 
 def read_direction(name: str, pinned: Pinned) -> Direction:
     """The direction named `name`, refused unless it was derived on the `pinned` model."""
-    raw, data = _read(DIRECTIONS / f"{name}.json", json.loads, f"run `uni direction {name}` to derive it")
+    raw, data = _read(DIRECTIONS / pinned.home / f"{name}.json", json.loads, f"run `uni direction {name}` with this model to derive it")
     if raw.get("checkpoint") != pinned.checkpoint:
-        raise SteerError(f"{name}.json was derived on {raw.get('checkpoint')}, not the pinned checkpoint; run `uni direction {name}`")
+        raise SteerError(f"{name}.json was derived on {raw.get('checkpoint')}, not the pinned checkpoint; run `uni direction {name}` with this model")
     template = field(raw, "template", dict, SteerError)
     try:
         parsed = parse_template(field(template, "name", str, SteerError), field(template, "text", str, SteerError))
@@ -147,10 +150,10 @@ def read_direction(name: str, pinned: Pinned) -> Direction:
     direction = Direction(_contrast(name, raw, parsed), pinned.checkpoint, tuple(vector))
     # The contrast is copied into the file, so an edited contrast is a direction that no longer describes it.
     if direction.contrast != load_contrast(name):
-        raise SteerError(f"{name}.json no longer matches the contrast in {name}.toml; run `uni direction {name}`")
+        raise SteerError(f"{name}.json no longer matches the contrast in {name}.toml; run `uni direction {name}` with this model")
     # The sha256 a trajectory records is of this file, so the file has to be the one `uni direction` writes.
     if data != direction.encode():
-        raise SteerError(f"{name}.json is not what `uni direction {name}` writes; re-derive it rather than editing it")
+        raise SteerError(f"{name}.json is not what `uni direction {name}` writes; re-derive it with this model rather than editing it")
     return direction
 
 
@@ -165,7 +168,7 @@ def derive(model: Model, contrast: Contrast) -> Direction:
 def write_direction(direction: Direction) -> Path:
     # Whole or absent, as every file here is: a derivation killed mid-write leaves the committed
     # direction standing rather than replacing it with half of the next one.
-    return write_whole(DIRECTIONS / f"{direction.contrast.name}.json", direction.encode())
+    return write_whole(DIRECTIONS / home(direction.checkpoint) / f"{direction.contrast.name}.json", direction.encode())
 
 
 @dataclass(frozen=True)

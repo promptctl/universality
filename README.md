@@ -99,14 +99,17 @@ which accounts for the difference.
 
 ## What isn't shown yet
 
-- **Only one model so far.** Universality claims the model, the loop and the knob don't matter, and
-  testing that is the project's next stage ([Rung 5](PROJECT.md#the-ladder-conclusive-first)). The
-  knob and the loop have each been changed once. Pushed along brevity instead of formality, the same
-  loop has a hump of a different shape, and fits to it land on the same three numbers, 4.66920, 2.503
-  and 6.619 ([measured here](EXPERIMENTS.md#rung-5-a-second-knob-brevity)). Four new knobs were tried,
-  and only that one was followed that far. Fits to a second loop, summarizing a different sentence
+- **One variation of each so far.** Universality claims the model, the loop and the knob don't
+  matter, and testing that is the project's next stage ([Rung 5](PROJECT.md#the-ladder-conclusive-first)).
+  Each has now been changed once. Pushed along brevity instead of formality, the same loop has a hump
+  of a different shape, and fits to it land on the same three numbers, 4.66920, 2.503 and 6.619
+  ([measured here](EXPERIMENTS.md#rung-5-a-second-knob-brevity)). Four new knobs were tried, and
+  only that one was followed that far. Fits to a second loop, summarizing a different sentence
   instead of rewriting one, land on the same three numbers too
-  ([measured here](EXPERIMENTS.md#rung-5-a-second-loop-summarize)). Other models haven't been tested.
+  ([measured here](EXPERIMENTS.md#rung-5-a-second-loop-summarize)). So do fits to a second model,
+  SmolLM2-360M, of another family and size, pushed halfway through its layers as the first model was
+  ([measured here](EXPERIMENTS.md#rung-5-a-second-model-smollm2-360m)). One of each is not many:
+  the rung's next steps are more knobs, loops and models, and the combinations of them.
 - **Not the loop people run.** The loop that cascades is a one-number loop built inside the model.
   The loop people actually use, text in and text out, showed no cascade at all.
 - **The deepest numbers come from a fit.** Everything past period 64, and the limits 2.503 and
