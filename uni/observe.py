@@ -7,7 +7,8 @@ step n; the state's own text is what the period detector compares, and is not a 
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import cached_property
 from typing import Protocol
@@ -46,6 +47,11 @@ class Observable(Protocol):
 
     @property
     def name(self) -> str: ...
+
+    @property
+    def needs(self) -> tuple[Weights, ...]:
+        """The checkpoints reading this loads, so a caller can load them before it names any step or cell."""
+        ...
 
     def read(self, step: Step) -> float: ...
 
@@ -91,6 +97,10 @@ class Length:
     def name(self) -> str:
         return "length"
 
+    @property
+    def needs(self) -> tuple[Weights, ...]:
+        return ()
+
     def read(self, step: Step) -> float:
         return float(len(step.state))
 
@@ -110,6 +120,10 @@ class Value:
     def name(self) -> str:
         return "x"
 
+    @property
+    def needs(self) -> tuple[Weights, ...]:
+        return ()
+
     def read(self, step: Step) -> float:
         return self.number(step.state)
 
@@ -126,6 +140,10 @@ class Logprob:
     def name(self) -> str:
         return "logprob"
 
+    @property
+    def needs(self) -> tuple[Weights, ...]:
+        return (self.weights,)
+
     def read(self, step: Step) -> float:
         return self.weights.model.reply_logprob(self.template.render(step.previous), step.state, self.additions)
 
@@ -141,6 +159,10 @@ class Projection:
     @property
     def name(self) -> str:
         return f"along:{self.direction.contrast.name}"
+
+    @property
+    def needs(self) -> tuple[Weights, ...]:
+        return (self.weights,)
 
     def read(self, step: Step) -> float:
         # Read with the knob off, unlike the log-probability: the addition the knob makes at this
@@ -200,20 +222,45 @@ def steering_additions(directions: Sequence[Direction], value: float) -> tuple[R
     return tuple(addition for direction in directions for addition in Steer(direction).turn(value).additions)
 
 
+@contextmanager
+def addressed(address: str) -> Iterator[None]:
+    """Refusals from inside, named after the one step or file they are about.
+
+    ConfigError and not ObserveError: a trajectory is refused by `read_trajectory` for its shape,
+    by `read_direction` for a direction that has changed, and by the observables for what its
+    states are made of - sibling error types under the one the CLI reports. [LAW:single-enforcer]
+    """
+    try:
+        yield
+    except ConfigError as error:
+        raise ObserveError(f"{address}: {error}") from error
+
+
+def load_checkpoints(observables: Sequence[Observable], steps: Sequence[Step]) -> None:
+    """Load every checkpoint these observables read through at these steps, before any reading can be named after a step or a cell.
+
+    A checkpoint that cannot load is a refusal about the whole run, so it is taken here, where no
+    step or cell has a name yet, and not at the first reading that happens to want one, where it
+    would come out addressed to that step. Each `Weights` holds its model once loaded, so the
+    readings after this load nothing. [LAW:no-silent-failure]
+
+    Only a reading actually taken pays, so with no steps to read nothing is loaded: an orbit
+    with no states, or a burn-in past a cell's last step, has no reading for a checkpoint to cost.
+    [LAW:carrying-cost]
+    """
+    if not steps:
+        return
+    for observable in observables:
+        for weights in observable.needs:
+            weights.model
+
+
 def readings(observables: Sequence[Observable], step: Step) -> tuple[float, ...]:
     """Every observable's number for one step, or a refusal that says which step has no number."""
-    try:
+    # The template, the directions and the checkpoint were all settled before the table started,
+    # so what fails here is about this step's states.
+    with addressed(f"step {step.index}"):
         return tuple(observable.read(step) for observable in observables)
-    # The template was parsed and the directions checked against the pinned config before the
-    # table started printing, so most of what could fail about the run's description already has.
-    # The checkpoint is the exception, and deliberately so: an observable holds the `Weights` and
-    # reads through it, so a model that cannot be loaded at all is refused here, at the first
-    # reading that wanted one, and comes out labelled with that step. The label is then noise on a
-    # message that is about the whole run - true, but named after the step that tripped it. What
-    # would fix it is an observable able to say that reading it costs a checkpoint, so the caller
-    # could settle that once before any step is named: filed as universality-observe-16d.
-    except ConfigError as error:
-        raise ObserveError(f"step {step.index}: {error}") from error
 
 
 def model_observables(trajectory: Trajectory, checkpoints: Checkpoints) -> tuple[Observable, ...]:

@@ -17,8 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from uni.loop import read_trajectory
-from uni.observe import Checkpoints, Observable, ObserveError, observables, readings, steps
-from uni.parse import ConfigError
+from uni.observe import Checkpoints, Observable, ObserveError, addressed, load_checkpoints, observables, readings, steps
 from uni.sweep import Sweep, finished
 
 
@@ -89,24 +88,15 @@ def read(sweep: Sweep, home: Path, name: str, burn_in: int) -> tuple[Readings, .
         # the caller was one trajectory the user had named. Over a sweep of a thousand, the cell is
         # the file to go and look at, and it arrives after minutes of readings taken from the cells
         # before it.
-        #
-        # One kind of refusal is not about the cell and still gets its name: the checkpoint itself
-        # failing to load, which happens at the first reading that needs one and so happens inside
-        # some cell. The name is then noise on a message about the whole sweep. Fixing it wants an
-        # observable that can say reading it costs a checkpoint, so this could settle that once
-        # before the loop: filed as universality-observe-16d.
-        try:
+        with addressed(cell.name):
             trajectory = read_trajectory(home / cell.name)
             observable = named(observables(trajectory, checkpoints), name)
             settled = [step for step in steps(trajectory) if step.index >= burn_in]
+        # Outside the cell's name: a checkpoint that will not load is about the sweep, not this
+        # cell. Only the first cell that reads through it pays.
+        load_checkpoints((observable,), settled)
+        with addressed(cell.name):
             numbers = tuple(readings((observable,), step)[0] for step in settled)
-        # ConfigError and not ObserveError: a cell is refused by `read_trajectory` for its shape,
-        # by `read_direction` for a direction that has changed, and by the observables for what its
-        # states are made of - three sibling error types under the one the CLI reports, and only
-        # one of them was being named. [LAW:single-enforcer] the contract is the type the CLI
-        # reports, so that is the type this catches.
-        except ConfigError as error:
-            raise ObserveError(f"{cell.name}: {error}") from error
         out.append(Readings(trajectory.value, numbers))
     return tuple(out)
 

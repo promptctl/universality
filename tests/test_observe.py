@@ -10,6 +10,7 @@ import torch
 from uni.cli import main
 from uni.loop import Trajectory, write_trajectory
 from uni.maps import logistic_state, model_spec
+from uni.model import ModelError
 from uni.observe import (
     Length,
     Logprob,
@@ -108,6 +109,42 @@ def test_an_orbit_of_the_second_model_names_its_observables_without_loading_eith
     monkeypatch.setattr(Weights, "model", property(lambda self: pytest.fail("a checkpoint was read")))
     names = [observable.name for observable in observables(Trajectory(spec(pinned=load_pinned("smollm2-360m")), 0.0, "a", ()), Checkpoints())]
     assert names == ["length", "logprob"]
+
+
+def test_an_observable_says_which_checkpoints_reading_it_loads(formality):
+    weights = Weights(load_pinned())
+    template = load_templates()["rewrite"]
+    assert Length().needs == () and Value(logistic_state).needs == ()
+    assert Logprob(weights, template, ()).needs == (weights,) and Projection(weights, template, formality).needs == (weights,)
+
+
+def unloadable(monkeypatch):
+    """A checkpoint that refuses to load, as one does on a machine with no Metal; the refusal it gives."""
+    message = "Metal (mps) is not available on this machine, and it is the only device this runs on"
+
+    def refuse(self):
+        raise ModelError(message)
+
+    monkeypatch.setattr(Weights, "model", property(refuse))
+    return message
+
+
+def test_a_checkpoint_that_will_not_load_is_refused_as_the_runs_problem_and_not_a_steps(tmp_path, capsys, monkeypatch):
+    message = unloadable(monkeypatch)
+    path = write_trajectory(Trajectory(spec("identity"), 0.0, "hello", ("hello", "hello")), tmp_path)
+    assert main(["observe", str(path)], {}, Path.cwd()) != 0
+    captured = capsys.readouterr()
+    # The verdict needs no checkpoint and is still the answer; no table is begun that could not be filled.
+    assert captured.out.splitlines() == ["period 1, entered at step 0", ""]
+    assert captured.err == f"uni: {message}\n"
+
+
+def test_an_orbit_with_no_steps_is_tabled_without_loading_its_checkpoint(tmp_path, capsys, monkeypatch):
+    unloadable(monkeypatch)
+    path = write_trajectory(Trajectory(spec("identity"), 0.0, "hello", ()), tmp_path)
+    assert main(["observe", str(path)], {}, Path.cwd()) == 0
+    printed = capsys.readouterr().out.splitlines()
+    assert "logprob" in printed[2] and printed[3].split() == ["0", "1", "-", "-"]
 
 
 def test_an_unsteered_run_has_no_direction_to_project_onto():

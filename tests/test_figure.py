@@ -12,7 +12,8 @@ import pytest
 from uni.cli import EXIT_CONFIG, main
 from uni.figure import Readings, named, orbit_diagram, read, return_map
 from uni.loop import read_trajectory
-from uni.observe import Checkpoints, ObserveError, observables, steps
+from uni.model import ModelError
+from uni.observe import Checkpoints, ObserveError, Weights, observables, steps
 from uni.sweep import MANIFEST, finished, pending, read_sweep
 
 
@@ -183,6 +184,33 @@ def model_sweep(tmp_path):
     for value in values:
         write_trajectory(Trajectory(spec, value, start, ("a", "bb")), home)
     return written, home
+
+
+NO_METAL = "Metal (mps) is not available on this machine, and it is the only device this runs on"
+
+
+def unloadable(monkeypatch):
+    """A checkpoint that refuses to load, as one does on a machine with no Metal."""
+
+    def refuse(self):
+        raise ModelError(NO_METAL)
+
+    monkeypatch.setattr(Weights, "model", property(refuse))
+
+
+def test_a_checkpoint_that_will_not_load_is_refused_as_the_sweeps_problem_and_not_a_cells(tmp_path, monkeypatch):
+    unloadable(monkeypatch)
+    written, home = model_sweep(tmp_path)
+    with pytest.raises(ModelError) as refused:
+        read(written, home, "logprob", burn_in=0)
+    assert str(refused.value) == NO_METAL
+
+
+def test_a_burn_in_that_leaves_no_steps_loads_no_checkpoint(tmp_path, monkeypatch):
+    # With nothing left to read, the refusal worth hearing is that there is nothing to draw.
+    unloadable(monkeypatch)
+    written, home = model_sweep(tmp_path)
+    assert read(written, home, "logprob", burn_in=3) == tuple(Readings(value, ()) for value in written.values)
 
 
 def test_a_picture_of_what_every_map_answers_reads_no_checkpoint_at_all(tmp_path, monkeypatch):
