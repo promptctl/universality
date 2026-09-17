@@ -1523,8 +1523,8 @@ and 4.6692014, where formality's four read 4.6692012 to 4.6692031 and Feigenbaum
 Aitken's extrapolation on the last three nearest-point ratios gives -2.5029074, -2.5029071 and
 -2.5029076 for degrees 400, 300 and 220, within 8e-7 of alpha = 2.5029079, and on the last three
 growths 6.6190350, 6.6190354 and 6.6190363, within 2e-6 of the logistic map's kappa, 6.619037. A
-second knob, nearly orthogonal to the first (the two directions' cosine is -0.34), with a hump of
-its own shape, carries the model's loop to the same three constants.
+second knob, a different quality pushed along a different direction, with a hump of its own shape,
+carries the model's loop to the same three constants.
 
 ## Running on the experiment host
 
