@@ -6,8 +6,9 @@ def weights():
     # What the observables that need a checkpoint hold. Made once, so the whole session reads the
     # weights once however many tests ask for them.
     from uni.observe import Weights
+    from uni.pinned import load_pinned
 
-    return Weights()
+    return Weights(load_pinned())
 
 
 @pytest.fixture(scope="session")

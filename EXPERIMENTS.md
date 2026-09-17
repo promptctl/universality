@@ -16,9 +16,10 @@ text, its sha256, and each generated token with its log-probability.
 
 The models, their revisions and dtype, and the generation limit are pinned in
 [uni/pinned.toml](uni/pinned.toml), and nothing else in the code names them. Each model is a
-table under a name, and one of them is the default. Every command that loads a model takes
-`--model NAME` and loads the default without it; everything in this file before Rung 5's second
-model runs on the default, Qwen2.5-0.5B-Instruct. Generation
+table under a name, and one of them is the default. Every command that runs a model takes
+`--model NAME` and runs the default without it; `uni observe` and `uni plot` read an orbit with the
+pinned model whose checkpoint it recorded, and refuse one no pinned model is. Everything in this file
+before Rung 5's second model runs on the default, Qwen2.5-0.5B-Instruct. Generation
 runs on Metal, greedy at batch size one; the checkpoint's own sampling settings are
 ignored. CPU is too slow for this work, so it is not an option.
 

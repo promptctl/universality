@@ -79,3 +79,9 @@ def test_the_command_reports_a_bad_pin_rather_than_a_traceback(capsys, monkeypat
 def test_a_model_nobody_pinned_is_refused_before_a_checkpoint_is_read(capsys):
     assert main(["gen", "hi", "--model", "huge"], {}, Path.cwd()) == EXIT_CONFIG
     assert "no model 'huge' is pinned; the models are qwen2.5-0.5b, smollm2-360m" in capsys.readouterr().err
+
+
+def test_one_model_id_is_pinned_once_since_it_names_the_directory_its_directions_are_kept_in():
+    twice = VALID.replace('id = "org/other"', 'id = "org/model"')
+    with pytest.raises(PinnedConfigError, match="org/model is pinned more than once"):
+        parse_pinned(twice)

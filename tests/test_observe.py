@@ -17,6 +17,7 @@ from uni.observe import (
     Projection,
     Step,
     Value,
+    Checkpoints,
     Weights,
     identities,
     observables,
@@ -63,13 +64,13 @@ def test_the_template_comes_back_off_the_trajectory():
 def test_a_trajectory_from_another_kind_of_map_has_no_model_observables(weights):
     # And costs no checkpoint to find that out: what an orbit can be read for is decided by the
     # kind its file records, before anything that needs weights is built.
-    assert observables(Trajectory({"kind": "logistic"}, 0.0, "a", ()), Weights()) == (Length(), Value(logistic_state))
+    assert observables(Trajectory({"kind": "logistic"}, 0.0, "a", ()), Checkpoints()) == (Length(), Value(logistic_state))
 
 
 def test_an_orbit_of_a_kind_this_build_cannot_read_is_refused():
     # Answering with the length alone would read as a full reading of a file nothing here knows.
     with pytest.raises(ObserveError, match="'henon' orbit is not one this build can read"):
-        observables(Trajectory({"kind": "henon"}, 0.0, "a", ()), Weights())
+        observables(Trajectory({"kind": "henon"}, 0.0, "a", ()), Checkpoints())
 
 
 def test_a_trajectory_that_recorded_no_template_is_refused():
@@ -77,21 +78,36 @@ def test_a_trajectory_that_recorded_no_template_is_refused():
         template_of(Trajectory({"kind": "model"}, 0.0, "a", ()))
 
 
-def test_the_pinned_model_is_handed_back_when_it_is_the_one_that_wrote_the_orbit():
-    assert written_by(Trajectory(spec(), 0.0, "a", ()), load_pinned()) == load_pinned()
+def test_the_pinned_model_that_wrote_the_orbit_is_the_one_it_is_read_with_whichever_it_is():
+    assert written_by(Trajectory(spec(), 0.0, "a", ())) == load_pinned()
+    second = load_pinned("smollm2-360m")
+    assert written_by(Trajectory(spec(pinned=second), 0.0, "a", ())) == second
 
 
-def test_an_orbit_written_on_another_checkpoint_is_refused():
+def test_an_orbit_written_on_a_checkpoint_no_model_pins_is_refused():
     # Every reading would be a real number about a model that never saw this orbit.
     other = dataclasses.replace(load_pinned(), revision="0" * 40)
-    with pytest.raises(ObserveError, match="written on"):
-        written_by(Trajectory(spec(pinned=other), 0.0, "a", ()), load_pinned())
+    with pytest.raises(ObserveError, match="no model pinned in uni/pinned.toml is that checkpoint; the models are qwen2.5-0.5b, smollm2-360m"):
+        written_by(Trajectory(spec(pinned=other), 0.0, "a", ()))
 
 
-def test_a_longer_generation_limit_leaves_an_orbit_readable(weights):
+def test_a_longer_generation_limit_leaves_an_orbit_readable():
     # The limit bounds how long a state may be; it is not part of what the weights score it as.
     longer = dataclasses.replace(load_pinned(), max_new_tokens=load_pinned().max_new_tokens * 2)
-    assert written_by(Trajectory(spec(pinned=longer), 0.0, "a", ()), load_pinned()) == load_pinned()
+    assert written_by(Trajectory(spec(pinned=longer), 0.0, "a", ())) == load_pinned()
+
+
+def test_each_checkpoint_is_held_once_however_many_orbits_are_read_with_it():
+    checkpoints = Checkpoints()
+    first, again = (checkpoints.writing(Trajectory(spec(), 0.0, start, ())) for start in ("a", "b"))
+    second = checkpoints.writing(Trajectory(spec(pinned=load_pinned("smollm2-360m")), 0.0, "a", ()))
+    assert first is again and first.pinned == load_pinned() and second.pinned == load_pinned("smollm2-360m")
+
+
+def test_an_orbit_of_the_second_model_names_its_observables_without_loading_either(monkeypatch):
+    monkeypatch.setattr(Weights, "model", property(lambda self: pytest.fail("a checkpoint was read")))
+    names = [observable.name for observable in observables(Trajectory(spec(pinned=load_pinned("smollm2-360m")), 0.0, "a", ()), Checkpoints())]
+    assert names == ["length", "logprob"]
 
 
 def test_an_unsteered_run_has_no_direction_to_project_onto():

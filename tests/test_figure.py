@@ -12,7 +12,7 @@ import pytest
 from uni.cli import EXIT_CONFIG, main
 from uni.figure import Readings, named, orbit_diagram, read, return_map
 from uni.loop import read_trajectory
-from uni.observe import ObserveError, Weights, observables, steps
+from uni.observe import Checkpoints, ObserveError, observables, steps
 from uni.sweep import MANIFEST, finished, pending, read_sweep
 
 
@@ -85,7 +85,7 @@ def test_an_observable_this_sweep_does_not_read_is_refused_by_name(tmp_path, mon
     written, home = sweep(tmp_path, monkeypatch)
     trajectory = read_trajectory(home / finished(written, home)[0].name)
     with pytest.raises(ObserveError, match="no observable 'logprob' for this sweep; it reads length, x"):
-        named(observables(trajectory, Weights()), "logprob")
+        named(observables(trajectory, Checkpoints()), "logprob")
 
 
 def test_the_return_map_pairs_each_reading_with_the_one_after_it():

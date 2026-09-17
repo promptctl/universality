@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from uni.loop import read_trajectory
-from uni.observe import Observable, ObserveError, Weights, observables, readings, steps
+from uni.observe import Checkpoints, Observable, ObserveError, observables, readings, steps
 from uni.parse import ConfigError
 from uni.sweep import Sweep, finished
 
@@ -78,9 +78,9 @@ def read(sweep: Sweep, home: Path, name: str, burn_in: int) -> tuple[Readings, .
     step 1 and would keep step N + 1, so the period a person reads off one command would be
     measured over different states than the picture drawn by the other. [LAW:one-source-of-truth]
     """
-    # One checkpoint for the whole picture, not one per cell: what every cell of a sweep is read
-    # through is the same model, because the sweep's own description says so. [LAW:carrying-cost]
-    weights = Weights()
+    # One checkpoint for the whole picture, not one per cell: every cell of a sweep is read through
+    # the model it records, which the sweep's own description makes the same one, loaded once. [LAW:carrying-cost]
+    checkpoints = Checkpoints()
     out = []
     for cell in finished(sweep, home):
         # [LAW:no-silent-failure] a refusal about a cell names the cell. The messages under here
@@ -97,7 +97,7 @@ def read(sweep: Sweep, home: Path, name: str, burn_in: int) -> tuple[Readings, .
         # before the loop: filed as universality-observe-16d.
         try:
             trajectory = read_trajectory(home / cell.name)
-            observable = named(observables(trajectory, weights), name)
+            observable = named(observables(trajectory, checkpoints), name)
             settled = [step for step in steps(trajectory) if step.index >= burn_in]
             numbers = tuple(readings((observable,), step)[0] for step in settled)
         # ConfigError and not ObserveError: a cell is refused by `read_trajectory` for its shape,
