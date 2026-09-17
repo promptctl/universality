@@ -566,7 +566,7 @@ def run_plot(args: argparse.Namespace) -> int:
         # files rather than one overwritten four times. The burn-in is in it because it is the
         # third thing that fixes what the picture shows, and this repo names a file by what fixes
         # it: without it, plotting the reference cascade again without `--burn-in` would replace
-        # the committed figure with a transient-laden one under the name the README links to.
+        # the committed figure with a transient-laden one under the name EXPERIMENTS.md links to.
         # The name comes from the manifest and not
         # from the directory it was found in: they agree for a sweep this program wrote, and when
         # they do not - a copied directory, a renamed one - it is the sweep that says which
