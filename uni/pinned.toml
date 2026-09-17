@@ -1,9 +1,18 @@
-# The pinned model and how it generates: the one file that names these facts.
+# The pinned models and how they generate: the one file that names these facts.
 # Decoding is greedy at batch size one on Metal by construction, so none of those is a setting here.
+# A command that loads a model takes --model NAME, one of the tables below, and runs the default without it.
 
-[model]
+default = "qwen2.5-0.5b"
+
+[models."qwen2.5-0.5b"]
 id = "Qwen/Qwen2.5-0.5B-Instruct"
 revision = "7ae557604adf67be50417f59c2c2f167def9a775"  # a commit, so weights and tokenizer cannot move
+dtype = "float32"
+
+# A second family and size, for Rung 5: a llama-architecture model with 32 layers and 960 dimensions.
+[models."smollm2-360m"]
+id = "HuggingFaceTB/SmolLM2-360M-Instruct"
+revision = "a10cc1512eabd3dde888204e902eca88bddb4951"
 dtype = "float32"
 
 [generation]

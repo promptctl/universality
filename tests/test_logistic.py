@@ -193,7 +193,7 @@ def test_a_refusal_of_this_map_costs_no_checkpoint(tmp_path, flag, value):
 def test_every_map_flag_is_one_this_map_refuses(capsys):
     # Derived from the parser the map flags are declared in, not copied from it: a flag added
     # there and nowhere else is refused here rather than accepted and silently dropped.
-    assert MAP_OPTIONS == ("template", "knob", "text", "layer", "decimals", "curve", "degree", "spreads", "temperature", "seed")
+    assert MAP_OPTIONS == ("model", "template", "knob", "text", "layer", "decimals", "curve", "degree", "spreads", "temperature", "seed")
     for flag in MAP_OPTIONS:
         argv = ["loop", "--map", "logistic", "--start", "0.5", "--steps", "1", "--value", "3.2", f"--{flag}", "1"]
         assert command(argv) == EXIT_CONFIG
@@ -210,6 +210,6 @@ def test_an_r_that_is_a_whole_number_writes_a_file_that_reads_back(tmp_path):
 
 
 def test_the_model_map_still_needs_its_template(capsys, monkeypatch):
-    monkeypatch.setattr("uni.pinned.load_pinned", lambda: pytest.fail("the checkpoint was read before the flags were"))
+    monkeypatch.setattr("uni.pinned.load_pinned", lambda name=None: pytest.fail("the checkpoint was read before the flags were"))
     assert command(["loop", "--start", "x", "--steps", "1"]) == EXIT_CONFIG
     assert "pass --template" in capsys.readouterr().err

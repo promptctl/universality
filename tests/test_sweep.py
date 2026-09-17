@@ -183,7 +183,7 @@ def test_a_grid_with_no_knob_to_turn_is_refused_before_the_checkpoint(capsys, tm
     # sweep that could never have steered anything is refused in milliseconds rather than after
     # a checkpoint load and a first cell.
     monkeypatch.setattr("uni.cli.SWEEPS", tmp_path)
-    monkeypatch.setattr("uni.pinned.load_pinned", lambda: pytest.fail("the checkpoint was read before the grid was refused"))
+    monkeypatch.setattr("uni.pinned.load_pinned", lambda name=None: pytest.fail("the checkpoint was read before the grid was refused"))
     argv = ["sweep", "--template", "rewrite", "--grid", "0:2:5", "--start", "x", "--steps", "1"]
     assert command(argv) == EXIT_CONFIG
     assert "uni: there is no knob to turn" in capsys.readouterr().err

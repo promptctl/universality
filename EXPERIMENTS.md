@@ -14,8 +14,12 @@ That one command installs everything and generates from the pinned model. The fi
 downloads the checkpoint, about a gigabyte, into the Hugging Face cache. It prints the
 text, its sha256, and each generated token with its log-probability.
 
-The model, its revision, dtype, and generation limit are pinned in
-[uni/pinned.toml](uni/pinned.toml), and nothing else in the code names them. Generation
+The models, their revisions and dtype, and the generation limit are pinned in
+[uni/pinned.toml](uni/pinned.toml), and nothing else in the code names them. Each model is a
+table under a name, and one of them is the default. Every command that runs a model takes
+`--model NAME` and runs the default without it; `uni observe` and `uni plot` read an orbit with the
+pinned model whose checkpoint it recorded, and refuse one no pinned model is. Everything in this file
+before Rung 5's second model runs on the default, Qwen2.5-0.5B-Instruct. Generation
 runs on Metal, greedy at batch size one; the checkpoint's own sampling settings are
 ignored. CPU is too slow for this work, so it is not an option.
 
@@ -166,8 +170,11 @@ averaged over the reply's tokens. Derive it once:
 
     uv run uni direction formality
 
-This writes `uni/directions/formality.json`, which holds the vector, a copy of the
-contrast that produced it, and the checkpoint it was read from, and is committed. Every
+This writes `uni/directions/Qwen--Qwen2.5-0.5B-Instruct/formality.json`, which holds the vector,
+a copy of the contrast that produced it, and the checkpoint it was read from, and is committed. A
+contrast is words and holds for every model; a direction is a vector in one model's residual
+stream, so each model's directions are kept in a directory named by its model id, and `uni direction
+formality --model NAME` derives that model's. Every
 trajectory steered by it records the direction's name, layer, and sha256, which is the
 hash of the file itself: a direction file that has been edited by hand, or derived on a
 different checkpoint than the one pinned, is refused. Re-derive when the contrast or the
@@ -1338,7 +1345,7 @@ future). Each is derived as formality was:
 
     uv run uni direction brevity
 
-    uni/directions/brevity.json  layer 12  length 5.023152  sha256 ca56e8d1547df1f4ed6111b9ab6f7e6cdae7374130cade73c1bf0dac4564bdcc
+    uni/directions/Qwen--Qwen2.5-0.5B-Instruct/brevity.json  layer 12  length 5.023152  sha256 ca56e8d1547df1f4ed6111b9ab6f7e6cdae7374130cade73c1bf0dac4564bdcc
 
 and read coarsely, at four layers, with the same command for each:
 
@@ -1699,6 +1706,209 @@ last three growths 6.6190364, 6.6190364 and 6.6190368, within 7e-7 of kappa = 6.
 second loop reach the three constants. The model itself is read to period 64, where its ratios follow
 the best fit's within 1.0 and 2.5 of their errors while its gains drift 5.2 errors from the fit's. The
 limits are the fits'.
+
+### Rung 5, a second model: SmolLM2-360M
+
+Every model above is Qwen2.5-0.5B-Instruct. `uni/pinned.toml` now pins a second, of another family
+and size, HuggingFaceTB/SmolLM2-360M-Instruct at a fixed revision, under the name `smollm2-360m`: a
+llama-architecture model with 32 layers where Qwen has 24. Every command that loads a model takes
+`--model smollm2-360m`.
+
+The formality contrast is words, so it holds for this model too, and derived on it the direction
+lands in the model's own directory:
+
+    uv run uni direction formality --model smollm2-360m
+
+    uni/directions/HuggingFaceTB--SmolLM2-360M-Instruct/formality.json  layer 12  length 33.991301  sha256 4e7e429d36ed74cf242683643442fdc93629bbaa411b564906db7b976b364bf3
+
+Its pushes are held to a narrower range than Qwen's:
+
+    uv run uni response --model smollm2-360m --template rewrite --knob formality         --start "The meeting moved to Thursday because the room was booked."         --grid=-10:10:81 --layer 28
+
+    uni: float32 rounding could move the answer to a push of -10 at layer 28 by 0.0234, past the 0.01 a reading is trusted to; a push this large drowns out what the model writes
+
+The answers of this model run to hundreds and thousands, so the fixed 0.01 a reading is trusted to
+binds sooner. Read from -3 to 3:
+
+    uv run uni response --model smollm2-360m --template rewrite --knob formality \
+        --start "The meeting moved to Thursday because the room was booked." \
+        --grid=-3:3:241 --layer 20 --layer 24 --layer 28 --layer 31
+
+    layer 20: maximum 2624.9009 at -3; the slope changes sign at []
+    layer 24: maximum 2987.2190 at 0.525; the slope changes sign at [-2.075, 0.5250000000000004]
+    layer 28: maximum 3875.6792 at 0.825; the slope changes sign at [-2.05, 0.8250000000000002]
+    layer 31: maximum 2489.2493 at -3; the slope changes sign at [-1.65, 0.2250000000000001]
+
+![SmolLM2's answer along formality, at four layers](figures/response-306fdda17132fc54.png)
+
+The answer turns, but this push was not followed further. Layer 12 is halfway through Qwen's 24
+layers and not yet halfway through this model's 32, so a second contrast pushes the same pairs at
+layer 16, halfway through: `uni/directions/formality-16.toml` is formality's template and pairs, word for
+word, with `layer = 16`.
+
+    uv run uni direction formality-16 --model smollm2-360m
+
+    uni/directions/HuggingFaceTB--SmolLM2-360M-Instruct/formality-16.json  layer 16  length 40.282390  sha256 69aef4feeeb61e026ee681b8336fbc74c83c1d94459eef4cf081eb5b6a354447
+
+    uv run uni response --model smollm2-360m --template rewrite --knob formality-16 \
+        --start "The meeting moved to Thursday because the room was booked." \
+        --grid=-3:3:241 --layer 24 --layer 28 --layer 31
+
+    layer 24: maximum 501.4469 at 0.525; the slope changes sign at [-1.6749999999999998, 0.5250000000000004]
+    layer 28: maximum 663.1817 at 0.75; the slope changes sign at [-1.75, 0.75]
+    layer 31: maximum 1184.4930 at 0.275; the slope changes sign at [-2.325, 0.27500000000000036]
+
+![SmolLM2's answer along formality-16, at three layers](figures/response-4c6cc8ec5aaa5534.png)
+
+At layer 28 the answer has a top of 663.18 at 0.75, and the loop is followed around it with a positive
+gain, as Qwen's was. At the gains where it cascades the orbit stays above -0.5 and below 3, so the
+answer is read there every 0.001:
+
+    uv run uni response --model smollm2-360m --template rewrite --knob formality-16 \
+        --start "The meeting moved to Thursday because the room was booked." \
+        --grid=-0.5:3:3501 --layer 28
+
+![SmolLM2's answer at layer 28, every 0.001 from -0.5 to 3](figures/response-13bff396ae931fc6.png)
+
+    uv run uni smooth --curve curves/b8fd2a0a13062bfd.json --layer 28 \
+        --degree 30 --degree 60 --degree 90 --degree 150 --degree 220
+
+    curve b8fd2a0a13062bfd at layer 28: 3501 readings from -0.5 to 3, jitter 3.64e-04
+    degree   30: rms residual 4.98e-04, largest 2.02e-03
+    degree   60: rms residual 4.85e-04, largest 2.25e-03
+    degree   90: rms residual 4.77e-04, largest 2.35e-03
+    degree  150: rms residual 4.62e-04, largest 2.49e-03
+    degree  220: rms residual 4.43e-04, largest 2.42e-03
+
+The jitter is 27 times Qwen's, on answers some 40 times larger. Every degree from 30 on fits the
+curve to within 1.37 times it, and adding terms takes the residual no lower than 1.22 times it, so the
+cascade is read on degrees 30, 60 and 90. Their tops, on grids of ±0.002, and the model's:
+
+    uv run uni critical --map smooth --curve curves/b8fd2a0a13062bfd.json --layer 28 \
+        --degree 30 --value 6.8 --grid=0.7493:0.7533:51
+
+    the map at 6.8 turns at 0.75126951 +- 1.4e-11 (a cubic through 51 states, scatter 8.7e-14), written 0.7512695071127926
+
+    uv run uni critical --map response --model smollm2-360m --template rewrite --knob formality-16 \
+        --text "The meeting moved to Thursday because the room was booked." \
+        --layer 28 --decimals 6 --value 6.8 --grid=0.651:0.851:101
+
+    the map at 6.8 turns at 0.75126744 +- 4.5e-06 (a cubic through 101 states, scatter 2.0e-06), written 0.751267
+
+Degree 60's top is 0.7512697573580202 and degree 90's 0.7512602554143141, on the same grid.
+Degree 30's lies 2.1e-6 from the model's, 0.5 of its error, degree 60's 2.3e-6 and degree 90's 7.2e-6.
+
+    uv run uni cascade --map smooth --curve curves/b8fd2a0a13062bfd.json --layer 28 \
+        --degree 30 --critical=0.7512695071127926 --period 2 \
+        --grid=5.8095:5.8407:21 --grid=6.5881:6.6193:21 --grid=6.77604:6.78307:21 \
+        --grid=6.816918:6.818443:21 --grid=6.825695:6.826022:21 --grid=6.8275758:6.8276459:21 \
+        --grid=6.82797864:6.82799365:21 --grid=6.82806492:6.82806814:21 \
+        --grid=6.828083405:6.828084093:21 --grid=6.8280873625:6.8280875100:21 \
+        --grid=6.8280882102:6.8280882418:21 --grid=6.82808839170:6.82808839847:21 \
+        --grid=6.828088430582:6.828088432031:21
+
+<details>
+<summary>Degrees 60 and 90, and the model read directly</summary>
+
+    uv run uni cascade --map smooth --curve curves/b8fd2a0a13062bfd.json --layer 28 \
+        --degree 60 --critical=0.7512697573580202 --period 2 \
+        --grid=5.8095:5.8407:21 --grid=6.5881:6.6193:21 --grid=6.77604:6.78307:21 \
+        --grid=6.816916:6.818441:21 --grid=6.825693:6.826021:21 --grid=6.8275743:6.8276444:21 \
+        --grid=6.82797719:6.82799221:21 --grid=6.82806348:6.82806670:21 \
+        --grid=6.828081960:6.828082648:21 --grid=6.8280859176:6.8280860651:21 \
+        --grid=6.8280867652:6.8280867968:21 --grid=6.82808694675:6.82808695352:21 \
+        --grid=6.828086985633:6.828086987082:21
+
+    uv run uni cascade --map smooth --curve curves/b8fd2a0a13062bfd.json --layer 28 \
+        --degree 90 --critical=0.7512602554143141 --period 2 \
+        --grid=5.8096:5.8407:21 --grid=6.5881:6.6193:21 --grid=6.77604:6.78308:21 \
+        --grid=6.816910:6.818434:21 --grid=6.825692:6.826019:21 --grid=6.8275736:6.8276437:21 \
+        --grid=6.82797660:6.82799162:21 --grid=6.82806291:6.82806613:21 \
+        --grid=6.828081401:6.828082090:21 --grid=6.8280853602:6.8280855077:21 \
+        --grid=6.8280862081:6.8280862397:21 --grid=6.82808638975:6.82808639651:21 \
+        --grid=6.828086428641:6.828086430090:21
+
+    uv run uni cascade --map response --model smollm2-360m --template rewrite --knob formality-16 \
+        --text "The meeting moved to Thursday because the room was booked." \
+        --layer 28 --decimals 6 --critical=0.751267 --period 2 \
+        --grid=5.6694:5.9808:21 --grid=6.4480:6.7594:21 --grid=6.7444:6.8147:21 \
+        --grid=6.81005:6.82530:21 --grid=6.82422:6.82749:21 --grid=6.827259:6.827960:21
+
+</details>
+
+| period | model, 6 decimals | error | degree 30 | degree 60 | degree 90 |
+| -----: | ----------------: | ----: | --------: | --------: | --------: |
+| 2 | 5.825116441 | 2.3e-06 | 5.8251152 | 5.825113385 | 5.825128752 |
+| 4 | 6.603670736 | 1.1e-04 | 6.603704226 | 6.603703703 | 6.603691157 |
+| 8 | 6.779547947 | 3.0e-05 | 6.779555045 | 6.779556385 | 6.779560213 |
+| 16 | 6.81767306 | 8.5e-06 | 6.817680027 | 6.817678666 | 6.817672034 |
+| 32 | 6.825872066 | 5.2e-06 | 6.825858445 | 6.825856991 | 6.825855527 |
+| 64 | 6.827615 | 7.4e-06 | 6.827610812 | 6.827609364 | 6.827608632 |
+
+Degree 30 lands within 2.6 of the model's errors of every one, and within 3.4e-5; degree 60 within 2.9,
+and degree 90 within 5.4, at period 2.
+
+| spacing ratio over periods | model | degree 30 | degree 60 | degree 90 |
+| :------------------------- | ----: | --------: | --------: | --------: |
+| 2, 4, 8 | 4.4267 +- 3.5e-03 | 4.42755 | 4.42751 | 4.42694 |
+| 4, 8, 16 | 4.6132 +- 5.4e-03 | 4.61248 | 4.61286 | 4.61455 |
+| 8, 16, 32 | 4.6500 +- 7.5e-03 | 4.66166 | 4.66138 | 4.65716 |
+| 16, 32, 64 | 4.7041 +- 2.7e-02 | 4.66707 | 4.66700 | 4.66800 |
+| 32, 64, 128 | | 4.66882 | 4.66880 | 4.66904 |
+| 64, 128, 256 | | 4.66911 | 4.66911 | 4.66913 |
+| 128, 256, 512 | | 4.66918 | 4.66918 | 4.66919 |
+| 256, 512, 1024 | | 4.66920 | 4.66920 | 4.66920 |
+| 512, 1024, 2048 | | 4.66920 | 4.66920 | 4.66920 |
+| 1024, 2048, 4096 | | 4.66920 | 4.66920 | 4.66920 |
+| 2048, 4096, 8192 | | 4.66920 | 4.66920 | 4.66919 |
+
+The fitted ratios carry errors of 3.6e-6 to 8.5e-6.
+
+| nearest-point ratio over periods | model | degree 30 | degree 60 | degree 90 |
+| :------------------------------- | ----: | --------: | --------: | --------: |
+| 2, 4 | -3.10671 +- 5.2e-04 | -3.10654 | -3.10654 | -3.10668 |
+| 4, 8 | -2.39486 +- 6.5e-04 | -2.39494 | -2.39492 | -2.39464 |
+| 8, 16 | -2.55309 +- 9.3e-04 | -2.55241 | -2.55258 | -2.55350 |
+| 16, 32 | -2.48358 +- 2.4e-03 | -2.48540 | -2.48545 | -2.48406 |
+| 32, 64 | -2.50292 +- 1.5e-02 | -2.51038 | -2.51035 | -2.51098 |
+| 64, 128 | | -2.50003 | -2.50004 | -2.49986 |
+| 128, 256 | | -2.50408 | -2.50408 | -2.50416 |
+| 256, 512 | | -2.50244 | -2.50245 | -2.50242 |
+| 512, 1024 | | -2.50309 | -2.50309 | -2.50311 |
+| 1024, 2048 | | -2.50283 | -2.50283 | -2.50283 |
+| 2048, 4096 | | -2.50294 | -2.50294 | -2.50294 |
+| 4096, 8192 | | -2.50289 | -2.50289 | -2.50289 |
+
+| noise growth over periods | degree 30 | degree 60 | degree 90 |
+| :------------------------ | --------: | --------: | --------: |
+| 2, 4 | 7.77337 | 7.77345 | 7.77344 |
+| 4, 8 | 6.22786 | 6.22784 | 6.22742 |
+| 8, 16 | 6.73132 | 6.73155 | 6.73247 |
+| 16, 32 | 6.56811 | 6.56815 | 6.56424 |
+| 32, 64 | 6.63785 | 6.63775 | 6.63959 |
+| 64, 128 | 6.61123 | 6.61124 | 6.61076 |
+| 128, 256 | 6.62209 | 6.62208 | 6.62229 |
+| 256, 512 | 6.61780 | 6.61781 | 6.61773 |
+| 512, 1024 | 6.61953 | 6.61953 | 6.61956 |
+| 1024, 2048 | 6.61884 | 6.61884 | 6.61883 |
+| 2048, 4096 | 6.61912 | 6.61912 | 6.61912 |
+| 4096, 8192 | 6.61900 | 6.61900 | 6.61900 |
+
+The fitted nearest-point ratios carry errors of 5.4e-7 to 2.2e-6, and the growths 2.1e-6 to 3.6e-6.
+
+This hump's early numbers are its own: a first spacing ratio of 4.43 where Qwen's formality hump gave
+3.64, a first nearest-point ratio of -3.11 where Qwen's gave -2.17, and a first noise growth of 7.77
+where Qwen's gave 4.48. The model's own spacing ratios through period 64 lie within 1.6 of their
+errors of every fit's, and its nearest-point ratios within 0.8.
+
+Over 2048, 4096, 8192 the three fits read 4.6691962, 4.6691971 and 4.6691919, 0.5 to 1.3 of their
+errors below delta = 4.6692016; over 1024, 2048, 4096 they read 4.6692031, 4.6692037 and 4.6692043.
+Aitken's extrapolation on the last three nearest-point ratios gives -2.5029064, -2.5029070 and
+-2.5029064 for degrees 30, 60 and 90, within 1.5e-6 of alpha = 2.5029079, from ratios printed with
+errors of about 2e-6, and on the last three growths 6.6190359, 6.6190346 and 6.6190350, within 2.4e-6
+of kappa = 6.619037. A second model, with other weights, another architecture and another size, gives
+fits whose deep ratios reach the same three constants. The model itself is read to period 64, where
+its ratios follow the fits' within their errors. The limits are the fits'.
 
 ## Running on the experiment host
 
