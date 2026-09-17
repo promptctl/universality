@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 import shlex
 import subprocess
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -126,10 +126,14 @@ def returned_dir(directory: Path) -> Path:
 def fetch_command(target: RemoteTarget, tree: Path, directory: Path) -> list[str]:
     # The files come back beside the ones already here and never over them, and nothing here is
     # deleted: what returns is named by its own content, so a name already here is those bytes.
+    # A file the host is still writing is a scratch file beside its name (uni.atomic), and fetched
+    # it would sit here for good, a half-written file no rerun replaces: it is left on the host
+    # until it is renamed into place, and the next fetch brings the whole one.
     return [
         "rsync",
         "--archive",
         "--ignore-existing",
+        "--exclude=*.partial",
         f"{target.ssh_target}:{target.dir}/{directory}/",
         f"{tree}/{directory}/",
     ]
@@ -141,7 +145,12 @@ def run_remote(target: RemoteTarget, argv: Sequence[str], tree: Path, returned: 
     Returns the exit code of the first step that fails, else the remote command's. A command that
     failed brings nothing back.
     """
-    for command in (sync_command(target, tree), run_command(target, argv), *(fetch_command(target, tree, directory) for directory in returned)):
+    return run_steps((sync_command(target, tree), run_command(target, argv), *(fetch_command(target, tree, directory) for directory in returned)))
+
+
+def run_steps(commands: Iterable[Sequence[str]]) -> int:
+    """Run each command in turn, and return the exit code of the first that fails, else 0."""
+    for command in commands:
         # [LAW:no-silent-failure] ssh and rsync speak for themselves on stderr; stop at the first miss.
         returncode = subprocess.run(command).returncode
         # A step killed by a signal - rsync or ssh on a Ctrl-C, say - comes back as minus the
