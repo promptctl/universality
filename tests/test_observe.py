@@ -139,6 +139,14 @@ def test_a_checkpoint_that_will_not_load_is_refused_as_the_runs_problem_and_not_
     assert captured.err == f"uni: {message}\n"
 
 
+def test_an_orbit_with_no_steps_is_tabled_without_loading_its_checkpoint(tmp_path, capsys, monkeypatch):
+    unloadable(monkeypatch)
+    path = write_trajectory(Trajectory(spec("identity"), 0.0, "hello", ()), tmp_path)
+    assert main(["observe", str(path)], {}, Path.cwd()) == 0
+    printed = capsys.readouterr().out.splitlines()
+    assert "logprob" in printed[2] and printed[3].split() == ["0", "1", "-", "-"]
+
+
 def test_an_unsteered_run_has_no_direction_to_project_onto():
     assert steering_directions(Trajectory(spec(), 0.0, "a", ()), load_pinned()) == ()
 

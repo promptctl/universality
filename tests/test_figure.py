@@ -11,13 +11,10 @@ import pytest
 
 from uni.cli import EXIT_CONFIG, main
 from uni.figure import Readings, named, orbit_diagram, read, return_map
-from uni.loop import Trajectory, read_trajectory, write_trajectory
-from uni.maps import model_spec
+from uni.loop import read_trajectory
 from uni.model import ModelError
 from uni.observe import Checkpoints, ObserveError, Weights, observables, steps
-from uni.pinned import load_pinned
-from uni.sweep import MANIFEST, Sweep, finished, pending, read_sweep
-from uni.template import load_templates
+from uni.sweep import MANIFEST, finished, pending, read_sweep
 
 
 def command(argv):
@@ -90,23 +87,6 @@ def test_an_observable_this_sweep_does_not_read_is_refused_by_name(tmp_path, mon
     trajectory = read_trajectory(home / finished(written, home)[0].name)
     with pytest.raises(ObserveError, match="no observable 'logprob' for this sweep; it reads length, x"):
         named(observables(trajectory, Checkpoints()), "logprob")
-
-
-def test_a_checkpoint_that_will_not_load_is_refused_as_the_sweeps_problem_and_not_a_cells(tmp_path, monkeypatch):
-    spec = model_spec(load_pinned(), load_templates()["identity"], None)
-    written = Sweep(spec, (0.0,), ("hello",), 2)
-    home = written.home(tmp_path)
-    home.mkdir()
-    write_trajectory(Trajectory(spec, 0.0, "hello", ("hello", "hello")), home)
-    assert len(finished(written, home)) == 1
-
-    def refuse(self):
-        raise ModelError("Metal (mps) is not available on this machine, and it is the only device this runs on")
-
-    monkeypatch.setattr(Weights, "model", property(refuse))
-    with pytest.raises(ModelError) as refused:
-        read(written, home, "logprob", burn_in=0)
-    assert str(refused.value) == "Metal (mps) is not available on this machine, and it is the only device this runs on"
 
 
 def test_the_return_map_pairs_each_reading_with_the_one_after_it():
@@ -204,6 +184,33 @@ def model_sweep(tmp_path):
     for value in values:
         write_trajectory(Trajectory(spec, value, start, ("a", "bb")), home)
     return written, home
+
+
+NO_METAL = "Metal (mps) is not available on this machine, and it is the only device this runs on"
+
+
+def unloadable(monkeypatch):
+    """A checkpoint that refuses to load, as one does on a machine with no Metal."""
+
+    def refuse(self):
+        raise ModelError(NO_METAL)
+
+    monkeypatch.setattr(Weights, "model", property(refuse))
+
+
+def test_a_checkpoint_that_will_not_load_is_refused_as_the_sweeps_problem_and_not_a_cells(tmp_path, monkeypatch):
+    unloadable(monkeypatch)
+    written, home = model_sweep(tmp_path)
+    with pytest.raises(ModelError) as refused:
+        read(written, home, "logprob", burn_in=0)
+    assert str(refused.value) == NO_METAL
+
+
+def test_a_burn_in_that_leaves_no_steps_loads_no_checkpoint(tmp_path, monkeypatch):
+    # With nothing left to read, the refusal worth hearing is that there is nothing to draw.
+    unloadable(monkeypatch)
+    written, home = model_sweep(tmp_path)
+    assert read(written, home, "logprob", burn_in=3) == tuple(Readings(value, ()) for value in written.values)
 
 
 def test_a_picture_of_what_every_map_answers_reads_no_checkpoint_at_all(tmp_path, monkeypatch):

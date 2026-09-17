@@ -907,7 +907,7 @@ def run_observe(args: argparse.Namespace) -> int:
     columns = observables(trajectory, Checkpoints())
     # Loaded before the header, so a checkpoint that will not load is refused as the run's problem
     # rather than as step 1's, and no table is begun that could not be filled.
-    load_checkpoints(columns)
+    load_checkpoints(columns, steps(trajectory))
     print(f"{'step':>4}  {'state':>5}" + "".join(f"  {column.name:>16}" for column in columns), flush=True)
     # The start was given rather than stepped into, so no observable of a step has a reading for
     # it; its row is printed anyway, so the identity column reads as the orbit and every step the

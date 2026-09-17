@@ -236,14 +236,20 @@ def addressed(address: str) -> Iterator[None]:
         raise ObserveError(f"{address}: {error}") from error
 
 
-def load_checkpoints(observables: Sequence[Observable]) -> None:
-    """Load every checkpoint these observables read through, before any reading can be named after a step or a cell.
+def load_checkpoints(observables: Sequence[Observable], steps: Sequence[Step]) -> None:
+    """Load every checkpoint these observables read through at these steps, before any reading can be named after a step or a cell.
 
     A checkpoint that cannot load is a refusal about the whole run, so it is taken here, where no
     step or cell has a name yet, and not at the first reading that happens to want one, where it
     would come out addressed to that step. Each `Weights` holds its model once loaded, so the
     readings after this load nothing. [LAW:no-silent-failure]
+
+    Only a reading actually taken pays, so with no steps to read nothing is loaded: an orbit
+    with no states, or a burn-in past a cell's last step, has no reading for a checkpoint to cost.
+    [LAW:carrying-cost]
     """
+    if not steps:
+        return
     for observable in observables:
         for weights in observable.needs:
             weights.model

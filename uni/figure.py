@@ -91,11 +91,11 @@ def read(sweep: Sweep, home: Path, name: str, burn_in: int) -> tuple[Readings, .
         with addressed(cell.name):
             trajectory = read_trajectory(home / cell.name)
             observable = named(observables(trajectory, checkpoints), name)
+            settled = [step for step in steps(trajectory) if step.index >= burn_in]
         # Outside the cell's name: a checkpoint that will not load is about the sweep, not this
         # cell. Only the first cell that reads through it pays.
-        load_checkpoints((observable,))
+        load_checkpoints((observable,), settled)
         with addressed(cell.name):
-            settled = [step for step in steps(trajectory) if step.index >= burn_in]
             numbers = tuple(readings((observable,), step)[0] for step in settled)
         out.append(Readings(trajectory.value, numbers))
     return tuple(out)
