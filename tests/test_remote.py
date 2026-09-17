@@ -171,6 +171,8 @@ def test_a_fetch_that_fails_says_only_what_rsync_said_and_exits_with_its_code(ch
     monkeypatch.setattr("uni.cli.checkout_root", lambda cwd: checkout)
     assert main(["fetch", "0123456789abcdef"], ENV, checkout) == 23
     assert capsys.readouterr().out == ""
+    # Nothing came, so nothing it made is left to read later as a sweep that cannot be read.
+    assert not (checkout / "sweeps").exists()
 
 
 def test_fetch_is_refused_with_remote_and_a_name_that_is_not_a_sweep_s(checkout, monkeypatch, capsys):

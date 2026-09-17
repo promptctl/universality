@@ -7,6 +7,7 @@ normally a gitignored `.env` (see `.env.example`), and is parsed once here into 
 
 from __future__ import annotations
 
+import contextlib
 import re
 import shlex
 import subprocess
@@ -145,9 +146,17 @@ def fetch(target: RemoteTarget, directory: Path, destination: Path) -> int:
 
     Made here and not left to rsync: rsync before 3.2.3 makes only the last missing directory of
     its destination, so a checkout that never held a sweeps/ would refuse the first sweep fetched into it.
+    And unmade when nothing came: an empty directory left by a fetch of a name the host does not
+    have would read afterwards as a sweep whose manifest cannot be read, rather than as no sweep.
     """
+    made = [path for path in (destination, *destination.parents) if not path.exists()]
     destination.mkdir(parents=True, exist_ok=True)
-    return run_steps((fetch_command(target, directory, destination),))
+    code = run_steps((fetch_command(target, directory, destination),))
+    if code:
+        for path in made:  # deepest first, and only while empty: whatever did arrive stays
+            with contextlib.suppress(OSError):
+                path.rmdir()
+    return code
 
 
 def run_remote(target: RemoteTarget, argv: Sequence[str], tree: Path, returned: Sequence[Path] = ()) -> int:
