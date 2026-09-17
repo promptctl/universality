@@ -1,7 +1,8 @@
-# universality
+# Experiments
 
 Does Feigenbaum universality apply to LLM feedback loops? The founding document is
-[PROJECT.md](PROJECT.md); this file is how to run the code.
+[PROJECT.md](PROJECT.md), and [README.md](README.md) says in plain language what has been found.
+This file is how to run the code, and every measurement it has made.
 
 ## Setup
 

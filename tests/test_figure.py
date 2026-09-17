@@ -52,8 +52,8 @@ def test_a_sweep_still_running_is_drawn_from_what_is_on_disk(tmp_path, monkeypat
 def test_the_burn_in_keeps_the_steps_uni_observe_would_keep(tmp_path, monkeypatch):
     # One meaning for one flag. `detect` passes over a sequence whose element 0 is the start, so
     # its --burn-in N keeps step N onward; a slice of `steps()` counts from step 1 and would keep
-    # step N + 1. Paired on one sweep - as the README pairs them - that is a period measured over
-    # different states than the picture beside it is drawn from.
+    # step N + 1. Paired on one sweep - as EXPERIMENTS.md pairs them - that is a period measured
+    # over different states than the picture beside it is drawn from.
     written, home = sweep(tmp_path, monkeypatch, steps=8)
     trajectory = read_trajectory(home / finished(written, home)[0].name)
     orbit = (trajectory.start, *trajectory.states)

@@ -138,7 +138,7 @@ def test_the_logprob_is_the_one_the_model_reported_as_it_generated(weights, mode
     assert generation.token_ids[-1] in model.stop_ids  # so dropping the last logprob drops the stop token
     reading = Logprob(weights, template, ()).read(Step(1, TEXT, generation.text))
     # Close, not equal: generation scores each token behind a growing cache and this scores them
-    # in one pass, which the README already records as a sixth-decimal difference.
+    # in one pass, which EXPERIMENTS.md already records as a sixth-decimal difference.
     assert reading == pytest.approx(statistics.fmean(generation.logprobs[:-1]), abs=1e-4)
 
 
