@@ -890,7 +890,7 @@ def verdict(period: Period) -> str:
 def run_observe(args: argparse.Namespace) -> int:
     """Read a written trajectory back: each step's observables, and the period of its orbit."""
     from uni.loop import read_trajectory
-    from uni.observe import Checkpoints, identities, observables, readings, steps
+    from uni.observe import Checkpoints, identities, load_checkpoints, observables, readings, steps
     from uni.period import detect
 
     trajectory = read_trajectory(args.trajectory)
@@ -905,6 +905,9 @@ def run_observe(args: argparse.Namespace) -> int:
     print(verdict(detect(orbit, args.burn_in)), flush=True)  # a --remote run's stdout is a pipe, not a terminal
     print()
     columns = observables(trajectory, Checkpoints())
+    # Loaded before the header, so a checkpoint that will not load is refused as the run's problem
+    # rather than as step 1's, and no table is begun that could not be filled.
+    load_checkpoints(columns)
     print(f"{'step':>4}  {'state':>5}" + "".join(f"  {column.name:>16}" for column in columns), flush=True)
     # The start was given rather than stepped into, so no observable of a step has a reading for
     # it; its row is printed anyway, so the identity column reads as the orbit and every step the

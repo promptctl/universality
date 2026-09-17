@@ -11,9 +11,13 @@ import pytest
 
 from uni.cli import EXIT_CONFIG, main
 from uni.figure import Readings, named, orbit_diagram, read, return_map
-from uni.loop import read_trajectory
-from uni.observe import Checkpoints, ObserveError, observables, steps
-from uni.sweep import MANIFEST, finished, pending, read_sweep
+from uni.loop import Trajectory, read_trajectory, write_trajectory
+from uni.maps import model_spec
+from uni.model import ModelError
+from uni.observe import Checkpoints, ObserveError, Weights, observables, steps
+from uni.pinned import load_pinned
+from uni.sweep import MANIFEST, Sweep, finished, pending, read_sweep
+from uni.template import load_templates
 
 
 def command(argv):
@@ -86,6 +90,23 @@ def test_an_observable_this_sweep_does_not_read_is_refused_by_name(tmp_path, mon
     trajectory = read_trajectory(home / finished(written, home)[0].name)
     with pytest.raises(ObserveError, match="no observable 'logprob' for this sweep; it reads length, x"):
         named(observables(trajectory, Checkpoints()), "logprob")
+
+
+def test_a_checkpoint_that_will_not_load_is_refused_as_the_sweeps_problem_and_not_a_cells(tmp_path, monkeypatch):
+    spec = model_spec(load_pinned(), load_templates()["identity"], None)
+    written = Sweep(spec, (0.0,), ("hello",), 2)
+    home = written.home(tmp_path)
+    home.mkdir()
+    write_trajectory(Trajectory(spec, 0.0, "hello", ("hello", "hello")), home)
+    assert len(finished(written, home)) == 1
+
+    def refuse(self):
+        raise ModelError("Metal (mps) is not available on this machine, and it is the only device this runs on")
+
+    monkeypatch.setattr(Weights, "model", property(refuse))
+    with pytest.raises(ModelError) as refused:
+        read(written, home, "logprob", burn_in=0)
+    assert str(refused.value) == "Metal (mps) is not available on this machine, and it is the only device this runs on"
 
 
 def test_the_return_map_pairs_each_reading_with_the_one_after_it():
