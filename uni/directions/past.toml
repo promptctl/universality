@@ -1,0 +1,46 @@
+# The past direction: past-tense rewrites minus future-tense rewrites of the same texts.
+# The formality contrast's template, layer and texts, with the quality changed and nothing else.
+# Each pair is read as the model's own reply to the template; `uni direction past` derives past.json from this file.
+
+template = "rewrite"
+layer = 12
+
+[[pairs]]
+text = "The meeting moved to Thursday because the room was booked."
+toward = "The meeting was moved to Thursday because the room had been booked."
+away = "The meeting will move to Thursday because the room will be booked."
+
+[[pairs]]
+text = "We could not ship the update this week."
+toward = "We could not ship the update last week."
+away = "We will not be able to ship the update next week."
+
+[[pairs]]
+text = "Thanks for sending the report so quickly."
+toward = "Thanks for having sent the report so quickly."
+away = "Thanks in advance for sending the report so quickly."
+
+[[pairs]]
+text = "The printer on the second floor is broken again."
+toward = "The printer on the second floor was broken again."
+away = "The printer on the second floor will break again."
+
+[[pairs]]
+text = "Can you check the numbers before Friday?"
+toward = "Did you check the numbers before Friday?"
+away = "Will you check the numbers before Friday?"
+
+[[pairs]]
+text = "The park is closed for repairs until spring."
+toward = "The park was closed for repairs until spring."
+away = "The park will be closed for repairs until spring."
+
+[[pairs]]
+text = "I think the plan needs more time."
+toward = "I thought the plan needed more time."
+away = "I think the plan will need more time."
+
+[[pairs]]
+text = "The train was late, so I missed the start of the show."
+toward = "The train was late, so I missed the start of the show."
+away = "The train will be late, so I will miss the start of the show."

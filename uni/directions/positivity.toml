@@ -1,0 +1,47 @@
+# The positivity direction: upbeat rewrites minus gloomy rewrites of the same texts.
+# The formality contrast's template, layer and texts, with the quality changed and nothing else, so a
+# second knob on the same loop differs from the first only in what it pushes toward.
+# Each pair is read as the model's own reply to the template; `uni direction positivity` derives positivity.json from this file.
+
+template = "rewrite"
+layer = 12
+
+[[pairs]]
+text = "The meeting moved to Thursday because the room was booked."
+toward = "Good news: the meeting is now on Thursday, which gives us a couple of extra days to prepare!"
+away = "Unfortunately the meeting got pushed to Thursday, since the room was already taken again."
+
+[[pairs]]
+text = "We could not ship the update this week."
+toward = "The update needs a little more polish, so next week's release will be even better."
+away = "We failed to ship the update this week, and it is falling further behind."
+
+[[pairs]]
+text = "Thanks for sending the report so quickly."
+toward = "Thank you so much for the report, it arrived wonderfully fast and made my day!"
+away = "I got the report, though it was rushed out faster than it should have been."
+
+[[pairs]]
+text = "The printer on the second floor is broken again."
+toward = "The second-floor printer is getting a well-earned repair, and the others work great meanwhile."
+away = "The printer on the second floor has broken down yet again, as usual."
+
+[[pairs]]
+text = "Can you check the numbers before Friday?"
+toward = "Could you give the numbers a quick look before Friday? I'm sure they look great."
+away = "Can you check the numbers before Friday? I'm worried they are wrong."
+
+[[pairs]]
+text = "The park is closed for repairs until spring."
+toward = "The park is getting a lovely makeover and will reopen, better than ever, in spring."
+away = "The park is shut for repairs and will stay closed until spring."
+
+[[pairs]]
+text = "I think the plan needs more time."
+toward = "The plan is promising, and a bit more time will make it truly shine."
+away = "I'm afraid the plan is not ready and needs more time."
+
+[[pairs]]
+text = "The train was late, so I missed the start of the show."
+toward = "The train ran a little late, but I still caught most of a fantastic show."
+away = "The train was late, so I missed the start of the show, which was disappointing."
