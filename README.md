@@ -99,9 +99,12 @@ which accounts for the difference.
 
 ## What isn't shown yet
 
-- **Only one case so far.** It's one model, one sentence, one direction and one loop. Universality
-  claims none of those matter, but testing that with other models, loops and knobs is the project's
-  next stage ([Rung 5](PROJECT.md#the-ladder-conclusive-first)), and it hasn't been done.
+- **Only one model and one loop so far.** Universality claims the model, the loop and the knob don't
+  matter, and testing that is the project's next stage ([Rung 5](PROJECT.md#the-ladder-conclusive-first)).
+  The knob has now been changed once. Pushed along brevity instead of formality, the same loop has a
+  hump of a different shape, and fits to it land on the same three numbers, 4.66920, 2.503 and 6.619
+  ([measured here](EXPERIMENTS.md#rung-5-a-second-knob-brevity)). Four new knobs were tried, and only
+  that one was followed that far. Other loops and other models haven't been tested.
 - **Not the loop people run.** The loop that cascades is a one-number loop built inside the model.
   The loop people actually use, text in and text out, showed no cascade at all.
 - **The deepest numbers come from a fit.** Everything past period 64, and the limits 2.503 and

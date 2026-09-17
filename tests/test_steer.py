@@ -178,7 +178,7 @@ def test_an_unknown_direction_is_refused_with_the_known_ones(capsys):
     # `uni: ...` and EXIT_CONFIG, not argparse's exit 2.
     argv = ["loop", "--template", "rewrite", "--start", "x", "--steps", "1", "--knob", "nope"]
     assert main(argv, {}, Path.cwd()) == EXIT_CONFIG
-    assert "no nope.json in uni/directions; there are formality" in capsys.readouterr().err
+    assert "no nope.json in uni/directions; there are brevity, certainty, formality, past, positivity" in capsys.readouterr().err
 
 
 PAIR = '[[pairs]]\ntext = "a"\ntoward = "b"\naway = "c"\n'

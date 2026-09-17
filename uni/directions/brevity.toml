@@ -1,0 +1,46 @@
+# The brevity direction: terse rewrites minus wordy rewrites of the same texts.
+# The formality contrast's template, layer and texts, with the quality changed.
+# Each pair is read as the model's own reply to the template; `uni direction brevity` derives brevity.json from this file.
+
+template = "rewrite"
+layer = 12
+
+[[pairs]]
+text = "The meeting moved to Thursday because the room was booked."
+toward = "Meeting moved to Thursday; room booked."
+away = "The meeting that we had originally planned has now been moved to Thursday, and the reason for this change is that the room we wanted was already booked by someone else."
+
+[[pairs]]
+text = "We could not ship the update this week."
+toward = "Update didn't ship this week."
+away = "We were unfortunately not able to get the update shipped out at any point during the course of this particular week."
+
+[[pairs]]
+text = "Thanks for sending the report so quickly."
+toward = "Thanks for the fast report."
+away = "I just wanted to take a moment to say thank you very much for sending over the report so very quickly."
+
+[[pairs]]
+text = "The printer on the second floor is broken again."
+toward = "Second-floor printer broken again."
+away = "The printer that is located up on the second floor of the building appears to have broken down once again."
+
+[[pairs]]
+text = "Can you check the numbers before Friday?"
+toward = "Check the numbers by Friday?"
+away = "Would it be possible for you to take some time to go through and check all of the numbers before Friday arrives?"
+
+[[pairs]]
+text = "The park is closed for repairs until spring."
+toward = "Park closed for repairs until spring."
+away = "The park is currently closed to the public while repairs are carried out, and it will remain that way until spring."
+
+[[pairs]]
+text = "I think the plan needs more time."
+toward = "Plan needs more time."
+away = "My personal view on the matter is that the plan as it currently stands is going to need a fair amount of additional time."
+
+[[pairs]]
+text = "The train was late, so I missed the start of the show."
+toward = "Train late; missed the show's start."
+away = "Because the train that I was taking ran late, I ended up missing the very beginning of the show that I had wanted to see."

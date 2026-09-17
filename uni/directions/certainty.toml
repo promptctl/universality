@@ -1,0 +1,46 @@
+# The certainty direction: confident rewrites minus hedged rewrites of the same texts.
+# The formality contrast's template, layer and texts, with the quality changed.
+# Each pair is read as the model's own reply to the template; `uni direction certainty` derives certainty.json from this file.
+
+template = "rewrite"
+layer = 12
+
+[[pairs]]
+text = "The meeting moved to Thursday because the room was booked."
+toward = "The meeting is on Thursday, because the room was booked."
+away = "It seems the meeting might possibly have moved to Thursday, perhaps because the room was booked."
+
+[[pairs]]
+text = "We could not ship the update this week."
+toward = "We did not ship the update this week."
+away = "It is possible we may not have managed to ship the update this week, I think."
+
+[[pairs]]
+text = "Thanks for sending the report so quickly."
+toward = "Thank you for sending the report so quickly."
+away = "I believe the report may have arrived fairly quickly, so thanks, perhaps."
+
+[[pairs]]
+text = "The printer on the second floor is broken again."
+toward = "The second-floor printer is broken again."
+away = "The printer on the second floor might be broken again, it seems."
+
+[[pairs]]
+text = "Can you check the numbers before Friday?"
+toward = "Check the numbers before Friday."
+away = "Could you maybe check the numbers before Friday, if possible?"
+
+[[pairs]]
+text = "The park is closed for repairs until spring."
+toward = "The park is closed for repairs until spring."
+away = "The park may be closed for repairs, probably until spring or so."
+
+[[pairs]]
+text = "I think the plan needs more time."
+toward = "The plan needs more time."
+away = "I suppose the plan could perhaps need a bit more time, maybe."
+
+[[pairs]]
+text = "The train was late, so I missed the start of the show."
+toward = "The train was late, and I missed the start of the show."
+away = "The train may have been late, so I think I possibly missed the start of the show."

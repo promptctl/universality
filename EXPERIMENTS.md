@@ -1327,6 +1327,211 @@ together say which doubling is the last. What the table of the prediction says a
 temperatures, down to period 64 at T = 0.02, rests on the spreads and the fit with no token, since
 the colder mean maps are not smooth enough to check it on.
 
+### Rung 5, a second knob: brevity
+
+Everything above turns one knob, `formality`. PROJECT.md's Rung 5 asks whether the constants move
+when the knob does. Four more contrasts in `uni/directions/` use the formality contrast's
+template, layer and texts, and change the quality (some positivity and past pairs change a detail of
+the text with it): `positivity` (upbeat minus gloomy),
+`certainty` (confident minus hedged), `brevity` (terse minus wordy) and `past` (past tense minus
+future). Each is derived as formality was:
+
+    uv run uni direction brevity
+
+    uni/directions/brevity.json  layer 12  length 5.023152  sha256 ca56e8d1547df1f4ed6111b9ab6f7e6cdae7374130cade73c1bf0dac4564bdcc
+
+and read coarsely, at four layers, with the same command for each:
+
+    uv run uni response --template rewrite --knob brevity \
+        --start "The meeting moved to Thursday because the room was booked." \
+        --grid=-60:60:241 --layer 16 --layer 18 --layer 20 --layer 23
+
+| knob | layer 16 | layer 18 | layer 20 | layer 23 |
+| :--- | :------- | :------- | :------- | :------- |
+| positivity | -32.0, 10.5 | -27.5, 12.0 | -28.0, 14.5 | 24.0 |
+| certainty | -8.5, 10.0 | -8.0, 11.0 | -9.0, 13.0 | -18.5, 15.0, 21.0, 27.0, 31.0 |
+| brevity | -4.0, 5.5 | -3.0, 6.0 | -3.5, 7.5 | -11.0, 11.0, 41.0 |
+| past | none | none | none | none |
+
+The cells are where the command says the slope changes sign. `past` never turns: pushed either
+way, the layers after it only follow. The other three turn, and the pictures show how:
+
+![positivity](figures/response-6c3efc59883ca4da.png)
+![certainty](figures/response-7f58b36bb40f9119.png)
+![brevity](figures/response-71d0ef0d608dfe20.png)
+![past](figures/response-ba8b9f8f646e88b6.png)
+
+A turn is not yet a cascade. The loop has to fold its orbit back over the turn, and where a curve
+turns into a long flat stretch, as positivity and certainty do at layer 23, a cycle that passes
+over the flat stretch has a multiplier near zero there, which holds it stable rather than letting it
+double. `brevity` at layers 18 and 20 turns twice with steep sides between, and it is the one
+followed here. The others are not claimed to have no cascade, only not to have been followed.
+
+The loop is the response map of the formality sections with this direction and read at layer 20.
+Its gain is negative: the answer is fed back reversed, so the top of the answer is the bottom of
+the map, which universality does not distinguish from a top. The model's answer is read finely over
+-30 to 10, and every orbit below stays inside that, since the smooth map refuses a push outside the
+pushes its curve was read at:
+
+    uv run uni response --template rewrite --knob brevity \
+        --start "The meeting moved to Thursday because the room was booked." \
+        --grid=-30:10:4001 --layer 18 --layer 20
+
+![the model's answer along brevity at layers 18 and 20, every 0.01 from -30 to 10](figures/response-ea76c33c719c2e31.png)
+
+    uv run uni smooth --curve curves/de7ea4e2adf647e2.json --layer 20 \
+        --degree 150 --degree 220 --degree 300 --degree 400
+
+    curve de7ea4e2adf647e2 at layer 20: 4001 readings from -30 to 10, jitter 1.11e-05
+    degree  150: rms residual 3.00e-03, largest 2.08e-02
+    degree  220: rms residual 3.42e-04, largest 1.79e-03
+    degree  300: rms residual 5.08e-05, largest 3.38e-04
+    degree  400: rms residual 1.62e-05, largest 1.30e-04
+
+The fall from the top is sharper than formality's hump, so a series needs more terms to follow it:
+degree 400 comes down to 1.46 times the jitter, where formality's reached it by 150. Degrees 300
+and 220, at 4.6 and 31 times the jitter, are here to show what a looser fit changes, as 60 and
+90 were there.
+
+The tops, on grids of ±0.002 (±0.1 for the model, whose readings are rough at 1e-5):
+
+    uv run uni critical --map smooth --curve curves/de7ea4e2adf647e2.json --layer 20 \
+        --degree 400 --value=-9.36 --grid=-3.3367:-3.3327:51
+
+    the map at -9.36 turns at -3.3346724 +- 1.7e-11 (a cubic through 51 states, scatter 1.4e-13), written -3.3346724231195863
+
+    uv run uni critical --map response --template rewrite --knob brevity \
+        --text "The meeting moved to Thursday because the room was booked." \
+        --layer 20 --decimals 6 --value=-9.36 --grid=-3.435:-3.235:101
+
+    the map at -9.36 turns at -3.3347469 +- 6.8e-06 (a cubic through 101 states, scatter 3.9e-06), written -3.334747
+
+Degree 300's top is -3.335001328786538, on the grid -3.3370:-3.3330:51, and degree 220's
+-3.3356095904168246, on -3.3376:-3.3336:51. Degree 400's lies 7.5e-5 from the model's, which is 11
+of the model's errors, where formality's best fit lay inside its model's error. So the fit does not
+place this top where the model does. The superstable gains below are each read from their own top,
+the model's from its own and each fit's from its own.
+
+The cascade, on grids a fiftieth of a spacing either side of each superstable gain, placed as the
+formality fits' were:
+
+    uv run uni cascade --map smooth --curve curves/de7ea4e2adf647e2.json --layer 20 \
+        --degree 400 --critical=-3.3346724231195863 --period 2 \
+        --grid=-6.3214:-6.2192:21 --grid=-8.8751:-8.7729:21 --grid=-9.23569:-9.21954:21 \
+        --grid=-9.33181:-9.32772:21 --grid=-9.353283:-9.352361:21 --grid=-9.3579083:-9.3577089:21 \
+        --grid=-9.3589002:-9.3588574:21 --grid=-9.35911270:-9.35910353:21 \
+        --grid=-9.359158217:-9.359156253:21 --grid=-9.359167965:-9.359167545:21 \
+        --grid=-9.3591700532:-9.3591699631:21 --grid=-9.35917050034:-9.35917048104:21 \
+        --grid=-9.35917059610:-9.35917059197:21
+
+<details>
+<summary>Degrees 300 and 220, and the model read directly</summary>
+
+    uv run uni cascade --map smooth --curve curves/de7ea4e2adf647e2.json --layer 20 \
+        --degree 300 --critical=-3.335001328786538 --period 2 \
+        --grid=-6.3210:-6.2188:21 --grid=-8.8753:-8.7732:21 --grid=-9.23556:-9.21943:21 \
+        --grid=-9.33193:-9.32783:21 --grid=-9.353295:-9.352377:21 --grid=-9.3579222:-9.3577227:21 \
+        --grid=-9.3589144:-9.3588716:21 --grid=-9.35912694:-9.35911777:21 \
+        --grid=-9.359172470:-9.359170504:21 --grid=-9.359182220:-9.359181799:21 \
+        --grid=-9.3591843081:-9.3591842180:21 --grid=-9.35918475535:-9.35918473605:21 \
+        --grid=-9.35918485114:-9.35918484700:21
+
+    uv run uni cascade --map smooth --curve curves/de7ea4e2adf647e2.json --layer 20 \
+        --degree 220 --critical=-3.3356095904168246 --period 2 \
+        --grid=-6.3202:-6.2180:21 --grid=-8.8757:-8.7735:21 --grid=-9.23508:-9.21898:21 \
+        --grid=-9.33156:-9.32746:21 --grid=-9.353268:-9.352336:21 --grid=-9.357927:-9.357726:21 \
+        --grid=-9.3589246:-9.3588816:21 --grid=-9.35913832:-9.35912910:21 \
+        --grid=-9.359184089:-9.359182113:21 --grid=-9.359193891:-9.359193468:21 \
+        --grid=-9.3591959901:-9.3591958995:21 --grid=-9.35919643971:-9.35919642030:21 \
+        --grid=-9.35919653601:-9.35919653185:21
+
+    uv run uni cascade --map response --template rewrite --knob brevity \
+        --text "The meeting moved to Thursday because the room was booked." \
+        --layer 20 --decimals 6 --critical=-3.334747 --period 2 \
+        --grid=-6.7810:-5.7595:21 --grid=-9.3348:-8.3133:21 --grid=-9.3083:-9.1469:21 \
+        --grid=-9.3502:-9.3093:21 --grid=-9.35743:-9.34821:21 --grid=-9.358806:-9.356811:21
+
+The model's grids are a fifth of a spacing either side, wider than the fits', since its superstable
+gains need not be theirs. The model's six grids take two minutes.
+
+</details>
+
+The model's superstable gains beside the fits':
+
+| period | model, 6 decimals | error | degree 400 | degree 300 | degree 220 |
+| -----: | ----------------: | ----: | ---------: | ---------: | ---------: |
+| 2 | -6.270211332 | 8.4e-05 | -6.270284949 | -6.269933493 | -6.269139342 |
+| 4 | -8.824350545 | 3.5e-04 | -8.824020215 | -8.824251546 | -8.824585393 |
+| 8 | -9.227566482 | 1.4e-05 | -9.227613842 | -9.227496039 | -9.227029834 |
+| 16 | -9.329784613 | 1.6e-05 | -9.329763495 | -9.329881378 | -9.329510753 |
+| 32 | -9.352832754 | 6.8e-06 | -9.352822179 | -9.352835654 | -9.352802309 |
+| 64 | -9.357817658 | 5.6e-06 | -9.357808593 | -9.357822454 | -9.357826283 |
+
+Degree 400 lands within 3.4 of the model's errors of every one, and within 3.3e-4. The ratios:
+
+| spacing ratio over periods | model | degree 400 | degree 300 | degree 220 |
+| :------------------------- | ----: | ---------: | ---------: | ---------: |
+| 2, 4, 8 | 6.3344 +- 6.3e-03 | 6.32749 | 6.33442 | 6.34981 |
+| 4, 8, 16 | 3.9447 +- 3.5e-03 | 3.95100 | 3.93850 | 3.92702 |
+| 8, 16, 32 | 4.4350 +- 4.0e-03 | 4.42999 | 4.46040 | 4.39992 |
+| 16, 32, 64 | 4.6236 +- 9.8e-03 | 4.62430 | 4.60301 | 4.63608 |
+| 32, 64, 128 | | 4.65932 | 4.65827 | 4.66559 |
+| 64, 128, 256 | | 4.66682 | 4.66712 | 4.66938 |
+| 128, 256, 512 | | 4.66872 | 4.66870 | 4.66898 |
+| 256, 512, 1024 | | 4.66909 | 4.66910 | 4.66919 |
+| 512, 1024, 2048 | | 4.66918 | 4.66918 | 4.66919 |
+| 1024, 2048, 4096 | | 4.66920 | 4.66920 | 4.66920 |
+| 2048, 4096, 8192 | | 4.66920 | 4.66920 | 4.66920 |
+
+The fitted ratios carry errors of 3.4e-6 to 1.3e-4.
+
+| nearest-point ratio over periods | model | degree 400 | degree 300 | degree 220 |
+| :------------------------------- | ----: | ---------: | ---------: | ---------: |
+| 2, 4 | -5.80777 +- 8.5e-04 | -5.80886 | -5.80703 | -5.80365 |
+| 4, 8 | -3.31808 +- 5.0e-04 | -3.31673 | -3.32021 | -3.32737 |
+| 8, 16 | -2.45724 +- 4.9e-04 | -2.45894 | -2.45140 | -2.44649 |
+| 16, 32 | -2.47575 +- 1.1e-03 | -2.47379 | -2.48379 | -2.49767 |
+| 32, 64 | -2.50429 +- 4.0e-03 | -2.50467 | -2.49386 | -2.48998 |
+| 64, 128 | | -2.50030 | -2.50362 | -2.50597 |
+| 128, 256 | | -2.50357 | -2.50225 | -2.50206 |
+| 256, 512 | | -2.50256 | -2.50308 | -2.50324 |
+| 512, 1024 | | -2.50303 | -2.50282 | -2.50277 |
+| 1024, 2048 | | -2.50286 | -2.50294 | -2.50296 |
+| 2048, 4096 | | -2.50293 | -2.50289 | -2.50289 |
+| 4096, 8192 | | -2.50290 | -2.50291 | -2.50292 |
+
+| noise growth over periods | degree 400 | degree 300 | degree 220 |
+| :------------------------ | ---------: | ---------: | ---------: |
+| 2, 4 | 14.45651 | 14.45264 | 14.43593 |
+| 4, 8 | 8.24975 | 8.25578 | 8.28635 |
+| 8, 16 | 6.35701 | 6.35300 | 6.27919 |
+| 16, 32 | 6.50656 | 6.53433 | 6.59296 |
+| 32, 64 | 6.61765 | 6.58677 | 6.57400 |
+| 64, 128 | 6.61056 | 6.61967 | 6.62674 |
+| 128, 256 | 6.62047 | 6.61695 | 6.61633 |
+| 256, 512 | 6.61805 | 6.61943 | 6.61987 |
+| 512, 1024 | 6.61934 | 6.61879 | 6.61867 |
+| 1024, 2048 | 6.61890 | 6.61912 | 6.61917 |
+| 2048, 4096 | 6.61909 | 6.61900 | 6.61898 |
+| 4096, 8192 | 6.61901 | 6.61905 | 6.61906 |
+
+The fitted nearest-point ratios carry errors of 4.7e-7 to 2e-5, and the growths 1.9e-6 to 2.5e-4.
+
+This knob's hump is not formality's. Its first spacing ratios are 6.33 and 3.94 where formality's
+were 3.64 and 4.62, its first nearest-point ratio is -5.81 where formality's was -2.17, and its
+first noise growth is 14.5 where formality's was 4.5. Through period 64, the model's own superstable
+gains lie within 3.4 of their errors of the degree-400 fit's, its spacing ratios within 1.8 and its
+nearest-point ratios within 3.5, despite the tops' 11-error gap.
+
+And the late numbers are formality's. Over 2048, 4096, 8192 the three fits read 4.6691985, 4.6692018
+and 4.6692014, where formality's four read 4.6692012 to 4.6692031 and Feigenbaum's delta is 4.6692016.
+Aitken's extrapolation on the last three nearest-point ratios gives -2.5029074, -2.5029071 and
+-2.5029076 for degrees 400, 300 and 220, within 8e-7 of alpha = 2.5029079, and on the last three
+growths 6.6190350, 6.6190354 and 6.6190363, within 2e-6 of the logistic map's kappa, 6.619037. A
+second knob, a different quality pushed along a different direction, with a hump of its own shape,
+gives fits whose deep ratios reach the same three constants. The model itself is read to period 64,
+where its ratios are 4.624 and -2.504, and it follows the best fit there. The limits are the fits'.
+
 ## Running on the experiment host
 
 Every `uni` command accepts `--remote`. With it, this working tree, uncommitted edits
