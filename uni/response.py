@@ -55,13 +55,20 @@ def admit(model: Model, steer: Steer, value: float, layer: int) -> float:
 def response(model: Model, prompt: str, steer: Steer, value: float, layer: int) -> float:
     """How far the layers after the push, up to and including `layer`, move the stream along the direction."""
     admit(model, steer, value, layer)
-    turned = steer.turn(value)
-    stream = model.prompt_residual(prompt, turned.additions, layer)
+    return answered(model, steer, value, model.prompt_residual(prompt, steer.turn(value).additions, layer))
+
+
+def answered(model: Model, steer: Steer, value: float, stream: torch.Tensor) -> float:
+    """What the layers after a push of `value` wrote along the direction, read off the stream at the prompt's tokens.
+
+    [LAW:one-source-of-truth] the one arithmetic an answer is read with, whether the stream came from
+    a pass of its own or a row of a batched one.
+    """
     # The residual connections carry the push itself to every later layer, so the stream's own
     # projection is the knob read back - `value` times the direction's squared length, a straight
     # line whatever the model does. What the model wrote is the stream less the push, taken out
     # token by token and only then averaged, as `admit` counts it.
-    pushed = sum(model.residual_vector(addition) for addition in turned.additions)
+    pushed = sum(model.residual_vector(addition) for addition in steer.turn(value).additions)
     return steer.direction.project((stream - pushed).mean(dim=0))
 
 

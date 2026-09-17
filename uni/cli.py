@@ -156,6 +156,38 @@ def run_determinism(args: argparse.Namespace) -> int:
     return EXIT_DIVERGED if any(count != 1 for count in distinct.values()) else 0
 
 
+BATCH_SIZES = (1, 2, 4, 8, 16, 32, 64)
+
+
+def run_batch(args: argparse.Namespace) -> int:
+    """Read every push alone and at each batch size, and print how far apart the readings are and how fast each size reads."""
+    from uni.batch import Sizes, measure
+    from uni.model import Model
+    from uni.pinned import load_pinned
+    from uni.steer import Steer, read_direction
+    from uni.sweep import grid
+
+    pushes = grid(args.grid)
+    # Sizes typed are refused unless they divide the pushes; the default is each of its sizes that does.
+    sizes = Sizes.over(pushes, args.size) if args.size else Sizes.among(pushes, BATCH_SIZES)
+    prompt = template(args.template)
+    pinned = load_pinned(args.model)
+    steer = Steer(read_direction(args.knob, pinned))
+    measured = measure(Model(pinned), prompt.render(args.start), steer, pushes, args.layer, sizes)
+
+    def apart(distance: float) -> str:
+        # Zero is the same bits, and said so: 0 printed to three figures would also be a difference too small to show.
+        return "identical" if distance == 0 else f"{distance:.3g}"
+
+    largest = sizes.largest
+    print(f"{len(pushes)} pushes from {pushes[0]:g} to {pushes[-1]:g} along {steer.direction.contrast.name}, the answer read at layer {args.layer}, on {pinned.model_id} at {pinned.dtype}")
+    print(f"{'rows':>5}  {'answer from alone':>18}  {'logprob from alone':>18}  {f'answer from {largest}':>16}  {f'logprob from {largest}':>16}  {'pushes/s':>9}")
+    for one in measured.sizes:
+        print(f"{one.size:>5}  {apart(one.from_alone.answer):>18}  {apart(one.from_alone.logprob):>18}  {apart(one.from_largest.answer):>16}  {apart(one.from_largest.logprob):>16}  {one.per_second:>9.1f}")
+    print(f"read in reverse order, {largest} rows to a pass: answer {apart(measured.neighbours.answer)}, logprob {apart(measured.neighbours.logprob)}")
+    return 0
+
+
 TRAJECTORIES = Path("trajectories")  # under the directory uni runs in; the --remote sync excludes it, so the host keeps its own
 
 
@@ -996,6 +1028,14 @@ def build_parser() -> argparse.ArgumentParser:
     answer.add_argument("--out", type=Path, default=FIGURES, help=f"where to write the figure (default: {FIGURES})")
     answer.add_argument("--curves", type=Path, default=CURVES, help=f"where to write the curves, for `uni smooth` and the smooth map to read (default: {CURVES})")
     answer.set_defaults(run=run_response)
+    batch = commands.add_parser("batch", parents=[MODEL_FLAG], help="read each push alone and many rows to a forward pass, and print how far apart the readings are and how fast each batch size reads")
+    batch.add_argument("--template", required=True, help="the template the start is rendered into, named in uni/templates.toml")
+    batch.add_argument("--knob", required=True, help="the direction in uni/directions to push along")
+    batch.add_argument("--start", required=True, help="the text the prompt is made from; write --start=TEXT when it begins with '-'")
+    batch.add_argument("--grid", required=True, help="the pushes, as FROM:TO:COUNT with TO included; write --grid=FROM:TO:COUNT when FROM is negative")
+    batch.add_argument("--layer", type=whole, required=True, help="the layer to read the answer at")
+    batch.add_argument("--size", type=positive, action="append", help=f"a batch size, rows to a forward pass; repeat it for each one; each must divide the number of pushes (default: each of {' '.join(map(str, BATCH_SIZES))} that does)")
+    batch.set_defaults(run=run_batch)
     heated = commands.add_parser("temperature", parents=[MODEL_FLAG], help="read the answer to each push with the token after the prompt drawn at each temperature: its mean and spread over every token")
     heated.add_argument("--template", required=True, help="the template the start is rendered into, named in uni/templates.toml")
     heated.add_argument("--knob", required=True, help="the direction in uni/directions to push along")

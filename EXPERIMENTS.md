@@ -77,6 +77,66 @@ a long feedback loop a near-tie flips a token, and one flipped token turns an or
 into noise. That is why the wrapper generates at batch size one and has no batch
 setting.
 
+The batch the expensive commands would use is a different one: one prompt repeated, every row
+the same length with nothing padded, the rows differing only in the push added to the residual
+stream. `uni batch` reads each push alone, as every command here reads it, then again at each
+batch size. It prints the largest difference in the answer and in any token's log-probability,
+from the reading alone and from the largest batch, and how many pushes each size reads a second.
+On the run host:
+
+    uv run uni --remote batch --template rewrite --knob formality \
+        --start "The meeting moved to Thursday because the room was booked." \
+        --grid=-10:10:64 --layer 23
+
+    64 pushes from -10 to 10 along formality, the answer read at layer 23, on Qwen/Qwen2.5-0.5B-Instruct at float32
+     rows   answer from alone  logprob from alone    answer from 64   logprob from 64   pushes/s
+        1           identical           identical          5.05e-05          8.93e-05       54.2
+        2            5.05e-05             8.9e-05         identical          3.91e-05       81.7
+        4            5.05e-05             8.9e-05         identical          3.91e-05      106.9
+        8            5.05e-05             8.9e-05         identical          3.91e-05      122.5
+       16            5.05e-05            8.93e-05         identical         identical      149.9
+       32            5.05e-05            8.93e-05         identical         identical      161.8
+       64            5.05e-05            8.93e-05         identical         identical      166.8
+    read in reverse order, 64 rows to a pass: answer identical, logprob identical
+
+    uv run uni --remote batch --model smollm2-360m --template rewrite --knob formality-16 \
+        --start "The meeting moved to Thursday because the room was booked." \
+        --grid=-3:3:64 --layer 28
+
+    64 pushes from -3 to 3 along formality-16, the answer read at layer 28, on HuggingFaceTB/SmolLM2-360M-Instruct at float32
+     rows   answer from alone  logprob from alone    answer from 64   logprob from 64   pushes/s
+        1           identical           identical         identical          4.37e-05       48.7
+        2           identical           identical         identical          4.37e-05       81.7
+        4           identical           identical         identical          4.37e-05      108.8
+        8           identical           identical         identical          4.37e-05      129.4
+       16           identical            4.37e-05         identical         identical      153.5
+       32           identical            4.37e-05         identical         identical      167.2
+       64           identical            4.37e-05         identical         identical      171.2
+    read in reverse order, 64 rows to a pass: answer identical, logprob identical
+
+One row through the batched pass is the reading alone to the bit, so what the larger batches
+differ by is the pass itself, not the arithmetic around it. On both models no row depends on the
+rows beside it: the largest batch read in reverse order reads the same bits.
+
+The answer is where the two models part. SmolLM2-360M's is identical at every batch size up to 64.
+Qwen2.5-0.5B's is up to 5.05e-05 away from the reading alone at every size from 2 to 64, and every
+one of those sizes reads the same bits as 64 rows do. That is above the 1.35e-05 jitter of the
+reference curve at layer 23 (see "Past period 64" below). So a Qwen curve read in batches is not
+the committed curve with its last bits moved and still inside the noise its fits are measured
+against. It is a curve of its own, the same at any batch size from 2, and anything read off the
+committed curves would have to be read again from it.
+
+The next token's log-probabilities move on both models: by up to 8.93e-05 on Qwen from 2 rows,
+and by 4.37e-05 on SmolLM2 from 16. From 16 rows up they read the same bits as 64 rows. Below
+that they read otherwise, so a drawn token's probabilities depend on the batch size they were
+read at.
+
+A dev Mac reads the same pattern: the answer 5.05e-05 away on Qwen and identical on SmolLM2, the
+log-probabilities up to 9.02e-05 away on Qwen and 4.3e-05 on SmolLM2, at 116.7 and 137.8 pushes a
+second at 64 rows. `tests/test_batch.py` checks both models at 16 pushes and batch sizes 1, 2, 3
+and 16. One row reads the reading alone to the bit. The reversed batch reads the same bits. No
+batch moves the answer by more than 1e-4 or a log-probability by more than 2e-4.
+
 ## The loop
 
 A template turns a state into a prompt, and the model's reply is the next state. Feeding

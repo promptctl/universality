@@ -26,6 +26,15 @@ class ModelError(ConfigError):
     """The pinned model cannot run what the run asks of it. The message says what it could not do."""
 
 
+def token_logprobs(logits: torch.Tensor) -> torch.Tensor:
+    """One position's logits as the log-probability of each token in the vocabulary, in float64 on the CPU.
+
+    [LAW:one-source-of-truth] the one arithmetic the next token's log-probabilities are taken with,
+    so a reading taken from a batched pass and one taken alone differ only by what the pass wrote.
+    """
+    return torch.log_softmax(logits.cpu().double(), dim=-1)
+
+
 def stop_ids(eos_token_id: int | list[int] | None) -> frozenset[int]:
     """The checkpoint's stop tokens, which its generation_config may give as one id or several."""
     if eos_token_id is None:
@@ -164,6 +173,35 @@ class Model:
         return captured[0][0]
 
     @torch.inference_mode()
+    def prompt_residuals(self, prompt: str, rows: Sequence[Sequence[ResidualAdd]], layer: int) -> tuple[torch.Tensor, torch.Tensor]:
+        """`prompt_residual` for many settings of the additions in one forward pass, and the logits for the token after the prompt at each.
+
+        The prompt is repeated a row a setting, so every row is the same length and none is padded.
+        Two things, a row a setting in the order given: the stream leaving decoder `layer` at each of
+        the prompt's tokens, shape (rows, tokens, hidden_size), and the last position's logits,
+        shape (rows, vocabulary), in the model's dtype. Every row makes its additions at the same
+        layers in the same order, as the turns of one knob do: each layer's vectors are stacked
+        and added to the rows together.
+        """
+        ids = self.encode(prompt)
+        self.fits(ids, "the prompt's tokens")
+        layers = [addition.layer for addition in rows[0]]
+        if any([addition.layer for addition in row] != layers for row in rows):
+            raise ValueError("every row of a batched pass makes its additions at the same layers in the same order")
+        captured = []
+        with ExitStack() as hooks:
+            for index, at in enumerate(layers):
+                stacked = torch.stack([self.residual_vector(row[index]) for row in rows]).unsqueeze(1)
+                handle = self.layers[at].register_forward_hook(lambda _m, _i, hidden, v=stacked: hidden + v)
+                hooks.callback(handle.remove)
+            # Registered after the additions, so at the layer an addition is made the reading holds
+            # it, as `prompt_residual` reads it.
+            handle = self.layers[self._layer(layer)].register_forward_hook(lambda _m, _i, hidden: captured.append(hidden))
+            hooks.callback(handle.remove)
+            out = self.model(input_ids=ids.expand(len(rows), -1), logits_to_keep=1)
+        return captured[0], out.logits[:, -1]
+
+    @torch.inference_mode()
     def next_tokens(
         self, prompt: str, additions: Sequence[ResidualAdd], layer: int, candidates: Callable[[torch.Tensor], torch.Tensor], read: Callable[[torch.Tensor], torch.Tensor]
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -188,7 +226,7 @@ class Model:
             try:
                 out = self.model(input_ids=ids, use_cache=True, logits_to_keep=1)
                 stream = captured.pop()[0]
-                logprobs = torch.log_softmax(out.logits[0, -1].cpu().double(), dim=-1)
+                logprobs = token_logprobs(out.logits[0, -1])
                 # [LAW:no-silent-failure] as in generate: a collapsed pass gives nan weights, and a
                 # mean over nan weights is printed as one more number.
                 if not bool(torch.isfinite(logprobs).all()):
