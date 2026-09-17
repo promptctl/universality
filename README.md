@@ -4,8 +4,11 @@ Inside one small AI language model, this project found a feedback loop whose cyc
 the logistic map's do. Measured on the model directly, the ratio between successive gaps is 4.625,
 within 1% of Feigenbaum's 4.669. Followed deeper, on a smooth curve fitted to the model's behavior,
 it converges to 4.66920, matching his constant to five decimal places. Two other numbers the theory
-predicts showed up on that curve as well. What hasn't been shown yet is whether any of this holds
-for other models, or for the everyday loop where a chatbot keeps reworking its own answer.
+predicts showed up on that curve as well. The same three numbers came back when the steering knob, the
+loop and the model were each swapped for another: a different kind of push, a different task, and a
+second model of another family and size. What hasn't been shown yet is how far that goes beyond one
+swap of each, or whether any of it holds for the everyday loop where a chatbot keeps reworking its
+own answer.
 
 This page explains that for someone who knows chaos theory from James Gleick's *Chaos* and nothing
 about AI. The plan behind the work is in [PROJECT.md](PROJECT.md), and every command and measurement
@@ -146,5 +149,8 @@ result above and the full measurements behind it:
 - [The shrinking cycles, 2.503](EXPERIMENTS.md#alpha-the-cycles-shrink-by-the-same-factor)
 - [The noise rule, 6.619](EXPERIMENTS.md#kappa-how-much-noise-each-doubling-needs-removed)
 - [Temperature and the last doubling](EXPERIMENTS.md#temperature-how-many-doublings-a-drawn-token-lets-through)
+- [A second knob: brevity](EXPERIMENTS.md#rung-5-a-second-knob-brevity)
+- [A second loop: summarizing](EXPERIMENTS.md#rung-5-a-second-loop-summarize)
+- [A second model: SmolLM2-360M](EXPERIMENTS.md#rung-5-a-second-model-smollm2-360m)
 
 To run any of it yourself, start with [Setup](EXPERIMENTS.md#setup).
