@@ -4,8 +4,12 @@ Inside one small AI language model, this project found a feedback loop whose cyc
 the logistic map's do. Measured on the model directly, the ratio between successive gaps is 4.625,
 within 1% of Feigenbaum's 4.669. Followed deeper, on a smooth curve fitted to the model's behavior,
 it converges to 4.66920, matching his constant to five decimal places. Two other numbers the theory
-predicts showed up on that curve as well. What hasn't been shown yet is whether any of this holds
-for other models, or for the everyday loop where a chatbot keeps reworking its own answer.
+predicts showed up on that curve as well. Curves fitted the same way gave the same three numbers when
+the steering knob, the loop and the model were each swapped for another: a different kind of push,
+the same kind of loop set to summarizing instead of rewriting, and a second model of another family
+and size. What hasn't been shown yet is how far that goes beyond one
+swap of each, or whether any of it holds for the everyday loop where a chatbot keeps reworking its
+own answer.
 
 This page explains that for someone who knows chaos theory from James Gleick's *Chaos* and nothing
 about AI. The plan behind the work is in [PROJECT.md](PROJECT.md), and every command and measurement
@@ -104,8 +108,8 @@ which accounts for the difference.
   Each has now been changed once. Pushed along brevity instead of formality, the same loop has a hump
   of a different shape, and fits to it land on the same three numbers, 4.66920, 2.503 and 6.619
   ([measured here](EXPERIMENTS.md#rung-5-a-second-knob-brevity)). Four new knobs were tried, and
-  only that one was followed that far. Fits to a second loop, summarizing a different sentence
-  instead of rewriting one, land on the same three numbers too
+  only that one was followed that far. Fits to a second one-number loop, built on summarizing a
+  different sentence instead of rewriting one, land on the same three numbers too
   ([measured here](EXPERIMENTS.md#rung-5-a-second-loop-summarize)). So do fits to a second model,
   SmolLM2-360M, of another family and size, pushed halfway through its layers as the first model was
   ([measured here](EXPERIMENTS.md#rung-5-a-second-model-smollm2-360m)). One of each is not many:
@@ -146,5 +150,8 @@ result above and the full measurements behind it:
 - [The shrinking cycles, 2.503](EXPERIMENTS.md#alpha-the-cycles-shrink-by-the-same-factor)
 - [The noise rule, 6.619](EXPERIMENTS.md#kappa-how-much-noise-each-doubling-needs-removed)
 - [Temperature and the last doubling](EXPERIMENTS.md#temperature-how-many-doublings-a-drawn-token-lets-through)
+- [A second knob: brevity](EXPERIMENTS.md#rung-5-a-second-knob-brevity)
+- [A second loop: summarizing](EXPERIMENTS.md#rung-5-a-second-loop-summarize)
+- [A second model: SmolLM2-360M](EXPERIMENTS.md#rung-5-a-second-model-smollm2-360m)
 
 To run any of it yourself, start with [Setup](EXPERIMENTS.md#setup).
