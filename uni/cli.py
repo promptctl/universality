@@ -7,12 +7,14 @@ import contextlib
 import math
 import os
 import platform
+import re
 import signal
 import subprocess
 import sys
 import traceback
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from functools import partial
 from itertools import islice
 from pathlib import Path
 from typing import TYPE_CHECKING, assert_never
@@ -22,7 +24,7 @@ from dotenv import dotenv_values
 from uni.determinism import RUNS
 from uni.parse import ConfigError
 from uni.period import Contradiction, Cycle, NoCycle, Period
-from uni.remote import RemoteConfigError, remote_target_from_env, returned_dir, run_remote
+from uni.remote import RemoteConfigError, RemoteTarget, remote_target_from_env, returned_dir, run_remote
 from uni.template import Template, TemplateError, load_templates
 
 if TYPE_CHECKING:
@@ -817,6 +819,33 @@ def run_spread(args: argparse.Namespace) -> int:
     return 0
 
 
+def sweep_name(text: str) -> str:
+    """A sweep's name: the sixteen hex digits of its manifest's hash, which name its directory on both machines."""
+    if not re.fullmatch(r"[0-9a-f]{16}", text):
+        raise argparse.ArgumentTypeError(f"a sweep is named by sixteen lowercase hex digits, as `uni sweep` prints it after sweeps/; got {text!r}")
+    return text
+
+
+def run_fetch(args: argparse.Namespace) -> int:
+    """Bring one sweep's directory home from the host, adding the cells not yet here, and say how many are."""
+    from uni.remote import fetch
+    from uni.sweep import MANIFEST, described, pending, read_sweep
+
+    target, _ = args.host()
+    # Into sweeps/ where uni runs, which is where `uni sweep` and `uni plot` look for it, from the
+    # sweeps/ at the root of the host's checkout, which is where every command there runs.
+    home = SWEEPS / args.sweep
+    # Adding and never mirroring: a cell is a file written whole and named by what fixed it, so one
+    # already here is that cell, and a fetch cut short is finished by running it again, as a sweep is.
+    code = fetch(target, home, home)
+    if code:
+        return code
+    sweep = read_sweep(home / MANIFEST)
+    print(f"sweep {home}")
+    print(described(sweep, pending(sweep, home)))
+    return 0
+
+
 def run_critical(args: argparse.Namespace) -> int:
     """Print where the map at one value is highest or lowest on a grid of states: the top a cascade is read from."""
     from uni.fit import crossing, fit
@@ -943,6 +972,9 @@ def build_parser() -> argparse.ArgumentParser:
     spreading.add_argument("--value", type=finite, action="append", required=True, help="the map's parameter for each period, in order, such as the superstable values `uni cascade` found")
     spreading.add_argument("--draws", type=several, required=True, help="how many runs to draw at each value, at seeds counted up from --seed")
     spreading.set_defaults(run=run_spread)
+    fetching = commands.add_parser("fetch", help="bring a sweep run on the host home into this checkout's sweeps/, adding the cells not yet here")
+    fetching.add_argument("sweep", type=sweep_name, help="the sweep's name, the sixteen hex digits `uni sweep` prints after sweeps/")
+    fetching.set_defaults(run=run_fetch)
     critical = commands.add_parser("critical", parents=[MAP_FLAGS], help="find where a map of numbers is highest or lowest on a grid of states, at one value")
     critical.add_argument("--map", type=map_named, required=True, help=f"the map to read: {', '.join(MAPS)}; its states must be numbers")
     critical.add_argument("--value", type=finite, help="the map's parameter to read it at, as `uni loop` takes it")
@@ -994,7 +1026,8 @@ def checkout_root(cwd: Path) -> Path:
 # a name in here that no command answers to is a guard that silently stops guarding. Each name
 # carries what to do instead, which differs by what the command reads.
 HERE = {
-    "plot": "bring the sweep home first (see the README) and run it without --remote",
+    "fetch": "it runs here and reaches the host itself, so run it without --remote",
+    "plot": "bring the sweep home first with `uni fetch NAME` and run it without --remote",
     "response": "run it without --remote; the table it prints travels back, the figure and the curves it writes would not",
 }
 
@@ -1030,15 +1063,24 @@ def run(argv: Sequence[str], env: Mapping[str, str], cwd: Path) -> int:
         # answered. The sweep is the thing that travels; the picture is drawn where it is kept.
         raise ConfigError(f"{rest[0]} writes a file into this checkout, so it runs here, not on the host; {HERE[rest[0]]}")
     if not remote:
-        args = build_parser().parse_args(rest)
+        # [LAW:dataflow-not-control-flow] every command is handed how to reach the host, as a value
+        # it may call and not a branch here: a command that runs here and talks to the host, as
+        # `uni fetch` does, asks for it, and the rest never touch it.
+        args = build_parser().parse_args(rest, argparse.Namespace(host=partial(host, env, cwd)))
         return args.run(args)
     # Parsed before anything is synced or run, so a directory that could not come back is refused
     # before an hour of the host's work is spent writing into it.
     returned = (returned_dir(RETURNED[rest[0]](build_parser().parse_args(rest))),) if rest and rest[0] in RETURNED else ()
+    target, tree = host(env, cwd)
+    return run_remote(target, rest, tree, returned)
+
+
+def host(env: Mapping[str, str], cwd: Path) -> tuple[RemoteTarget, Path]:
+    """The host `--remote` runs on, and the checkout it mirrors there: resolved only by a command that reaches it."""
     tree = checkout_root(cwd)
     # The checkout's .env, under the real environment: a set variable wins over the file.
     dotenv = {k: v for k, v in dotenv_values(tree / ".env").items() if v is not None}
-    return run_remote(remote_target_from_env({**dotenv, **env}), rest, tree, returned)
+    return remote_target_from_env({**dotenv, **env}), tree
 
 
 def say(message: str) -> None:

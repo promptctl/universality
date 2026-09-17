@@ -7,10 +7,11 @@ normally a gitignored `.env` (see `.env.example`), and is parsed once here into 
 
 from __future__ import annotations
 
+import contextlib
 import re
 import shlex
 import subprocess
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -123,16 +124,39 @@ def returned_dir(directory: Path) -> Path:
     return directory
 
 
-def fetch_command(target: RemoteTarget, tree: Path, directory: Path) -> list[str]:
+def fetch_command(target: RemoteTarget, directory: Path, destination: Path) -> list[str]:
+    """Bring `directory`, named from the host's checkout root where every command there runs, into `destination` here."""
     # The files come back beside the ones already here and never over them, and nothing here is
     # deleted: what returns is named by its own content, so a name already here is those bytes.
+    # A file the host is still writing is a scratch file beside its name (uni.atomic), and fetched
+    # it would sit here for good, a half-written file no rerun replaces: it is left on the host
+    # until it is renamed into place, and the next fetch brings the whole one.
     return [
         "rsync",
         "--archive",
         "--ignore-existing",
+        "--exclude=*.partial",
         f"{target.ssh_target}:{target.dir}/{directory}/",
-        f"{tree}/{directory}/",
+        f"{destination}/",
     ]
+
+
+def fetch(target: RemoteTarget, directory: Path, destination: Path) -> int:
+    """Fetch `directory` from the host into `destination`, made here first, and return rsync's exit code.
+
+    Made here and not left to rsync: rsync before 3.2.3 makes only the last missing directory of
+    its destination, so a checkout that never held a sweeps/ would refuse the first sweep fetched into it.
+    And unmade when nothing came: an empty directory left by a fetch of a name the host does not
+    have would read afterwards as a sweep whose manifest cannot be read, rather than as no sweep.
+    """
+    made = [path for path in (destination, *destination.parents) if not path.exists()]
+    destination.mkdir(parents=True, exist_ok=True)
+    code = run_steps((fetch_command(target, directory, destination),))
+    if code:
+        for path in made:  # deepest first, and only while empty: whatever did arrive stays
+            with contextlib.suppress(OSError):
+                path.rmdir()
+    return code
 
 
 def run_remote(target: RemoteTarget, argv: Sequence[str], tree: Path, returned: Sequence[Path] = ()) -> int:
@@ -141,7 +165,15 @@ def run_remote(target: RemoteTarget, argv: Sequence[str], tree: Path, returned: 
     Returns the exit code of the first step that fails, else the remote command's. A command that
     failed brings nothing back.
     """
-    for command in (sync_command(target, tree), run_command(target, argv), *(fetch_command(target, tree, directory) for directory in returned)):
+    code = run_steps((sync_command(target, tree), run_command(target, argv)))
+    for directory in returned:
+        code = code or fetch(target, directory, tree / directory)
+    return code
+
+
+def run_steps(commands: Iterable[Sequence[str]]) -> int:
+    """Run each command in turn, and return the exit code of the first that fails, else 0."""
+    for command in commands:
         # [LAW:no-silent-failure] ssh and rsync speak for themselves on stderr; stop at the first miss.
         returncode = subprocess.run(command).returncode
         # A step killed by a signal - rsync or ssh on a Ctrl-C, say - comes back as minus the

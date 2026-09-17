@@ -362,8 +362,7 @@ coefficient.
 
     uv run uni sweep --remote --map model --template rewrite --knob formality \
         --grid=-6:6:25 --start "The meeting moved to Thursday because the room was booked." --steps 30
-    rsync --archive "$UNI_REMOTE_USER@$UNI_REMOTE_HOST:$UNI_REMOTE_DIR/sweeps/37e340c190aad178/" \
-        sweeps/37e340c190aad178/
+    uv run uni fetch 37e340c190aad178
     uv run uni plot sweeps/37e340c190aad178 --observable along:formality --burn-in 10
 
 The middle line is not decoration. The sweep ran on the host and its cells stay there - `sweeps/`
@@ -373,8 +372,13 @@ is an output this repo commits, and drawing one on the host puts it where no com
 it, which is also why `figures/` is excluded from the sync rather than deleted by it. `uni plot
 --remote` is refused for the same reason rather than left to draw somewhere unreachable and exit
 0 - it is the one command that says where its answer lands. The sweep's name is the same on both
-machines, because it is the hash of what the sweep is. There is no `uni fetch` doing the middle
-line for you yet; it is filed as `universality-remote-lhh`.
+machines, because it is the hash of what the sweep is.
+
+`uni fetch NAME` runs here and reaches the host itself, so it takes no `--remote`. It copies the
+sweep's directory from the host into `sweeps/NAME/`, adding the cells not here and leaving the
+ones that are, and then says how much of the sweep is here, as `uni sweep --status` does. A cell is
+a file written whole and named by what fixed it, so a fetch cut short is finished by running it
+again, and one run while the sweep is still going on the host brings home what it has so far.
 
 **Only the middle of that grid is a map.** The sweep exits `79`, with 10 of its 25 cells written:
 every coefficient from -2.5 to 2.0. At -3.0 and below, and at 2.5 and above, the model's reply to
